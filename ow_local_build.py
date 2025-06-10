@@ -133,9 +133,6 @@ def choose_repos(mapping: Dict[str, str]) -> List[str]:
         print(f"Selected: \"{repo}\"")
         picked.append(repo)
 
-    # if not picked:
-    #    print("No repos selected – nothing to do.")
-    #    sys.exit(0)
     return picked
 
 
@@ -154,11 +151,12 @@ def sync_code(repo_folder_rel_path: str) -> None:
         # "--delete", # IMPORTANT: If you want to remove files in destination that are not in source
         "--exclude=.git/",
         "--exclude=.vscode/",
-        str(src) + "/", # Source with trailing slash to copy contents, not the folder itself
+        str(src) + "/",  # Source with trailing slash to copy contents, not the folder itself
         str(dst)        # Destination without trailing slash
     ]
 
     run(rsync_command)
+
 
 def show_changes(repo_name: str, rel_path: str) -> bool:
     repo_path = BUILD_FOLDER / rel_path

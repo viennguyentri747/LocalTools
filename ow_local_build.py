@@ -17,6 +17,7 @@ main()
 """
 
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -27,7 +28,8 @@ from typing import Dict, List, Optional, Union
 OW_PATH = Path.home() / "ow_sw_tools"
 BUILD_FOLDER = OW_PATH / "tmp_build"
 CORE_REPOS = Path.home() / "workspace" / "intellian_core_repos"
-MANIFEST_RELATIVE_PATH = "tools/manifests/iesa_manifest_gitlab.xml"
+MANIFEST_FILE_NAME = "iesa_manifest_gitlab.xml"
+MANIFEST_RELATIVE_PATH = f"tools/manifests/{MANIFEST_FILE_NAME}"
 MANIFEST_FILE = OW_PATH / MANIFEST_RELATIVE_PATH
 
 # ─────────────────────────────  top-level  ───────────────────────────── #
@@ -43,9 +45,9 @@ def main() -> None:
         )
     )
 
-    branch: str = prompt_branch()
     reset_or_create_tmp_build()
     manifest_repo_url = get_manifest_repo_url()
+    branch: str = prompt_branch()
     init_and_sync(manifest_repo_url, branch)
 
     path_mapping: Dict[str, str] = parse_manifest()  # {repo → relative path from build folder}
@@ -79,18 +81,33 @@ def prompt_branch() -> str:
 
 
 def reset_or_create_tmp_build() -> None:
+    repo_dir = BUILD_FOLDER / '.repo'
+    manifest_file = repo_dir / 'manifest.xml' # .repo/manifest.xml stored the manifest you get from the repo
+ 
     if BUILD_FOLDER.exists():
-        print(f"\nFound existing {BUILD_FOLDER}. -> Cleaning...")
-        run(
-            "repo forall -c 'git reset --hard' && repo forall -c 'git clean -fdx'",
-            cwd=BUILD_FOLDER,
-        )
+        # Check if it's a valid repo: both .repo folder AND manifest.xml must exist
+        if repo_dir.is_dir() and manifest_file.is_file():
+            print(f"Reseting existing repo in {BUILD_FOLDER}...")
+            try:
+                run("repo forall -c 'git reset --hard' && repo forall -c 'git clean -fdx'", cwd=BUILD_FOLDER)
+            except subprocess.CalledProcessError:
+                # If 'repo forall' fails (e.g., due to a broken manifest, launcher issues, etc.)
+                # Treat it as a broken repo and clear it.
+                print(f"Warning: 'repo forall' failed in {BUILD_FOLDER}. Assuming broken repo and clearing...")
+                run("sudo rm -rf " + str(BUILD_FOLDER))
+                BUILD_FOLDER.mkdir(parents=True)
+        else:
+            # If BUILD_FOLDER exists, but it's not a fully functional repo (missing .repo or manifest)
+            print(f"\nClearing broken or non-repo folder {BUILD_FOLDER} (missing .repo or manifest.xml)...")
+            run("sudo rm -rf " + str(BUILD_FOLDER))
+            BUILD_FOLDER.mkdir(parents=True)
     else:
+        # If the folder doesn't exist at all, create it
         BUILD_FOLDER.mkdir(parents=True)
 
 
 def init_and_sync(manifest_repo_url: str, branch: str) -> None:
-    run(f"repo init {manifest_repo_url} -b {branch} -m {MANIFEST_RELATIVE_PATH}",cwd=BUILD_FOLDER,)
+    run(f"repo init {manifest_repo_url} -b {branch} -m {MANIFEST_RELATIVE_PATH}", cwd=BUILD_FOLDER,)
     run("repo sync", cwd=BUILD_FOLDER)
 
 
@@ -177,11 +194,13 @@ def show_changes(repo_name: str, rel_path: str) -> bool:
 def confirm_build() -> bool:
     return input("\nProceed with docker build (make arm)? [y/N]: ").lower() == "y"
 
+
 def get_manifest_repo_url() -> str:
-    if(input("Use remote url instead local? [y/N]: ").lower() == "y"):
+    if (input("Use remote url instead local? [y/N]: ").lower() == "y"):
         return "https://gitlab.com/intellian_adc/oneweb_project_sw_tools"
     else:
         return f"file://{OW_PATH}"
+
 
 def run_build() -> None:
     run(

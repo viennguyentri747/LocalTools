@@ -109,15 +109,6 @@ def init_and_sync(manifest_repo_url: str, branch: str) -> None:
     # TODO: BUG - seem like repo init still use wrong manifest.xml in case of local file://
     run(f"repo init {manifest_repo_url} -b {branch} -m {MANIFEST_RELATIVE_PATH}", cwd=BUILD_FOLDER,)
 
-    # Get manifest repository info
-    print("\n--- Manifest Repository Info ---")
-    try:
-        run("git remote -v", cwd=os.path.join(BUILD_FOLDER, ".repo", "manifests"))
-        run("git branch --show-current", cwd=os.path.join(BUILD_FOLDER, ".repo", "manifests"))
-    except Exception as e:
-        print(f"Error getting manifest repo info: {e}")
-    print("--- End Manifest Repository Info ---\n")
-
     # Construct the full path to the manifest file
     manifest_full_path = os.path.join(BUILD_FOLDER, ".repo", "manifests", MANIFEST_RELATIVE_PATH)
     # Check if the manifest file exists before trying to read it

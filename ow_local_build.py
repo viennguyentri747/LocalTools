@@ -46,7 +46,7 @@ def main() -> None:
     parser.add_argument("-b", "--ow_branch", type=str,
                         help="Branch of oneweb_project_sw_tools for manifest. Ex: 'manpack_master'")
     parser.add_argument("--tisdk_branch", type=str, required=True, help="TISDK branch for BSP. Ex: 'manpack_master'")
-
+    parser.add_argument("-i", "--interactive", action="store_true", default=False, help="Run in interactive mode.")
     args = parser.parse_args()
     print(
         textwrap.dedent(
@@ -62,10 +62,10 @@ def main() -> None:
 
 
 # ───────────────────────────  helpers / actions  ─────────────────────── #
-def run(cmd: Union[str, List[str]], cwd: Optional[Path] = None, check: bool = True) -> None:
-    """Run a shell command, echoing it."""
+def run_shell(cmd: str, cwd: Optional[Path] = None, check: bool = True) -> None:
+    """Echo + run a shell command"""
     print(f"\n>>> {cmd} (cwd={cwd or Path.cwd()})")
-    subprocess.run(cmd, shell=isinstance(cmd, str), cwd=cwd, check=check)
+    subprocess.run(cmd, shell=True, cwd=cwd, check=check)
 
 
 def prompt_branch() -> str:
@@ -95,7 +95,7 @@ def pre_build(build_type: str, manifest_source: str, ow_branch: str, tisdk_branc
         prepare_iesa_bsp(BSP_ARTIFACT_DIR, tisdk_branch)
 
 
-def run_build(build_type: str) -> None:
+def run_build(build_type: str, interactive: bool = False) -> None:
     if build_type == BUILD_TYPE_BINARY:
         make_target = "arm"
     elif build_type == BUILD_TYPE_IESA:
@@ -103,10 +103,17 @@ def run_build(build_type: str) -> None:
     else:
         raise ValueError(f"Unknown build type: {build_type}, expected {BUILD_TYPE_BINARY} or {BUILD_TYPE_IESA}")
 
-    run(
-        f"docker run -it --rm -v {OW_SW_PATH}:{OW_SW_PATH} -w {OW_SW_PATH} "
-        f"oneweb_sw bash -c 'make {make_target}'"
+    docker_cmd = (
+        f"docker run -it --rm -v {OW_SW_PATH}:{OW_SW_PATH} -w {OW_SW_PATH} oneweb_sw "
     )
+
+    if interactive:
+        print(f"Entering interactive Docker shell. Run `make {make_target}` to start building.")
+        final_cmd = docker_cmd + "bash"
+    else:
+        final_cmd = docker_cmd + f"bash -c 'make {make_target}'"
+
+    run_shell(final_cmd)
 
 
 def reset_or_create_tmp_build() -> None:
@@ -118,17 +125,17 @@ def reset_or_create_tmp_build() -> None:
         if repo_dir.is_dir() and manifest_file.is_file():
             print(f"Reseting existing repo in {BUILD_FOLDER_PATH}...")
             try:
-                run("repo forall -c 'git reset --hard' && repo forall -c 'git clean -fdx'", cwd=BUILD_FOLDER_PATH)
+                run_shell("repo forall -c 'git reset --hard' && repo forall -c 'git clean -fdx'", cwd=BUILD_FOLDER_PATH)
             except subprocess.CalledProcessError:
                 # If 'repo forall' fails (e.g., due to a broken manifest, launcher issues, etc.)
                 # Treat it as a broken repo and clear it.
                 print(f"Warning: 'repo forall' failed in {BUILD_FOLDER_PATH}. Assuming broken repo and clearing...")
-                run("sudo rm -rf " + str(BUILD_FOLDER_PATH))
+                run_shell("sudo rm -rf " + str(BUILD_FOLDER_PATH))
                 BUILD_FOLDER_PATH.mkdir(parents=True)
         else:
             # If BUILD_FOLDER exists, but it's not a fully functional repo (missing .repo or manifest)
             print(f"\nClearing broken or non-repo folder {BUILD_FOLDER_PATH} (missing .repo or manifest.xml)...")
-            run("sudo rm -rf " + str(BUILD_FOLDER_PATH))
+            run_shell("sudo rm -rf " + str(BUILD_FOLDER_PATH))
             BUILD_FOLDER_PATH.mkdir(parents=True)
     else:
         # If the folder doesn't exist at all, create it
@@ -136,7 +143,8 @@ def reset_or_create_tmp_build() -> None:
 
 
 def init_and_sync(manifest_repo_url: str, manifest_repo_branch: str) -> None:
-    run(f"repo init {manifest_repo_url} -b {manifest_repo_branch} -m {MANIFEST_RELATIVE_PATH}", cwd=BUILD_FOLDER_PATH,)
+    run_shell(f"repo init {manifest_repo_url} -b {manifest_repo_branch} -m {MANIFEST_RELATIVE_PATH}",
+              cwd=BUILD_FOLDER_PATH,)
 
     # Construct the full path to the manifest file
     manifest_full_path = os.path.join(BUILD_FOLDER_PATH, ".repo", "manifests", MANIFEST_RELATIVE_PATH)
@@ -155,7 +163,7 @@ def init_and_sync(manifest_repo_url: str, manifest_repo_branch: str) -> None:
             f"Manifest file not found at: {manifest_full_path}. This might happen if {MANIFEST_FILE_NAME} was not found in the manifest repository.")
     print("\n")
 
-    run("repo sync", cwd=BUILD_FOLDER_PATH)
+    run_shell("repo sync", cwd=BUILD_FOLDER_PATH)
 
 
 def parse_local_manifest(manifest_file: Path = MANIFEST_FILE_PATH) -> Dict[str, str]:
@@ -216,7 +224,7 @@ def sync_code(repo_folder_rel_path: str) -> None:
         str(dst)        # Destination without trailing slash
     ]
 
-    run(rsync_command)
+    run_shell(rsync_command)
 
 
 def show_changes(repo_name: str, rel_path: str) -> bool:
@@ -288,9 +296,9 @@ def prepare_iesa_bsp(artifacts_dir: str, tisdk_branch: str):
                 bsp_path = path
         if bsp_path:
             print(f"Final BSP: {bsp_path}. md5sum: {get_file_md5sum(bsp_path)}")
-            #  TODO: ln -sf $BSP_FILE bsp_current.tar.xz
+            print(f"Creating symbolic link {BSP_SYMLINK_PATH_FOR_BUILD} -> {bsp_path}")
+            subprocess.run(["ln", "-sf", bsp_path, BSP_SYMLINK_PATH_FOR_BUILD])
             subprocess.run(["ls", "-la", BSP_SYMLINK_PATH_FOR_BUILD])
-            # subprocess.run(["ln", "-sf", bsp_path, BSP_SYMLINK_PATH_FOR_BUILD])
 
 
 # ───────────────────────  module entry-point  ────────────────────────── #

@@ -9,21 +9,30 @@ OneWeb SW-Tools interactive local build helper (top-down, manifest-aware).
 import os
 from pathlib import Path
 import shutil
-import signal
 import subprocess
 import sys
 import textwrap
 import xml.etree.ElementTree as ET
 from typing import Dict, List, Optional, Union
 import argparse
+from gitlab_helper import get_latest_successful_pipeline_id, download_job_artifacts, get_gl_project, read_token_from_file
+from utils import get_file_md5sum
 
 # ─────────────────────────────  constants  ───────────────────────────── #
-OW_PATH = Path.home() / "ow_sw_tools"
-BUILD_FOLDER = OW_PATH / "tmp_build"
-CORE_REPOS = Path.home() / "workspace" / "intellian_core_repos"
+BUILD_TYPE_IESA = "iesa"
+BUILD_TYPE_BINARY = "binary"
+CORE_REPOS_PATH = Path.home() / "workspace" / "intellian_core_repos"
+OW_SW_PATH = Path.home() / "ow_sw_tools"
+# OW_SW_PATH = CORE_REPOS_PATH / "ow_sw_tools"
+BUILD_FOLDER_PATH = OW_SW_PATH / "tmp_build"
+SCRIPT_FOLDER_PATH = OW_SW_PATH / "v_test_folder" / "LocalBuild"
+CREDENTIAL_FILE_PATH = SCRIPT_FOLDER_PATH / ".gitlab_credentials"
 MANIFEST_FILE_NAME = "iesa_manifest_gitlab.xml"
 MANIFEST_RELATIVE_PATH = f"tools/manifests/{MANIFEST_FILE_NAME}"
-MANIFEST_FILE = OW_PATH / MANIFEST_RELATIVE_PATH
+MANIFEST_FILE_PATH = OW_SW_PATH / MANIFEST_RELATIVE_PATH
+BSP_ARTIFACT_DIR = SCRIPT_FOLDER_PATH / "bsp_artifacts"
+BSP_ARTIFACT_PREFIX = "bsp-iesa-"
+BSP_SYMLINK_PATH_FOR_BUILD = OW_SW_PATH / "packaging" / "bsp_current" / "bsp_current.tar.xz"
 
 # ─────────────────────────────  top-level  ───────────────────────────── #
 
@@ -32,10 +41,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="OneWeb SW-Tools local build helper.")
     parser.add_argument("--manifest_source", choices=["local", "remote"], default="local",
                         help="Source for the manifest repository URL (local or remote). Defaults to local.")
-    parser.add_argument("--make_target", type=str, default="arm",
-                        help="The make target to run in the docker container. Defaults to 'arm'.")
-    parser.add_argument("-b", "--branch", type=str, default="master",
-                        help="Branch of oneweb_project_sw_tools for manifest. Defaults to 'master'.")
+    parser.add_argument("--build_type", choices=[BUILD_TYPE_BINARY, BUILD_TYPE_IESA], type=str, default=BUILD_TYPE_BINARY,
+                        help="Build type (binary or iesa). Defaults to binary.")
+    parser.add_argument("-b", "--ow_branch", type=str,
+                        help="Branch of oneweb_project_sw_tools for manifest. Ex: 'manpack_master'")
+    parser.add_argument("--tisdk_branch", type=str, required=True, help="TISDK branch for BSP. Ex: 'manpack_master'")
 
     args = parser.parse_args()
     print(
@@ -46,24 +56,9 @@ def main() -> None:
             -------------------------------"""
         )
     )
-
-    reset_or_create_tmp_build()
-    manifest_repo_url = get_manifest_repo_url(args.manifest_source)
-    init_and_sync(manifest_repo_url, args.branch)
-
-    # {repo → relative path from build folder}, use local as they should be the same
-    path_mapping: Dict[str, str] = parse_local_manifest()
-    repo_names: List[str] = choose_repos(path_mapping)
-
-    if repo_names:
-        for repo in repo_names:
-            sync_code(path_mapping[repo])
-
-        changed_any: bool = any(show_changes(r, path_mapping[r]) for r in repo_names)
-        if not changed_any:
-            print("\nNo files changed in selected repos.")
-
-    run_build(args.make_target)
+    build_type: str = args.build_type
+    pre_build(build_type, args.manifest_source, args.ow_branch, args.tisdk_branch)
+    run_build(build_type)
 
 
 # ───────────────────────────  helpers / actions  ─────────────────────── #
@@ -79,39 +74,74 @@ def prompt_branch() -> str:
     return branch or default
 
 
+def pre_build(build_type: str, manifest_source: str, ow_branch: str, tisdk_branch: str) -> None:
+    reset_or_create_tmp_build()
+    manifest_repo_url = get_manifest_repo_url(manifest_source)
+    init_and_sync(manifest_repo_url, ow_branch)
+
+    # {repo → relative path from build folder}, use local as they should be the same
+    path_mapping: Dict[str, str] = parse_local_manifest()
+    repo_names: List[str] = choose_repos(path_mapping)
+    # Copy local code to overwrite code from remote before build
+    if repo_names:
+        for repo in repo_names:
+            sync_code(path_mapping[repo])
+
+        changed_any: bool = any(show_changes(r, path_mapping[r]) for r in repo_names)
+        if not changed_any:
+            print("\nNo files changed in selected repos.")
+
+    if build_type == BUILD_TYPE_IESA:
+        prepare_iesa_bsp(BSP_ARTIFACT_DIR, tisdk_branch)
+
+
+def run_build(build_type: str) -> None:
+    if build_type == BUILD_TYPE_BINARY:
+        make_target = "arm"
+    elif build_type == BUILD_TYPE_IESA:
+        make_target = "package"
+    else:
+        raise ValueError(f"Unknown build type: {build_type}, expected {BUILD_TYPE_BINARY} or {BUILD_TYPE_IESA}")
+
+    run(
+        f"docker run -it --rm -v {OW_SW_PATH}:{OW_SW_PATH} -w {OW_SW_PATH} "
+        f"oneweb_sw bash -c 'make {make_target}'"
+    )
+
+
 def reset_or_create_tmp_build() -> None:
-    repo_dir = BUILD_FOLDER / '.repo'
+    repo_dir = BUILD_FOLDER_PATH / '.repo'
     manifest_file = repo_dir / 'manifest.xml'  # .repo/manifest.xml stored the manifest you get from the repo
 
-    if BUILD_FOLDER.exists():
+    if BUILD_FOLDER_PATH.exists():
         # Check if it's a valid repo: both .repo folder AND manifest.xml must exist
         if repo_dir.is_dir() and manifest_file.is_file():
-            print(f"Reseting existing repo in {BUILD_FOLDER}...")
+            print(f"Reseting existing repo in {BUILD_FOLDER_PATH}...")
             try:
-                run("repo forall -c 'git reset --hard' && repo forall -c 'git clean -fdx'", cwd=BUILD_FOLDER)
+                run("repo forall -c 'git reset --hard' && repo forall -c 'git clean -fdx'", cwd=BUILD_FOLDER_PATH)
             except subprocess.CalledProcessError:
                 # If 'repo forall' fails (e.g., due to a broken manifest, launcher issues, etc.)
                 # Treat it as a broken repo and clear it.
-                print(f"Warning: 'repo forall' failed in {BUILD_FOLDER}. Assuming broken repo and clearing...")
-                run("sudo rm -rf " + str(BUILD_FOLDER))
-                BUILD_FOLDER.mkdir(parents=True)
+                print(f"Warning: 'repo forall' failed in {BUILD_FOLDER_PATH}. Assuming broken repo and clearing...")
+                run("sudo rm -rf " + str(BUILD_FOLDER_PATH))
+                BUILD_FOLDER_PATH.mkdir(parents=True)
         else:
             # If BUILD_FOLDER exists, but it's not a fully functional repo (missing .repo or manifest)
-            print(f"\nClearing broken or non-repo folder {BUILD_FOLDER} (missing .repo or manifest.xml)...")
-            run("sudo rm -rf " + str(BUILD_FOLDER))
-            BUILD_FOLDER.mkdir(parents=True)
+            print(f"\nClearing broken or non-repo folder {BUILD_FOLDER_PATH} (missing .repo or manifest.xml)...")
+            run("sudo rm -rf " + str(BUILD_FOLDER_PATH))
+            BUILD_FOLDER_PATH.mkdir(parents=True)
     else:
         # If the folder doesn't exist at all, create it
-        BUILD_FOLDER.mkdir(parents=True)
+        BUILD_FOLDER_PATH.mkdir(parents=True)
 
 
-def init_and_sync(manifest_repo_url: str, branch: str) -> None:
-    # TODO: BUG - seem like repo init still use wrong manifest.xml in case of local file://
-    run(f"repo init {manifest_repo_url} -b {branch} -m {MANIFEST_RELATIVE_PATH}", cwd=BUILD_FOLDER,)
+def init_and_sync(manifest_repo_url: str, manifest_repo_branch: str) -> None:
+    run(f"repo init {manifest_repo_url} -b {manifest_repo_branch} -m {MANIFEST_RELATIVE_PATH}", cwd=BUILD_FOLDER_PATH,)
 
     # Construct the full path to the manifest file
-    manifest_full_path = os.path.join(BUILD_FOLDER, ".repo", "manifests", MANIFEST_RELATIVE_PATH)
+    manifest_full_path = os.path.join(BUILD_FOLDER_PATH, ".repo", "manifests", MANIFEST_RELATIVE_PATH)
     # Check if the manifest file exists before trying to read it
+    print("\n--------------------- MANIFEST ---------------------")
     if os.path.exists(manifest_full_path):
         print(f"--- Manifest Content ({manifest_full_path}) ---")
         try:
@@ -123,11 +153,12 @@ def init_and_sync(manifest_repo_url: str, branch: str) -> None:
     else:
         print(
             f"Manifest file not found at: {manifest_full_path}. This might happen if {MANIFEST_FILE_NAME} was not found in the manifest repository.")
+    print("\n")
 
-    run("repo sync", cwd=BUILD_FOLDER)
+    run("repo sync", cwd=BUILD_FOLDER_PATH)
 
 
-def parse_local_manifest(manifest_file: Path = MANIFEST_FILE) -> Dict[str, str]:
+def parse_local_manifest(manifest_file: Path = MANIFEST_FILE_PATH) -> Dict[str, str]:
     """Return {project-name → path} from the manifest XML."""
     if not manifest_file.is_file():
         print(f"ERROR: manifest not found at {manifest_file}", file=sys.stderr)
@@ -154,7 +185,7 @@ def choose_repos(mapping: Dict[str, str]) -> List[str]:
 
     picked: List[str] = []
     while True:
-        repo = input(f"[Optional] Repo name to copy from local in {CORE_REPOS} (enter blank to stop): ").strip()
+        repo = input(f"[Optional] Repo name to copy from local in {CORE_REPOS_PATH} (enter blank to stop): ").strip()
         if not repo:
             break
         if repo not in mapping:
@@ -168,8 +199,8 @@ def choose_repos(mapping: Dict[str, str]) -> List[str]:
 
 def sync_code(repo_folder_rel_path: str) -> None:
     repo_folder_name = Path(repo_folder_rel_path).name
-    src = CORE_REPOS / repo_folder_name
-    dst = BUILD_FOLDER / repo_folder_rel_path
+    src = CORE_REPOS_PATH / repo_folder_name
+    dst = BUILD_FOLDER_PATH / repo_folder_rel_path
     if not src.is_dir() or not dst.is_dir():
         print(f"ERROR: Source or destination not found at {src} or {dst}", file=sys.stderr)
         sys.exit(1)
@@ -189,7 +220,7 @@ def sync_code(repo_folder_rel_path: str) -> None:
 
 
 def show_changes(repo_name: str, rel_path: str) -> bool:
-    repo_path = BUILD_FOLDER / rel_path
+    repo_path = BUILD_FOLDER_PATH / rel_path
     res = subprocess.run(
         ["git", "status", "--porcelain"],
         cwd=repo_path,
@@ -207,22 +238,59 @@ def show_changes(repo_name: str, rel_path: str) -> bool:
     return bool(changes)
 
 
-def confirm_build() -> bool:
-    return input("\nProceed with docker build (make arm)? [y/N]: ").lower() == "y"
-
-
 def get_manifest_repo_url(source: str) -> str:
     if source == "remote":
         return "https://gitlab.com/intellian_adc/oneweb_project_sw_tools"
-    else:  # source == "local"
-        return f"file://{OW_PATH}"
+    elif source == "local":
+        return f"file://{OW_SW_PATH}"
+    else:
+        raise ValueError(f"Unknown source: {source}, expected 'remote' or 'local'")
 
 
-def run_build(make_target: str) -> None:
-    run(
-        f"docker run -it --rm -v {OW_PATH}:{OW_PATH} -w {OW_PATH} "
-        f"oneweb_sw bash -c 'make {make_target}'"
-    )
+def prepare_iesa_bsp(artifacts_dir: str, tisdk_branch: str):
+    # Logic to read token from file if not in env
+    private_token = read_token_from_file(CREDENTIAL_FILE_PATH, 'GITLAB_PRIVATE_TOKEN')
+    if not private_token:
+        print("Error: GitLab private token not found in credentials file.")
+        sys.exit(1)
+
+    # Details of the target project and job
+    target_project_path = "intellian_adc/tisdk_tools"
+    target_job_name = "sdk_create_tarball_release"
+    target_ref = tisdk_branch
+
+    # Get the target project using the new function
+    target_project = get_gl_project(private_token, target_project_path)
+
+    # For robust fetching of branch names, consider get_all=True here too if you're not sure the default is sufficient.
+    print(f"Target project: {target_project_path}, instance: {target_project.branches.list(get_all=True)[0].name}")
+
+    pipeline_id = get_latest_successful_pipeline_id(target_project, target_job_name, target_ref)
+    if not pipeline_id:
+        print(f"No successful pipeline found for job '{target_job_name}' on ref '{target_ref}'.")
+        sys.exit(1)
+
+    # Clean artifacts directory contents
+    if os.path.exists(artifacts_dir):
+        print(f"Cleaning artifacts directory: {artifacts_dir}")
+        shutil.rmtree(artifacts_dir)
+
+    paths: List[str] = download_job_artifacts(target_project, artifacts_dir, pipeline_id, target_job_name)
+    if paths:
+        bsp_path = None
+        print(f"Artifacts extracted to: {artifacts_dir}")
+        for path in paths:
+            print(f"  {path}")
+            file_name = os.path.basename(path)
+            if file_name.startswith(BSP_ARTIFACT_PREFIX):
+                if bsp_path:
+                    print(f"Overwriting previous BSP path {bsp_path} with {path}")
+                bsp_path = path
+        if bsp_path:
+            print(f"Final BSP: {bsp_path}. md5sum: {get_file_md5sum(bsp_path)}")
+            #  TODO: ln -sf $BSP_FILE bsp_current.tar.xz
+            subprocess.run(["ls", "-la", BSP_SYMLINK_PATH_FOR_BUILD])
+            # subprocess.run(["ln", "-sf", bsp_path, BSP_SYMLINK_PATH_FOR_BUILD])
 
 
 # ───────────────────────  module entry-point  ────────────────────────── #

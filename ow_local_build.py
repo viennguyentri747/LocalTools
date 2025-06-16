@@ -293,7 +293,6 @@ def prepare_iesa_bsp(artifacts_dir: str, tisdk_branch: str):
             # subprocess.run(["ln", "-sf", bsp_path, BSP_SYMLINK_PATH_FOR_BUILD])
 
 
-
 # ───────────────────────  module entry-point  ────────────────────────── #
 if __name__ == "__main__":
     try:

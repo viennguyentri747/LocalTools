@@ -15,7 +15,7 @@ pip install python-gitlab
 # HOW TO
 - Run
 ```
-python ~/ow_sw_tools/v_test_folder/LocalBuild/ow_local_build.py --manifest_source local --build_type binary --ow_manifest_branch manpack_master --tisdk_branch manpack_master --overwrite_local true --overwrite_repos adc_lib insensesdk --interactive true
+python ~/ow_sw_tools/v_test_folder/LocalBuild/main_ow_local_build.py --manifest_source local --build_type binary --ow_manifest_branch manpack_master --tisdk_branch manpack_master --overwrite_local true --overwrite_repos adc_lib insensesdk --interactive true
 ```
 
 ...

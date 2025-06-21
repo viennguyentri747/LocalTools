@@ -1,4 +1,3 @@
-import subprocess
 import time
 import gitlab
 import os

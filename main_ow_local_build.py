@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 from typing import Dict, List, Optional, Union
 import argparse
 from gitlab_helper import get_latest_successful_pipeline_id, download_job_artifacts, get_gl_project, read_token_from_file
-from utils import get_file_md5sum, LOG, is_diff_ignore_eol
+from utils import get_file_md5sum, LOG, is_diff_ignore_eol, run_shell
 from constants import GL_TISDK_TOKEN_KEY_NAME, LINE_SEPARATOR
 
 # ─────────────────────────────  constants  ───────────────────────────── #
@@ -61,12 +61,6 @@ def main() -> None:
 
 
 # ───────────────────────────  helpers / actions  ─────────────────────── #
-def run_shell(cmd: str, cwd: Optional[Path] = None, check_exit_code: bool = True) -> None:
-    """Echo + run a shell command"""
-    LOG(f"\n>>> {cmd} (cwd={cwd or Path.cwd()})")
-    subprocess.run(cmd, shell=True, cwd=cwd, check=check_exit_code)
-
-
 def prompt_branch() -> str:
     default = "master"
     branch = input(f"Branch of oneweb_project_sw_tools for manifest, default = {default}: ").strip()

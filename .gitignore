@@ -1,1 +1,5 @@
 .gitlab_credentials
+MyVenvFolder/
+__pycache__/
+artifacts/
+bsp_artifacts/

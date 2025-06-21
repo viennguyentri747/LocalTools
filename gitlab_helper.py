@@ -7,6 +7,7 @@ import zipfile  # Needed for extracting artifacts
 from gitlab.v4.objects import *
 from gitlab import *
 from typing import Union
+from constants import GL_TISDK_TOKEN_KEY_NAME
 
 
 def main():
@@ -14,7 +15,7 @@ def main():
     credentials_file = os.path.join(os.path.dirname(__file__), '.gitlab_credentials')
 
     # Logic to read token from file if not in env
-    private_token = read_token_from_file(credentials_file, 'GITLAB_PRIVATE_TOKEN')
+    private_token = read_token_from_file(credentials_file, GL_TISDK_TOKEN_KEY_NAME)
     if not private_token:
         print("Error: GitLab private token not found in credentials file.")
         sys.exit(1)

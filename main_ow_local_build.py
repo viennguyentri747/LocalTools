@@ -40,12 +40,14 @@ def main() -> None:
                         help="Source for the manifest repository URL (local or remote). Defaults to local.")
     parser.add_argument("--build_type", choices=[BUILD_TYPE_BINARY, BUILD_TYPE_IESA], type=str, default=BUILD_TYPE_BINARY,
                         help="Build type (binary or iesa). Defaults to binary.")
-    parser.add_argument("-b", "--ow_manifest_branch", type=str,
-                        help="Branch of oneweb_project_sw_tools for manifest. Ex: 'manpack_master'")
-    parser.add_argument("--tisdk_branch", type=str, required=True, help="TISDK branch for BSP. Ex: 'manpack_master'")
-    parser.add_argument("--overwrite_local", type=lambda x: x.lower() == 'true', default=False, help="Enable overwriting local repositories (true or false). Defaults to false.")
-    parser.add_argument("--overwrite_repos", nargs='*', default=[], help="List of repository names to overwrite from local. If empty and --overwrite_local is true, prompts user.")
-    parser.add_argument("-i", "--interactive", type=lambda x: x.lower() == 'true', default=False, help="Run in interactive mode (true or false). Defaults to false.")
+    parser.add_argument("-b", "--ow_manifest_ref", type=str, required=True, help="Ref of oneweb_project_sw_tools for manifest. Ex: 'manpack_master'")
+    parser.add_argument("--tisdk_ref", type=str, required=True, help="TISDK Ref for BSP (for creating .iesa). Ex: 'manpack_master'")
+    parser.add_argument("--overwrite_local", type=lambda x: x.lower() == 'true', default=False,
+                        help="Enable overwriting local repositories (true or false). Defaults to false.")
+    parser.add_argument("--overwrite_repos", nargs='*', default=[],
+                        help="List of repository names to overwrite from local. If empty and --overwrite_local is true, prompts user.")
+    parser.add_argument("-i", "--interactive", type=lambda x: x.lower() == 'true', default=False,
+                        help="Run in interactive mode (true or false). Defaults to false.")
     args = parser.parse_args()
     LOG(
         textwrap.dedent(
@@ -56,7 +58,8 @@ def main() -> None:
         )
     )
     build_type: str = args.build_type
-    pre_build(build_type, args.manifest_source, args.ow_manifest_branch, args.tisdk_branch, args.overwrite_local, args.overwrite_repos)
+    pre_build(build_type, args.manifest_source, args.ow_manifest_ref,
+              args.tisdk_ref, args.overwrite_local, args.overwrite_repos)
     run_build(build_type, args.interactive)
 
 
@@ -73,7 +76,7 @@ def pre_build(build_type: str, manifest_source: str, ow_manifest_branch: str, ti
     init_and_sync(manifest_repo_url, ow_manifest_branch)
 
     # {repo → relative path from build folder}, use local as they should be the same
-    path_mapping: Dict[str, str] = parse_local_manifest()
+    path_mapping: Dict[str, str] = parse_local_manifest()  # Mapping example: {"ow_sw_tools": "tools/ow_sw_tools"}
 
     repo_names: List[str] = []
     if overwrite_local:
@@ -85,11 +88,13 @@ def pre_build(build_type: str, manifest_source: str, ow_manifest_branch: str, ti
 
         # Copy local code to overwrite code from remote before build
         if repo_names:
-            for repo in repo_names:
-                if repo not in path_mapping:
-                    LOG(f"Warning: Specified repo \"{repo}\" not found in manifest. Skipping.", file=sys.stderr)
+            repo_names = [get_path_no_git_suffix(r) for r in repo_names]
+            for repo_name in repo_names:
+                if repo_name not in path_mapping:
+                    LOG(f"Warning: Specified repo \"{repo_name}\" not found in manifest. Skipping.", file=sys.stderr)
                     continue
-                sync_code(path_mapping[repo])
+                repo_rel_path_vs_tmp_build = path_mapping[repo_name]
+                sync_code(repo_name, repo_rel_path_vs_tmp_build)
 
             changed_any: bool = any(show_changes(r, path_mapping[r]) for r in repo_names if r in path_mapping)
             if not changed_any:
@@ -114,7 +119,7 @@ def run_build(build_type: str, interactive: bool = False) -> None:
     if interactive:
         LOG(LINE_SEPARATOR)
         LOG(f"Entering interactive mode.")
-        LOG(f"Run 'make {make_target}' to start {build_type} building.")
+        LOG(f"Run 'make {make_target}' to start {build_type} building.", highlight=True)
         LOG(f"Type 'exit' or press Ctrl+D to leave interactive mode.")
         run_shell(docker_cmd + "bash", check_exit_code=False)
         # For now, we pass the control to bash process -> Code will not reach unless we exit interactive mode (run_shell will block)
@@ -183,6 +188,7 @@ def parse_local_manifest(manifest_file: Path = MANIFEST_FILE_PATH) -> Dict[str, 
     mapping: Dict[str, str] = {}
     for proj in tree.getroot().iterfind("project"):
         name = proj.attrib.get("name")
+        name = get_path_no_git_suffix(name)
         path = proj.attrib.get("path")
         if name and path:
             if name in mapping:
@@ -193,6 +199,13 @@ def parse_local_manifest(manifest_file: Path = MANIFEST_FILE_PATH) -> Dict[str, 
     return mapping
 
 
+def get_path_no_git_suffix(path: str) -> str:
+    suffix = ".git"
+    if path.endswith(suffix):
+        path = path[:-len(suffix)]
+    return path
+
+
 def choose_repos(mapping: Dict[str, str]) -> List[str]:
     LOG("\nAvailable repositories from manifest (<repo name> -> <relative path>):")
     for name, path in sorted(mapping.items()):
@@ -200,28 +213,29 @@ def choose_repos(mapping: Dict[str, str]) -> List[str]:
 
     picked: List[str] = []
     while True:
-        repo = input(f"[Optional] Repo name to copy from local in {CORE_REPOS_PATH} (enter blank to stop): ").strip()
-        if not repo:
+        repo_name = input(
+            f"[Optional] Repo name to copy from local in {CORE_REPOS_PATH} (enter blank to stop): ").strip()
+        if not repo_name:
             break
-        if repo not in mapping:
-            LOG(f"Repo \"{repo}\" not listed in manifest. Try again.")
+        if repo_name not in mapping:
+            LOG(f"Repo \"{repo_name}\" not listed in manifest. Try again.")
             continue
-        LOG(f"Selected: \"{repo}\"")
-        picked.append(repo)
+        LOG(f"Selected: \"{repo_name}\"")
+        picked.append(repo_name)
 
     return picked
 
-def sync_code(repo_folder_rel_path: str) -> None:
-    repo_folder_name = Path(repo_folder_rel_path).name
-    src_path = CORE_REPOS_PATH / repo_folder_name
-    dest_root_path = BUILD_FOLDER_PATH / repo_folder_rel_path
+
+def sync_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
+    src_path = CORE_REPOS_PATH / repo_name
+    dest_root_path = BUILD_FOLDER_PATH / repo_rel_path_vs_tmp_build
 
     if not src_path.is_dir() or not dest_root_path.is_dir():
         LOG(f"ERROR: Source or destination not found at {src_path} or {dest_root_path}", file=sys.stderr)
         sys.exit(1)
         return
 
-    LOG("Copying from", src_path, "to", dest_root_path)
+    LOG(f"Copying from \"{src_path}\" to \"{dest_root_path}\"")
 
     EXCLUDE_DIRS = {".git", ".vscode"}
     for file in src_path.rglob("*"):
@@ -238,8 +252,10 @@ def sync_code(repo_folder_rel_path: str) -> None:
 
 def show_changes(repo_name: str, rel_path: str) -> bool:
     repo_path = BUILD_FOLDER_PATH / rel_path
+    exclude_pattern = ":(exclude)tmp_local_gitlab_ci/"
     res = subprocess.run(
-        ["git", "status", "--porcelain"],
+        # Need . to apply pathspecs (with exclude) to current directory
+        ["git", "status", "--porcelain", ".", exclude_pattern],
         cwd=repo_path,
         capture_output=True,
         text=True,

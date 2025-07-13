@@ -22,7 +22,7 @@ CORE_REPOS_PATH = Path.home() / "workspace" / "intellian_core_repos"
 OW_SW_PATH = Path.home() / "ow_sw_tools"
 # OW_SW_PATH = CORE_REPOS_PATH / "ow_sw_tools"
 BUILD_FOLDER_PATH = OW_SW_PATH / "tmp_build"
-SCRIPT_FOLDER_PATH = OW_SW_PATH / "v_test_folder" / "LocalBuild"
+SCRIPT_FOLDER_PATH =  Path.home() / "local_tools"
 CREDENTIAL_FILE_PATH = SCRIPT_FOLDER_PATH / ".gitlab_credentials"
 MANIFEST_FILE_NAME = "iesa_manifest_gitlab.xml"
 MANIFEST_RELATIVE_PATH = f"tools/manifests/{MANIFEST_FILE_NAME}"
@@ -36,12 +36,14 @@ BSP_SYMLINK_PATH_FOR_BUILD = OW_SW_PATH / "packaging" / "bsp_current" / "bsp_cur
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="OneWeb SW-Tools local build helper.")
-    parser.add_argument("--manifest_source", choices=["local", "remote"], default="local",
-                        help="Source for the manifest repository URL (local or remote). Defaults to local.")
     parser.add_argument("--build_type", choices=[BUILD_TYPE_BINARY, BUILD_TYPE_IESA], type=str, default=BUILD_TYPE_BINARY,
                         help="Build type (binary or iesa). Defaults to binary.")
-    parser.add_argument("-b", "--ow_manifest_ref", type=str, required=True, help="Ref of oneweb_project_sw_tools for manifest. Ex: 'manpack_master'")
-    parser.add_argument("--tisdk_ref", type=str, required=True, help="TISDK Ref for BSP (for creating .iesa). Ex: 'manpack_master'")
+    parser.add_argument("--manifest_source", choices=["local", "remote"], default="local",
+                        help="Source for the manifest repository URL (local or remote). Defaults to local.")
+    parser.add_argument("-b", "--ow_manifest_branch", type=str, required=True,
+                        help="Branch of oneweb_project_sw_tools for manifest. Ex: 'manpack_master'")
+    parser.add_argument("--tisdk_ref", type=str, required=True,
+                        help="TISDK Ref for BSP (for creating .iesa). Ex: 'manpack_master'")
     parser.add_argument("--overwrite_local", type=lambda x: x.lower() == 'true', default=False,
                         help="Enable overwriting local repositories (true or false). Defaults to false.")
     parser.add_argument("--overwrite_repos", nargs='*', default=[],
@@ -58,8 +60,12 @@ def main() -> None:
         )
     )
     build_type: str = args.build_type
-    pre_build(build_type, args.manifest_source, args.ow_manifest_ref,
-              args.tisdk_ref, args.overwrite_local, args.overwrite_repos)
+    is_overwrite_local: bool = args.overwrite_local
+    manifest_source: str = args.manifest_source
+    manifest_branch: str = args.ow_manifest_branch #Can be local or remote
+    tisdk_ref: str = args.tisdk_ref
+    overwrite_repos: List[str] = args.overwrite_repos
+    pre_build(build_type, manifest_source, manifest_branch, tisdk_ref, is_overwrite_local, overwrite_repos)
     run_build(build_type, args.interactive)
 
 
@@ -70,7 +76,11 @@ def prompt_branch() -> str:
     return branch or default
 
 
-def pre_build(build_type: str, manifest_source: str, ow_manifest_branch: str, tisdk_branch: str, overwrite_local: bool, overwrite_repos: List[str]) -> None:
+def pre_build(build_type: str, manifest_source: str, ow_manifest_branch: str, tisdk_ref: str, overwrite_local: bool, overwrite_repos: List[str]) -> None:
+    # TODO: Verify branch of OW_SW_PATH is same as ow_manifest_branch
+    
+
+
     reset_or_create_tmp_build()
     manifest_repo_url = get_manifest_repo_url(manifest_source)
     init_and_sync(manifest_repo_url, ow_manifest_branch)
@@ -101,7 +111,7 @@ def pre_build(build_type: str, manifest_source: str, ow_manifest_branch: str, ti
                 LOG("\nNo files changed in selected repos.")
 
     if build_type == BUILD_TYPE_IESA:
-        prepare_iesa_bsp(BSP_ARTIFACT_DIR, tisdk_branch)
+        prepare_iesa_bsp(BSP_ARTIFACT_DIR, tisdk_ref)
 
 
 def run_build(build_type: str, interactive: bool = False) -> None:
@@ -280,7 +290,7 @@ def get_manifest_repo_url(source: str) -> str:
         raise ValueError(f"Unknown source: {source}, expected 'remote' or 'local'")
 
 
-def prepare_iesa_bsp(artifacts_dir: str, tisdk_branch: str):
+def prepare_iesa_bsp(artifacts_dir: str, tisdk_ref: str):
     # Logic to read token from file if not in env
     private_token = read_token_from_file(CREDENTIAL_FILE_PATH, GL_TISDK_TOKEN_KEY_NAME)
     if not private_token:
@@ -290,7 +300,7 @@ def prepare_iesa_bsp(artifacts_dir: str, tisdk_branch: str):
     # Details of the target project and job
     target_project_path = "intellian_adc/tisdk_tools"
     target_job_name = "sdk_create_tarball_release"
-    target_ref = tisdk_branch
+    target_ref = tisdk_ref
 
     # Get the target project using the new function
     target_project = get_gl_project(private_token, target_project_path)

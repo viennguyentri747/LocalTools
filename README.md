@@ -22,15 +22,25 @@ pip install -r requirements.txt
 # HOW TO
 - Run OW local build
 ```bash
-source ~/local_build/MyVenvFolder/bin/activate && ~/local_build/main_ow_local_build.py --manifest_source local --build_type binary --ow_manifest_ref manpack_master --tisdk_ref manpack_master --overwrite_local true --overwrite_repos intellian_pkg upgrade.git submodule_spibeam insensesdk adc_lib third_party_apps --interactive true
+source ~/local_tools/MyVenvFolder/bin/activate && python3 ~/local_tools/main_ow_local_build.py --manifest_source remote --build_type binary --ow_manifest_branch manpack_master --tisdk_ref manpack_master --overwrite_local true --overwrite_repos intellian_pkg upgrade.git submodule_spibeam insensesdk adc_lib third_party_apps --interactive true
 ```
 
 - Run Gitlab CI local
 ```bash
-source ~/local_build/MyVenvFolder/bin/activate && cd ~/core_repos/intellian_pkg/ && ~/local_build/main_local_gitlab_ci.py -p ~/core_repos/intellian_pkg/.gitlab-ci.yml
+source ~/local_tools/MyVenvFolder/bin/activate && cd ~/core_repos/intellian_pkg/ && python3 ~/local_tools/main_local_gitlab_ci.py -p ~/core_repos/intellian_pkg/.gitlab-ci.yml
 ```
 
 - Run local static check
 ```bash
-source ~/local_build/MyVenvFolder/bin/activate && ~/local_build/main_local_cpp_static_check.py --inputs ~/core_repos/oneweb_project_sw_tools/ --ignore-dirs ~/core_repos/oneweb_project_sw_tools/tmp_build/apps/insensesdk  ~/core_repos/oneweb_project_sw_tools/tmp_build/apps/third_party_apps
+source ~/local_tools/MyVenvFolder/bin/activate && python3 ~/local_tools/main_local_cpp_static_check.py --inputs ~/core_repos/oneweb_project_sw_tools/ --ignore-dirs ~/core_repos/oneweb_project_sw_tools/tmp_build/apps/insensesdk  ~/core_repos/oneweb_project_sw_tools/tmp_build/apps/third_party_apps
+```
+
+- Decode GPS Status
+```bash
+python3 ~/local_tools/other_local_tools/decode_gps_status.py --status "0x312"
+```
+
+- Convert gps tow to utc time
+```bash
+python3 ~/local_tools/other_local_tools/convert_time_gps_tow_to_utc.py --week 2373 --time_of_week_ms 271835600
 ```

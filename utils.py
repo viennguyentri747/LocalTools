@@ -6,11 +6,11 @@ import sys
 from typing import List, Literal, Optional, Union
 
 
-def run_shell(cmd: Union[str, List[str]], cwd: Optional[Path] = None, check_exit_code: bool = True, stdout=None, stderr=None, text=None) -> subprocess.CompletedProcess:
+def run_shell(cmd: Union[str, List[str]], cwd: Optional[Path] = None, check_exception_on_exit_code: bool = True, stdout=None, stderr=None, text=None, capture_output: bool = False) -> subprocess.CompletedProcess:
     """Echo + run a shell command"""
     LOG(f"\n>>> {cmd} (cwd={cwd or Path.cwd()})")
     is_shell = isinstance(cmd, str)
-    return subprocess.run(cmd, shell=is_shell, cwd=cwd, check=check_exit_code, stdout=stdout, stderr=stderr, text=text)
+    return subprocess.run(cmd, shell=is_shell, cwd=cwd, check=check_exception_on_exit_code, stdout=stdout, stderr=stderr, text=text, capture_output=capture_output)
 
 def change_dir(path: str):
     LOG(f"Changing directory to {path}")

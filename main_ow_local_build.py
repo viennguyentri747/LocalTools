@@ -13,8 +13,8 @@ from typing import Dict, List, Optional, Union
 import argparse
 from gitlab_helper import get_latest_successful_pipeline_id, download_job_artifacts, get_gl_project, read_token_from_file
 from utils import get_file_md5sum, LOG, is_diff_ignore_eol, run_shell
-from constants import GL_TISDK_TOKEN_KEY_NAME, LINE_SEPARATOR
-
+from constants import *
+import yaml
 # ─────────────────────────────  constants  ───────────────────────────── #
 BUILD_TYPE_IESA = "iesa"
 BUILD_TYPE_BINARY = "binary"
@@ -22,32 +22,38 @@ CORE_REPOS_PATH = Path.home() / "workspace" / "intellian_core_repos"
 OW_SW_PATH = Path.home() / "ow_sw_tools"
 # OW_SW_PATH = CORE_REPOS_PATH / "ow_sw_tools"
 BUILD_FOLDER_PATH = OW_SW_PATH / "tmp_build"
-SCRIPT_FOLDER_PATH =  Path.home() / "local_tools"
+SCRIPT_FOLDER_PATH = Path.home() / "local_tools"
 CREDENTIAL_FILE_PATH = SCRIPT_FOLDER_PATH / ".gitlab_credentials"
+GITLAB_CI_YML_PATH = OW_SW_PATH / ".gitlab-ci.yml"
 MANIFEST_FILE_NAME = "iesa_manifest_gitlab.xml"
 MANIFEST_RELATIVE_PATH = f"tools/manifests/{MANIFEST_FILE_NAME}"
 MANIFEST_FILE_PATH = OW_SW_PATH / MANIFEST_RELATIVE_PATH
-BSP_ARTIFACT_DIR = SCRIPT_FOLDER_PATH / "bsp_artifacts"
+YML_PATH = OW_SW_PATH / "custom_artifacts"
+# OW_LOCAL_BUILD_OUTPUT_DIR = SCRIPT_FOLDER_PATH / "local_build_output"
+# Need to put this here because we will go into docker environment from OW_SW_PATH
+BSP_ARTIFACT_DIR = OW_SW_PATH / "custom_artifacts_bsp"
 BSP_ARTIFACT_PREFIX = "bsp-iesa-"
 BSP_SYMLINK_PATH_FOR_BUILD = OW_SW_PATH / "packaging" / "bsp_current" / "bsp_current.tar.xz"
-
-# ─────────────────────────────  top-level  ───────────────────────────── #
+MAIN_STEP_LOG_PREFIX = f"{LINE_SEPARATOR}\n[MAIN_STEP]"
+# ─────────────────────────────  top-level  ─────────────────────────────
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="OneWeb SW-Tools local build helper.")
     parser.add_argument("--build_type", choices=[BUILD_TYPE_BINARY, BUILD_TYPE_IESA], type=str, default=BUILD_TYPE_BINARY,
                         help="Build type (binary or iesa). Defaults to binary.")
-    parser.add_argument("--manifest_source", choices=["local", "remote"], default="local",
-                        help="Source for the manifest repository URL (local or remote). Defaults to local.")
+    parser.add_argument("--manifest_source", choices=[MANIFEST_SOURCE_LOCAL, MANIFEST_SOURCE_REMOTE], default="local",
+                        help=F"Source for the manifest repository URL ({MANIFEST_SOURCE_LOCAL} or {MANIFEST_SOURCE_REMOTE}). Defaults to {MANIFEST_SOURCE_LOCAL}.")
     parser.add_argument("-b", "--ow_manifest_branch", type=str, required=True,
-                        help="Branch of oneweb_project_sw_tools for manifest. Ex: 'manpack_master'")
+                        help="Branch of oneweb_project_sw_tools for manifest (either local or remote branch, depend on --manifest_source). Ex: 'manpack_master'")
+    parser.add_argument("--check_manifest_branch", type=lambda x: x.lower() == 'true', default=True,
+                        help="Check if OW_SW_PATH branch matches manifest branch (true or false). Defaults to true.")  # Only set this to FALSE if you know what you're doing
     parser.add_argument("--tisdk_ref", type=str, required=True,
                         help="TISDK Ref for BSP (for creating .iesa). Ex: 'manpack_master'")
-    parser.add_argument("--overwrite_local", type=lambda x: x.lower() == 'true', default=False,
-                        help="Enable overwriting local repositories (true or false). Defaults to false.")
+    parser.add_argument("--is_overwrite_local_repos", type=lambda x: x.lower() == 'true', default=False,
+                        help="Enable overwriting with local repositories code (true or false). Defaults to false.")
     parser.add_argument("--overwrite_repos", nargs='*', default=[],
-                        help="List of repository names to overwrite from local. If empty and --overwrite_local is true, prompts user.")
+                        help="List of repository names to overwrite from local. If empty and --is_overwrite_local_repos is true, prompts user.")
     parser.add_argument("-i", "--interactive", type=lambda x: x.lower() == 'true', default=False,
                         help="Run in interactive mode (true or false). Defaults to false.")
     args = parser.parse_args()
@@ -60,27 +66,89 @@ def main() -> None:
         )
     )
     build_type: str = args.build_type
-    is_overwrite_local: bool = args.overwrite_local
+    is_overwrite_local_repos: bool = args.is_overwrite_local_repos
     manifest_source: str = args.manifest_source
-    manifest_branch: str = args.ow_manifest_branch #Can be local or remote
+    manifest_branch: str = args.ow_manifest_branch  # Can be local or remote
     tisdk_ref: str = args.tisdk_ref
     overwrite_repos: List[str] = args.overwrite_repos
-    pre_build(build_type, manifest_source, manifest_branch, tisdk_ref, is_overwrite_local, overwrite_repos)
+    check_manifest_branch: bool = args.check_manifest_branch
+    LOG(f"Parsed args: {args}")
+    
+    overwrite_repos = get_overwrite_repos(args.overwrite_repos, is_overwrite_local_repos)
+    prebuild_check(build_type, manifest_source, manifest_branch, tisdk_ref,
+                   is_overwrite_local_repos, overwrite_repos, check_manifest_branch)
+    pre_build_setup(build_type, manifest_source, manifest_branch, tisdk_ref,
+                    is_overwrite_local_repos, overwrite_repos, check_manifest_branch)
     run_build(build_type, args.interactive)
 
 
+def get_overwrite_repos(orig_repos: List[str], is_overwrite_local_repos: bool) -> List[str]:
+    overwrite_repos: List[str] = orig_repos
+    if is_overwrite_local_repos:
+        path_mapping: Dict[str, str] = parse_local_manifest()  # Mapping example: {"ow_sw_tools": "tools/ow_sw_tools"}
+        if not orig_repos:
+            repo_names = choose_repos(path_mapping)
+            overwrite_repos = repo_names
+
+    return overwrite_repos
+
 # ───────────────────────────  helpers / actions  ─────────────────────── #
-def prompt_branch() -> str:
-    default = "master"
-    branch = input(f"Branch of oneweb_project_sw_tools for manifest, default = {default}: ").strip()
-    return branch or default
 
 
-def pre_build(build_type: str, manifest_source: str, ow_manifest_branch: str, tisdk_ref: str, overwrite_local: bool, overwrite_repos: List[str]) -> None:
-    # TODO: Verify branch of OW_SW_PATH is same as ow_manifest_branch
-    
+def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: str, tisdk_ref: str, is_overwrite_local_repos: bool, overwrite_repos: List[str], check_manifest_branch: bool):
+    ow_sw_path_str = str(OW_SW_PATH)
+    LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build check...")
+    LOG(f"Check OW branch matches with manifest branch. This is because we use some OW folders from the build like ./external/, ... ")
+    if check_manifest_branch:
+        try:
+            current_branch = run_shell("git branch --show-current", cwd=ow_sw_path_str,
+                                       capture_output=True, text=True).stdout.strip()
+            if current_branch != ow_manifest_branch:
+                is_branch_ok: bool = False
+                if manifest_source == MANIFEST_SOURCE_LOCAL:
+                    # Check if local branch is ahead (descendant) of manifest branch
+                    is_ancestor = run_shell(
+                        f"git merge-base --is-ancestor origin/{ow_manifest_branch} {current_branch}", cwd=ow_sw_path_str, check_exception_on_exit_code=False
+                    )
+
+                    if is_ancestor.returncode == 0:
+                        is_branch_ok = True
+                    else:
+                        LOG(f"ERROR: Local branch '{current_branch}' is not ahead of or equal to 'origin/{ow_manifest_branch}'", file=sys.stderr)
+                        is_branch_ok = False
+                else:
+                    LOG(f"ERROR: OW_SW_PATH ({ow_sw_path_str}) is on branch '{current_branch}', but manifest branch is '{ow_manifest_branch}'. Checkout correct OW_SW_PATH branch or update manifest branch. Ex: cd {ow_sw_path_str} && git checkout {ow_manifest_branch}", file=sys.stderr)
+                if not is_branch_ok:
+                    sys.exit(1)
+        except Exception as e:
+            LOG(f"ERROR: Error while checking OW_SW_PATH branch: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    if build_type == BUILD_TYPE_IESA:
+        LOG(f"Check TISDK ref {tisdk_ref} matches with {GITLAB_CI_YML_PATH}'s tisdk branch to avoid using wrong BSP")
+        tisdk_branch = get_tisdk_branch_from_ci_yml(GITLAB_CI_YML_PATH)
+        if tisdk_ref != tisdk_branch:
+            # Maybe we should check if tisdk_ref is ahead of tisdk_branch in the future if need change tisdk ref separately
+            LOG(f"ERROR: TISDK ref '{tisdk_ref}' does not match with {GITLAB_CI_YML_PATH}'s tisdk branch '{tisdk_branch}'.", file=sys.stderr)
+            sys.exit(1)
+        else:
+            LOG(f"TISDK ref '{tisdk_ref}' matches with {GITLAB_CI_YML_PATH}'s tisdk branch '{tisdk_branch}'.")
+
+    # Verify overwrite_repos
+    if is_overwrite_local_repos:
+        if not overwrite_repos:
+            LOG(f"ERROR: Please specify overwrite_repos when --is_overwrite_local_repos is true.", file=sys.stderr)
+            sys.exit(1)
+
+        path_mapping: Dict[str, str] = parse_local_manifest()  # Mapping example: {"ow_sw_tools": "tools/ow_sw_tools"}
+        for repo_name in overwrite_repos:
+            if repo_name not in path_mapping:
+                LOG(f"ERROR: Invalid overwrite repo name: {repo_name}\nCurrent overwrite_repos: {overwrite_repos}, Available repo names in manifest: {list(path_mapping.keys())}")
+                sys.exit(1)
 
 
+def pre_build_setup(build_type: str, manifest_source: str, ow_manifest_branch: str, tisdk_ref: str, is_overwrite_local_repos: bool, overwrite_repos: List[str], check_manifest_branch: bool) -> None:
+    LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build setup...")
     reset_or_create_tmp_build()
     manifest_repo_url = get_manifest_repo_url(manifest_source)
     init_and_sync(manifest_repo_url, ow_manifest_branch)
@@ -88,30 +156,22 @@ def pre_build(build_type: str, manifest_source: str, ow_manifest_branch: str, ti
     # {repo → relative path from build folder}, use local as they should be the same
     path_mapping: Dict[str, str] = parse_local_manifest()  # Mapping example: {"ow_sw_tools": "tools/ow_sw_tools"}
 
-    repo_names: List[str] = []
-    if overwrite_local:
-        if not overwrite_repos:
-            repo_names = choose_repos(path_mapping)
-        else:
-            repo_names = overwrite_repos
-            LOG(f"\nOverwriting local code for specified repos: {repo_names}")
-
+    if is_overwrite_local_repos and overwrite_repos:
         # Copy local code to overwrite code from remote before build
-        if repo_names:
-            repo_names = [get_path_no_git_suffix(r) for r in repo_names]
-            for repo_name in repo_names:
-                if repo_name not in path_mapping:
-                    LOG(f"Warning: Specified repo \"{repo_name}\" not found in manifest. Skipping.", file=sys.stderr)
-                    continue
-                repo_rel_path_vs_tmp_build = path_mapping[repo_name]
-                sync_code(repo_name, repo_rel_path_vs_tmp_build)
+        repo_names = [get_path_no_git_suffix(r) for r in overwrite_repos]
+        for repo_name in repo_names:
+            if repo_name not in path_mapping:
+                LOG(f"ERROR: Specified repo \"{repo_name}\" not found in manifest.", file=sys.stderr)
+                sys.exit(1)
+            repo_rel_path_vs_tmp_build = path_mapping[repo_name]
+            sync_code(repo_name, repo_rel_path_vs_tmp_build)
 
-            changed_any: bool = any(show_changes(r, path_mapping[r]) for r in repo_names if r in path_mapping)
-            if not changed_any:
-                LOG("\nNo files changed in selected repos.")
+        any_changed: bool = any(show_changes(r, path_mapping[r]) for r in repo_names if r in path_mapping)
+        if not any_changed:
+            LOG("\nNo files changed in selected repos.")
 
     if build_type == BUILD_TYPE_IESA:
-        prepare_iesa_bsp(BSP_ARTIFACT_DIR, tisdk_ref)
+        prepare_iesa_bsp(tisdk_ref)
 
 
 def run_build(build_type: str, interactive: bool = False) -> None:
@@ -127,11 +187,10 @@ def run_build(build_type: str, interactive: bool = False) -> None:
     )
 
     if interactive:
-        LOG(LINE_SEPARATOR)
-        LOG(f"Entering interactive mode.")
+        LOG(f"{LINE_SEPARATOR}Entering interactive mode.")
         LOG(f"Run 'make {make_target}' to start {build_type} building.", highlight=True)
         LOG(f"Type 'exit' or press Ctrl+D to leave interactive mode.")
-        run_shell(docker_cmd + "bash", check_exit_code=False)
+        run_shell(docker_cmd + "bash", check_exception_on_exit_code=False)
         # For now, we pass the control to bash process -> Code will not reach unless we exit interactive mode (run_shell will block)
         LOG(f"Exiting interactive mode...")
     else:
@@ -164,7 +223,43 @@ def reset_or_create_tmp_build() -> None:
         BUILD_FOLDER_PATH.mkdir(parents=True)
 
 
+def get_tisdk_branch_from_ci_yml(file_path: str) -> Optional[str]:
+    sdk_ref = None
+    sdk_release_ref = None
+
+    try:
+        with open(file_path, 'r') as f:
+            ci_config = yaml.safe_load(f)
+    except Exception as e:
+        LOG(f"Error reading {file_path}: {e}", file=sys.stderr)
+        return None
+
+    # Search through all items in the YAML file to find job definitions
+    for job_details in ci_config.values():
+        if not isinstance(job_details, dict) or 'needs' not in job_details or not isinstance(job_details.get('needs'), list):
+            continue
+
+        # Iterate over the dependencies in the 'needs' list
+        for need in job_details['needs']:
+            # We are looking for a dictionary entry from the correct project
+            if isinstance(need, dict) and need.get('project') == 'intellian_adc/tisdk_tools':
+                job = need.get('job')
+                ref = need.get('ref')
+                if job == 'sdk_create_tarball':
+                    sdk_ref = ref
+                elif job == 'sdk_create_tarball_release':
+                    sdk_release_ref = ref
+
+    if (sdk_ref is None or sdk_release_ref is None) or (sdk_ref != sdk_release_ref):
+        LOG(
+            f"ERROR: TISDK ref mismatch in CI config. 'sdk_create_tarball' ref is '{sdk_ref}' while 'sdk_create_tarball_release' is '{sdk_release_ref}'.", file=sys.stderr)
+        return None
+
+    return sdk_ref
+
+
 def init_and_sync(manifest_repo_url: str, manifest_repo_branch: str) -> None:
+    LOG(f"{MAIN_STEP_LOG_PREFIX} Init and Sync repo at {BUILD_FOLDER_PATH}...")
     run_shell(f"repo init {manifest_repo_url} -b {manifest_repo_branch} -m {MANIFEST_RELATIVE_PATH}",
               cwd=BUILD_FOLDER_PATH,)
 
@@ -281,16 +376,22 @@ def show_changes(repo_name: str, rel_path: str) -> bool:
     return bool(changes)
 
 
-def get_manifest_repo_url(source: str) -> str:
-    if source == "remote":
-        return "https://gitlab.com/intellian_adc/oneweb_project_sw_tools"
-    elif source == "local":
-        return f"file://{OW_SW_PATH}"
+def get_manifest_repo_url(manifest_source: str) -> Optional[str]:
+    LOG(f"{MAIN_STEP_LOG_PREFIX} Getting manifest repo URL...")
+    manifest_url: Optional[str] = None
+    if manifest_source == MANIFEST_SOURCE_REMOTE:
+        manifest_url = "https://gitlab.com/intellian_adc/oneweb_project_sw_tools"
+    elif manifest_source == MANIFEST_SOURCE_LOCAL:
+        manifest_url = f"file://{OW_SW_PATH}"
     else:
-        raise ValueError(f"Unknown source: {source}, expected 'remote' or 'local'")
+        raise ValueError(f"Unknown source: {manifest_source}, expected 'remote' or 'local'")
+
+    LOG(f"Using manifest source: {manifest_source} ({manifest_url})")
+    return manifest_url
 
 
-def prepare_iesa_bsp(artifacts_dir: str, tisdk_ref: str):
+def prepare_iesa_bsp(tisdk_ref: str):
+    LOG(f"{MAIN_STEP_LOG_PREFIX} Preparing IESA BSP for release, TISDK ref: {tisdk_ref}...")
     # Logic to read token from file if not in env
     private_token = read_token_from_file(CREDENTIAL_FILE_PATH, GL_TISDK_TOKEN_KEY_NAME)
     if not private_token:
@@ -313,6 +414,7 @@ def prepare_iesa_bsp(artifacts_dir: str, tisdk_ref: str):
         LOG(f"No successful pipeline found for job '{target_job_name}' on ref '{target_ref}'.")
         sys.exit(1)
 
+    artifacts_dir = BSP_ARTIFACT_DIR
     # Clean artifacts directory contents
     if os.path.exists(artifacts_dir):
         LOG(f"Cleaning artifacts directory: {artifacts_dir}")
@@ -328,6 +430,8 @@ def prepare_iesa_bsp(artifacts_dir: str, tisdk_ref: str):
             if file_name.startswith(BSP_ARTIFACT_PREFIX):
                 if bsp_path:
                     LOG(f"Overwriting previous BSP path {bsp_path} with {path}")
+                    LOG("Setting permissions for BSP file to 644...")
+                    os.chmod(bsp_path, 0o644)  # 644: rw-r--r--
                 bsp_path = path
         if bsp_path:
             LOG(f"Final BSP: {bsp_path}. md5sum: {get_file_md5sum(bsp_path)}")

@@ -16,8 +16,7 @@ from utils import get_file_md5sum, LOG, is_diff_ignore_eol, run_shell
 from constants import *
 import yaml
 # ─────────────────────────────  constants  ───────────────────────────── #
-BUILD_TYPE_IESA = "iesa"
-BUILD_TYPE_BINARY = "binary"
+
 CORE_REPOS_PATH = Path.home() / "workspace" / "intellian_core_repos"
 OW_SW_PATH = Path.home() / "ow_sw_tools"
 # OW_SW_PATH = CORE_REPOS_PATH / "ow_sw_tools"
@@ -48,12 +47,9 @@ def main() -> None:
                         help="Branch of oneweb_project_sw_tools for manifest (either local or remote branch, depend on --manifest_source). Ex: 'manpack_master'")
     parser.add_argument("--check_manifest_branch", type=lambda x: x.lower() == 'true', default=True,
                         help="Check if OW_SW_PATH branch matches manifest branch (true or false). Defaults to true.")  # Only set this to FALSE if you know what you're doing
-    parser.add_argument("--tisdk_ref", type=str, required=True,
-                        help="TISDK Ref for BSP (for creating .iesa). Ex: 'manpack_master'")
-    parser.add_argument("--is_overwrite_local_repos", type=lambda x: x.lower() == 'true', default=False,
-                        help="Enable overwriting with local repositories code (true or false). Defaults to false.")
+    parser.add_argument("--tisdk_ref", type=str, default=None, help="TISDK Ref for BSP (for creating .iesa). Ex: 'manpack_master'")
     parser.add_argument("--overwrite_repos", nargs='*', default=[],
-                        help="List of repository names to overwrite from local. If empty and --is_overwrite_local_repos is true, prompts user.")
+                        help="List of repository names to overwrite from local")
     parser.add_argument("-i", "--interactive", type=lambda x: x.lower() == 'true', default=False,
                         help="Run in interactive mode (true or false). Defaults to false.")
     args = parser.parse_args()
@@ -66,36 +62,23 @@ def main() -> None:
         )
     )
     build_type: str = args.build_type
-    is_overwrite_local_repos: bool = args.is_overwrite_local_repos
+    # is_overwrite_local_repos: bool = args.is_overwrite_local_repos
     manifest_source: str = args.manifest_source
     manifest_branch: str = args.ow_manifest_branch  # Can be local or remote
-    tisdk_ref: str = args.tisdk_ref
+    tisdk_ref: Optional[str] = args.tisdk_ref
     overwrite_repos: List[str] = args.overwrite_repos
     check_manifest_branch: bool = args.check_manifest_branch
     LOG(f"Parsed args: {args}")
-    
-    overwrite_repos = get_overwrite_repos(args.overwrite_repos, is_overwrite_local_repos)
-    prebuild_check(build_type, manifest_source, manifest_branch, tisdk_ref,
-                   is_overwrite_local_repos, overwrite_repos, check_manifest_branch)
-    pre_build_setup(build_type, manifest_source, manifest_branch, tisdk_ref,
-                    is_overwrite_local_repos, overwrite_repos, check_manifest_branch)
+
+    prebuild_check(build_type, manifest_source, manifest_branch, tisdk_ref, overwrite_repos, check_manifest_branch)
+    pre_build_setup(build_type, manifest_source, manifest_branch, tisdk_ref, overwrite_repos, check_manifest_branch)
     run_build(build_type, args.interactive)
 
-
-def get_overwrite_repos(orig_repos: List[str], is_overwrite_local_repos: bool) -> List[str]:
-    overwrite_repos: List[str] = orig_repos
-    if is_overwrite_local_repos:
-        path_mapping: Dict[str, str] = parse_local_manifest()  # Mapping example: {"ow_sw_tools": "tools/ow_sw_tools"}
-        if not orig_repos:
-            repo_names = choose_repos(path_mapping)
-            overwrite_repos = repo_names
-
-    return overwrite_repos
 
 # ───────────────────────────  helpers / actions  ─────────────────────── #
 
 
-def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: str, tisdk_ref: str, is_overwrite_local_repos: bool, overwrite_repos: List[str], check_manifest_branch: bool):
+def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: str, input_tisdk_ref: str, overwrite_repos: List[str], check_manifest_branch: bool):
     ow_sw_path_str = str(OW_SW_PATH)
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build check...")
     LOG(f"Check OW branch matches with manifest branch. This is because we use some OW folders from the build like ./external/, ... ")
@@ -125,29 +108,30 @@ def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: st
             sys.exit(1)
 
     if build_type == BUILD_TYPE_IESA:
-        LOG(f"Check TISDK ref {tisdk_ref} matches with {GITLAB_CI_YML_PATH}'s tisdk branch to avoid using wrong BSP")
-        tisdk_branch = get_tisdk_branch_from_ci_yml(GITLAB_CI_YML_PATH)
-        if tisdk_ref != tisdk_branch:
+        if not input_tisdk_ref:
+            LOG(f"ERROR: TISDK ref is not provided.", file=sys.stderr)
+            sys.exit(1)
+
+        LOG(f"Check TISDK ref {input_tisdk_ref} matches with {GITLAB_CI_YML_PATH}'s tisdk branch to avoid using wrong BSP")
+        tisdk_ref_from_ci_yml: Optional[str] = get_tisdk_ref_from_ci_yml(GITLAB_CI_YML_PATH)
+        if input_tisdk_ref != tisdk_ref_from_ci_yml:
             # Maybe we should check if tisdk_ref is ahead of tisdk_branch in the future if need change tisdk ref separately
-            LOG(f"ERROR: TISDK ref '{tisdk_ref}' does not match with {GITLAB_CI_YML_PATH}'s tisdk branch '{tisdk_branch}'.", file=sys.stderr)
+            LOG(f"ERROR: TISDK ref '{input_tisdk_ref}' does not match with {GITLAB_CI_YML_PATH}'s tisdk branch '{tisdk_ref_from_ci_yml}'.", file=sys.stderr)
             sys.exit(1)
         else:
-            LOG(f"TISDK ref '{tisdk_ref}' matches with {GITLAB_CI_YML_PATH}'s tisdk branch '{tisdk_branch}'.")
+            LOG(f"TISDK ref '{input_tisdk_ref}' matches with {GITLAB_CI_YML_PATH}'s tisdk branch '{tisdk_ref_from_ci_yml}'.")
 
     # Verify overwrite_repos
-    if is_overwrite_local_repos:
-        if not overwrite_repos:
-            LOG(f"ERROR: Please specify overwrite_repos when --is_overwrite_local_repos is true.", file=sys.stderr)
-            sys.exit(1)
+    if overwrite_repos:
 
         path_mapping: Dict[str, str] = parse_local_manifest()  # Mapping example: {"ow_sw_tools": "tools/ow_sw_tools"}
         for repo_name in overwrite_repos:
             if repo_name not in path_mapping:
-                LOG(f"ERROR: Invalid overwrite repo name: {repo_name}\nCurrent overwrite_repos: {overwrite_repos}, Available repo names in manifest: {list(path_mapping.keys())}")
+                LOG(f"ERROR: Invalid overwrite repo name: {repo_name}\nAvailable repo names in manifest: {list(path_mapping.keys())}")
                 sys.exit(1)
 
 
-def pre_build_setup(build_type: str, manifest_source: str, ow_manifest_branch: str, tisdk_ref: str, is_overwrite_local_repos: bool, overwrite_repos: List[str], check_manifest_branch: bool) -> None:
+def pre_build_setup(build_type: str, manifest_source: str, ow_manifest_branch: str, tisdk_ref: str, overwrite_repos: List[str], check_manifest_branch: bool) -> None:
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build setup...")
     reset_or_create_tmp_build()
     manifest_repo_url = get_manifest_repo_url(manifest_source)
@@ -156,7 +140,7 @@ def pre_build_setup(build_type: str, manifest_source: str, ow_manifest_branch: s
     # {repo → relative path from build folder}, use local as they should be the same
     path_mapping: Dict[str, str] = parse_local_manifest()  # Mapping example: {"ow_sw_tools": "tools/ow_sw_tools"}
 
-    if is_overwrite_local_repos and overwrite_repos:
+    if overwrite_repos:
         # Copy local code to overwrite code from remote before build
         repo_names = [get_path_no_git_suffix(r) for r in overwrite_repos]
         for repo_name in repo_names:
@@ -223,8 +207,8 @@ def reset_or_create_tmp_build() -> None:
         BUILD_FOLDER_PATH.mkdir(parents=True)
 
 
-def get_tisdk_branch_from_ci_yml(file_path: str) -> Optional[str]:
-    sdk_ref = None
+def get_tisdk_ref_from_ci_yml(file_path: str) -> Optional[str]:
+    tisdk_ref = None
     sdk_release_ref = None
 
     try:
@@ -246,16 +230,16 @@ def get_tisdk_branch_from_ci_yml(file_path: str) -> Optional[str]:
                 job = need.get('job')
                 ref = need.get('ref')
                 if job == 'sdk_create_tarball':
-                    sdk_ref = ref
+                    tisdk_ref = ref
                 elif job == 'sdk_create_tarball_release':
                     sdk_release_ref = ref
 
-    if (sdk_ref is None or sdk_release_ref is None) or (sdk_ref != sdk_release_ref):
+    if (tisdk_ref is None or sdk_release_ref is None) or (tisdk_ref != sdk_release_ref):
         LOG(
-            f"ERROR: TISDK ref mismatch in CI config. 'sdk_create_tarball' ref is '{sdk_ref}' while 'sdk_create_tarball_release' is '{sdk_release_ref}'.", file=sys.stderr)
+            f"ERROR: TISDK ref mismatch in CI config. 'sdk_create_tarball' ref is '{tisdk_ref}' while 'sdk_create_tarball_release' is '{sdk_release_ref}'.", file=sys.stderr)
         return None
 
-    return sdk_ref
+    return tisdk_ref
 
 
 def init_and_sync(manifest_repo_url: str, manifest_repo_branch: str) -> None:
@@ -343,17 +327,20 @@ def sync_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
     LOG(f"Copying from \"{src_path}\" to \"{dest_root_path}\"")
 
     EXCLUDE_DIRS = {".git", ".vscode"}
-    for file in src_path.rglob("*"):
-        if any(part in EXCLUDE_DIRS for part in file.parts):
+    for file_or_dir in src_path.rglob("*"):
+        if any(part in EXCLUDE_DIRS for part in file_or_dir.parts):
             continue
-        if file.is_file():
-            file_rel_path = file.relative_to(src_path)
-            dest_file_path = dest_root_path / file_rel_path
-            dest_file_path.parent.mkdir(parents=True, exist_ok=True)
-
-            if not dest_file_path.exists() or is_diff_ignore_eol(file, dest_file_path):
-                shutil.copy2(file, dest_file_path)
-
+        
+        file_rel_path = file_or_dir.relative_to(src_path)
+        dest_path = dest_root_path / file_rel_path
+        if file_or_dir.is_file():
+            print(file_or_dir, dest_path)
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            if not dest_path.exists() or is_diff_ignore_eol(file_or_dir, dest_path):
+                shutil.copy2(file_or_dir, dest_path)
+        elif file_or_dir.is_dir():
+            # Create directories if they don't exist
+            dest_path.mkdir(parents=True, exist_ok=True)
 
 def show_changes(repo_name: str, rel_path: str) -> bool:
     repo_path = BUILD_FOLDER_PATH / rel_path
@@ -444,9 +431,9 @@ def prepare_iesa_bsp(tisdk_ref: str):
 if __name__ == "__main__":
     try:
         main()
-    except subprocess.CalledProcessError as exc:
-        LOG(f"\nCommand failed with exit code {exc.returncode}", file=sys.stderr)
-        sys.exit(exc.returncode)
+    except Exception as e:
+        LOG(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
     except KeyboardInterrupt:
         LOG("\nAborted by user.", file=sys.stderr)
         sys.exit(1)

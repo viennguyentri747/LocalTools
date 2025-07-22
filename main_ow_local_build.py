@@ -2,8 +2,10 @@
 """
 OneWeb SW-Tools interactive local build helper (top-down, manifest-aware).
 """
+import datetime
 import os
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import sys
@@ -17,24 +19,23 @@ from constants import *
 import yaml
 # ─────────────────────────────  constants  ───────────────────────────── #
 
-CORE_REPOS_PATH = Path.home() / "workspace" / "intellian_core_repos"
-OW_SW_PATH = Path.home() / "ow_sw_tools"
+CORE_REPOS_FOLDER_PATH = Path.home() / "workspace" / "intellian_core_repos/"
+OW_SW_PATH = Path.home() / "ow_sw_tools/"
 # OW_SW_PATH = CORE_REPOS_PATH / "ow_sw_tools"
-BUILD_FOLDER_PATH = OW_SW_PATH / "tmp_build"
-SCRIPT_FOLDER_PATH = Path.home() / "local_tools"
+BUILD_FOLDER_PATH = OW_SW_PATH / "tmp_build/"
+SCRIPT_FOLDER_PATH = Path.home() / "local_tools/"
 CREDENTIAL_FILE_PATH = SCRIPT_FOLDER_PATH / ".gitlab_credentials"
 GITLAB_CI_YML_PATH = OW_SW_PATH / ".gitlab-ci.yml"
 MANIFEST_FILE_NAME = "iesa_manifest_gitlab.xml"
 MANIFEST_RELATIVE_PATH = f"tools/manifests/{MANIFEST_FILE_NAME}"
 MANIFEST_FILE_PATH = OW_SW_PATH / MANIFEST_RELATIVE_PATH
-YML_PATH = OW_SW_PATH / "custom_artifacts"
 # OW_LOCAL_BUILD_OUTPUT_DIR = SCRIPT_FOLDER_PATH / "local_build_output"
 # Need to put this here because we will go into docker environment from OW_SW_PATH
-BSP_ARTIFACT_DIR = OW_SW_PATH / "custom_artifacts_bsp"
+BSP_ARTIFACT_FOLDER_PATH = OW_SW_PATH / "custom_artifacts_bsp/"
 BSP_ARTIFACT_PREFIX = "bsp-iesa-"
 BSP_SYMLINK_PATH_FOR_BUILD = OW_SW_PATH / "packaging" / "bsp_current" / "bsp_current.tar.xz"
 MAIN_STEP_LOG_PREFIX = f"{LINE_SEPARATOR}\n[MAIN_STEP]"
-# ─────────────────────────────  top-level  ─────────────────────────────
+# ─────────────────────────────  top-level  ───────────────────────────── #
 
 
 def main() -> None:
@@ -42,16 +43,20 @@ def main() -> None:
     parser.add_argument("--build_type", choices=[BUILD_TYPE_BINARY, BUILD_TYPE_IESA], type=str, default=BUILD_TYPE_BINARY,
                         help="Build type (binary or iesa). Defaults to binary.")
     parser.add_argument("--manifest_source", choices=[MANIFEST_SOURCE_LOCAL, MANIFEST_SOURCE_REMOTE], default="local",
-                        help=F"Source for the manifest repository URL ({MANIFEST_SOURCE_LOCAL} or {MANIFEST_SOURCE_REMOTE}). Defaults to {MANIFEST_SOURCE_LOCAL}.")
+                        help=F"Source for the manifest repository URL ({MANIFEST_SOURCE_LOCAL} or {MANIFEST_SOURCE_REMOTE}). Defaults to {MANIFEST_SOURCE_LOCAL}. Note that although it is local manifest, the source of sync is still remote so will need to push branch of dependent local repos specified in local manifest (not ow_sw_tools).")
     parser.add_argument("-b", "--ow_manifest_branch", type=str, required=True,
                         help="Branch of oneweb_project_sw_tools for manifest (either local or remote branch, depend on --manifest_source). Ex: 'manpack_master'")
-    parser.add_argument("--check_manifest_branch", type=lambda x: x.lower() == 'true', default=True,
-                        help="Check if OW_SW_PATH branch matches manifest branch (true or false). Defaults to true.")  # Only set this to FALSE if you know what you're doing
+    # parser.add_argument("--check_manifest_branch", type=lambda x: x.lower() == 'true', default=True,
+    #                     help="Check if OW_SW_PATH branch matches manifest branch (true or false). Defaults to true.")  # Only set this to FALSE if you know what you're doing
     parser.add_argument("--tisdk_ref", type=str, default=None, help="TISDK Ref for BSP (for creating .iesa). Ex: 'manpack_master'")
     parser.add_argument("--overwrite_repos", nargs='*', default=[],
                         help="List of repository names to overwrite from local")
     parser.add_argument("-i", "--interactive", type=lambda x: x.lower() == 'true', default=False,
                         help="Run in interactive mode (true or false). Defaults to false.")
+    parser.add_argument("--force_delete_tmp_build", type=lambda x: x.lower() == 'true', default=False,
+                        help="Force clearing tmp_build folder (true or false). Defaults to false.")
+    parser.add_argument("--sync", type=lambda x: x.lower() == 'true', default=True,
+                        help="If true, perform tmp_build reset/creation then repo sync (from remote). Defaults to true.")
     args = parser.parse_args()
     LOG(
         textwrap.dedent(
@@ -67,45 +72,41 @@ def main() -> None:
     manifest_branch: str = args.ow_manifest_branch  # Can be local or remote
     tisdk_ref: Optional[str] = args.tisdk_ref
     overwrite_repos: List[str] = args.overwrite_repos
-    check_manifest_branch: bool = args.check_manifest_branch
+    force_delete_tmp_build: bool = args.force_delete_tmp_build
+    sync: bool = args.sync
+    # Update overwrite repos no git suffix
+    overwrite_repos = [get_path_no_git_suffix(r) for r in overwrite_repos]
     LOG(f"Parsed args: {args}")
 
-    prebuild_check(build_type, manifest_source, manifest_branch, tisdk_ref, overwrite_repos, check_manifest_branch)
-    pre_build_setup(build_type, manifest_source, manifest_branch, tisdk_ref, overwrite_repos, check_manifest_branch)
+    prebuild_check(build_type, manifest_source, manifest_branch, tisdk_ref, overwrite_repos)
+    pre_build_setup(build_type, manifest_source, manifest_branch, tisdk_ref, overwrite_repos, force_delete_tmp_build, sync)
     run_build(build_type, args.interactive)
 
 
 # ───────────────────────────  helpers / actions  ─────────────────────── #
-
-
-def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: str, input_tisdk_ref: str, overwrite_repos: List[str], check_manifest_branch: bool):
+def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: str, input_tisdk_ref: str, overwrite_repos: List[str]):
     ow_sw_path_str = str(OW_SW_PATH)
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build check...")
     LOG(f"Check OW branch matches with manifest branch. This is because we use some OW folders from the build like ./external/, ... ")
-    if check_manifest_branch:
-        try:
-            current_branch = run_shell("git branch --show-current", cwd=ow_sw_path_str,
-                                       capture_output=True, text=True).stdout.strip()
-            if current_branch != ow_manifest_branch:
-                is_branch_ok: bool = False
-                if manifest_source == MANIFEST_SOURCE_LOCAL:
-                    # Check if local branch is ahead (descendant) of manifest branch
-                    is_ancestor = run_shell(
-                        f"git merge-base --is-ancestor origin/{ow_manifest_branch} {current_branch}", cwd=ow_sw_path_str, check_exception_on_exit_code=False
-                    )
-
-                    if is_ancestor.returncode == 0:
-                        is_branch_ok = True
-                    else:
-                        LOG(f"ERROR: Local branch '{current_branch}' is not ahead of or equal to 'origin/{ow_manifest_branch}'", file=sys.stderr)
-                        is_branch_ok = False
+    try:
+        current_branch = run_shell("git branch --show-current", cwd=ow_sw_path_str,
+                                    capture_output=True, text=True).stdout.strip()
+        if current_branch != ow_manifest_branch:
+            is_branch_ok: bool = False
+            if manifest_source == MANIFEST_SOURCE_LOCAL:
+                # Check if the manifest branch is an ancestor of the current local branch.
+                if is_ancestor(f"origin/{ow_manifest_branch}", current_branch, cwd=ow_sw_path_str):
+                    is_branch_ok = True
                 else:
-                    LOG(f"ERROR: OW_SW_PATH ({ow_sw_path_str}) is on branch '{current_branch}', but manifest branch is '{ow_manifest_branch}'. Checkout correct OW_SW_PATH branch or update manifest branch. Ex: cd {ow_sw_path_str} && git checkout {ow_manifest_branch}", file=sys.stderr)
-                if not is_branch_ok:
-                    sys.exit(1)
-        except Exception as e:
-            LOG(f"ERROR: Error while checking OW_SW_PATH branch: {e}", file=sys.stderr)
-            sys.exit(1)
+                    LOG(f"ERROR: Local branch '{current_branch}' is not a descendant of 'origin/{ow_manifest_branch}'", file=sys.stderr)
+                    is_branch_ok = False
+            else:
+                LOG(f"ERROR: OW_SW_PATH ({ow_sw_path_str}) is on branch '{current_branch}', but manifest branch is '{ow_manifest_branch}'. Checkout correct OW_SW_PATH branch or update manifest branch. Ex: cd {ow_sw_path_str} && git checkout {ow_manifest_branch}", file=sys.stderr)
+            if not is_branch_ok:
+                sys.exit(1)
+    except Exception as e:
+        LOG(f"ERROR: Error while checking OW_SW_PATH branch: {e}", file=sys.stderr)
+        sys.exit(1)
 
     if build_type == BUILD_TYPE_IESA:
         if not input_tisdk_ref:
@@ -123,19 +124,40 @@ def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: st
 
     # Verify overwrite_repos
     if overwrite_repos:
-
         path_mapping: Dict[str, str] = parse_local_manifest()  # Mapping example: {"ow_sw_tools": "tools/ow_sw_tools"}
         for repo_name in overwrite_repos:
             if repo_name not in path_mapping:
-                LOG(f"ERROR: Invalid overwrite repo name: {repo_name}\nAvailable repo names in manifest: {list(path_mapping.keys())}")
+                LOG(
+                    f"ERROR: Invalid overwrite repo name: {repo_name}\nAvailable repo names in manifest: {list(path_mapping.keys())}")
                 sys.exit(1)
 
 
-def pre_build_setup(build_type: str, manifest_source: str, ow_manifest_branch: str, tisdk_ref: str, overwrite_repos: List[str], check_manifest_branch: bool) -> None:
+def is_ancestor(ancestor_ref: str, descentdant_ref: str, cwd: Union[str, Path]) -> bool:
+    """
+    Checks the ancestry relationship between two Git references.
+
+    Args:
+        ref1: The first Git reference (commit hash, branch, tag).
+        ref2: The second Git reference.
+        cwd: The working directory for the Git command.
+
+    Returns:
+        True if the ancestry condition is met, False otherwise.
+    """
+    cmd = f"git merge-base --is-ancestor {ancestor_ref} {descentdant_ref}"
+    result = run_shell(cmd, cwd=cwd, check_exception_on_exit_code=False)
+    return result.returncode == 0
+
+
+def pre_build_setup(build_type: str, manifest_source: str, ow_manifest_branch: str, tisdk_ref: str, overwrite_repos: List[str], force_delete_tmp_build: bool, sync: bool) -> None:
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build setup...")
-    reset_or_create_tmp_build()
-    manifest_repo_url = get_manifest_repo_url(manifest_source)
-    init_and_sync(manifest_repo_url, ow_manifest_branch)
+    convert_files_in_folder_to_unix_style(OW_SW_PATH) # It will use LOCAL OW_SW to run build (docker run -it ...)
+    if sync:
+        reset_or_create_tmp_build(force_delete_tmp_build)
+        manifest_repo_url = get_manifest_repo_url(manifest_source)
+        init_and_sync(manifest_repo_url, ow_manifest_branch) # Sync other repos (from REMOTE bracnh) from manifest (can be local or remote depened on manifest_source)
+    else:
+        LOG("Skipping tmp_build reset/creation and repo sync due to --sync=false flag.")
 
     # {repo → relative path from build folder}, use local as they should be the same
     path_mapping: Dict[str, str] = parse_local_manifest()  # Mapping example: {"ow_sw_tools": "tools/ow_sw_tools"}
@@ -152,10 +174,37 @@ def pre_build_setup(build_type: str, manifest_source: str, ow_manifest_branch: s
 
         any_changed: bool = any(show_changes(r, path_mapping[r]) for r in repo_names if r in path_mapping)
         if not any_changed:
-            LOG("\nNo files changed in selected repos.")
+            LOG("WARNING: No files changed in selected repos.")
 
     if build_type == BUILD_TYPE_IESA:
         prepare_iesa_bsp(tisdk_ref)
+
+
+def convert_files_in_folder_to_unix_style(folder_path: Path) -> None:
+    LOG(f"Converting files in {folder_path} to Unix style line endings...")
+    try:
+        path_to_use = F"{str(folder_path.absolute())}/"
+        ignore_folders = ["tmp_build"]
+
+        prune_parts = [
+            f"-name {shlex.quote(d)} -type d"
+            for d in ignore_folders
+        ]
+
+        # join them with " -o ", and wrap the whole thing in \( … \)
+        prune_clause = f"\\( {' -o '.join(prune_parts)} \\) -prune -o"
+
+        # now assemble the full find command
+        cmd = (
+            f"find {path_to_use} {prune_clause} "
+            "-type f \\( -name '*.py' -o -name '*.sh' \\) "
+            "-print0 | xargs -0 dos2unix"
+        )
+
+        run_shell(cmd, check_exception_on_exit_code=False)
+        LOG("Conversion of .py and .sh files to Unix style line endings completed.")
+    except Exception as e:
+        LOG(f"Error converting files to Unix style line endings: {e}", file=sys.stderr)
 
 
 def run_build(build_type: str, interactive: bool = False) -> None:
@@ -170,6 +219,7 @@ def run_build(build_type: str, interactive: bool = False) -> None:
         f"docker run -it --rm -v {OW_SW_PATH}:{OW_SW_PATH} -w {OW_SW_PATH} oneweb_sw "
     )
 
+    time_now = datetime.datetime.now()
     if interactive:
         LOG(f"{LINE_SEPARATOR}Entering interactive mode.")
         LOG(f"Run 'make {make_target}' to start {build_type} building.", highlight=True)
@@ -179,31 +229,32 @@ def run_build(build_type: str, interactive: bool = False) -> None:
         LOG(f"Exiting interactive mode...")
     else:
         run_shell(docker_cmd + f"bash -c 'make {make_target}'")
+        elapsed_time = (datetime.datetime.now() - time_now).total_seconds()
+        LOG(f"Build finished in {elapsed_time} seconds")
 
 
-def reset_or_create_tmp_build() -> None:
+def reset_or_create_tmp_build(force_delete_tmp_build: bool) -> None:
     repo_dir = BUILD_FOLDER_PATH / '.repo'
-    manifest_file = repo_dir / 'manifest.xml'  # .repo/manifest.xml stored the manifest you get from the repo
+    manifest_file = repo_dir / 'manifest.xml'
+    manifests_git_head = repo_dir / 'manifests' / '.git' / 'HEAD'
+
+    def should_reset_repo_instead_delete(force_delete: bool) -> bool:
+        return not force_delete and repo_dir.is_dir() and manifest_file.is_file() and manifests_git_head.is_file()
 
     if BUILD_FOLDER_PATH.exists():
-        # Check if it's a valid repo: both .repo folder AND manifest.xml must exist
-        if repo_dir.is_dir() and manifest_file.is_file():
-            LOG(f"Reseting existing repo in {BUILD_FOLDER_PATH}...")
+        if should_reset_repo_instead_delete(force_delete_tmp_build):
+            LOG(f"Resetting existing repo in {BUILD_FOLDER_PATH}...")
             try:
                 run_shell("repo forall -c 'git reset --hard' && repo forall -c 'git clean -fdx'", cwd=BUILD_FOLDER_PATH)
             except subprocess.CalledProcessError:
-                # If 'repo forall' fails (e.g., due to a broken manifest, launcher issues, etc.)
-                # Treat it as a broken repo and clear it.
                 LOG(f"Warning: 'repo forall' failed in {BUILD_FOLDER_PATH}. Assuming broken repo and clearing...")
                 run_shell("sudo rm -rf " + str(BUILD_FOLDER_PATH))
                 BUILD_FOLDER_PATH.mkdir(parents=True)
         else:
-            # If BUILD_FOLDER exists, but it's not a fully functional repo (missing .repo or manifest)
-            LOG(f"\nClearing broken or non-repo folder {BUILD_FOLDER_PATH} (missing .repo or manifest.xml)...")
+            LOG(f"Force clearing tmp_build folder at {BUILD_FOLDER_PATH}...")
             run_shell("sudo rm -rf " + str(BUILD_FOLDER_PATH))
             BUILD_FOLDER_PATH.mkdir(parents=True)
     else:
-        # If the folder doesn't exist at all, create it
         BUILD_FOLDER_PATH.mkdir(parents=True)
 
 
@@ -303,7 +354,7 @@ def choose_repos(mapping: Dict[str, str]) -> List[str]:
     picked: List[str] = []
     while True:
         repo_name = input(
-            f"[Optional] Repo name to copy from local in {CORE_REPOS_PATH} (enter blank to stop): ").strip()
+            f"[Optional] Repo name to copy from local in {CORE_REPOS_FOLDER_PATH} (enter blank to stop): ").strip()
         if not repo_name:
             break
         if repo_name not in mapping:
@@ -316,13 +367,30 @@ def choose_repos(mapping: Dict[str, str]) -> List[str]:
 
 
 def sync_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
-    src_path = CORE_REPOS_PATH / repo_name
+    src_path = CORE_REPOS_FOLDER_PATH / repo_name
     dest_root_path = BUILD_FOLDER_PATH / repo_rel_path_vs_tmp_build
 
     if not src_path.is_dir() or not dest_root_path.is_dir():
         LOG(f"ERROR: Source or destination not found at {src_path} or {dest_root_path}", file=sys.stderr)
         sys.exit(1)
-        return
+
+    LOG(f"Verifying git history for '{repo_name}'...")
+    try:
+        src_overwrite_commit = run_shell("git rev-parse HEAD", cwd=src_path,
+                                         capture_output=True, text=True).stdout.strip()
+        dest_orig_commit = run_shell("git rev-parse HEAD", cwd=dest_root_path,
+                                     capture_output=True, text=True).stdout.strip() # Fetch remotely via repo sync
+
+        if src_overwrite_commit == dest_orig_commit:
+            LOG("Source and destination are at the same commit. No history check needed.")
+        elif not is_ancestor(dest_orig_commit, src_overwrite_commit, cwd=src_path):
+            LOG(f"ERROR: Source (override) commit ({str(src_path)}: {src_overwrite_commit}) is not a descendant of destination ({str(dest_root_path)}: {dest_orig_commit}).\nMake sure check out correct branch +  force push local branch to remote (as it fetched dest via repo sync)!", file=sys.stderr)
+            sys.exit(1)
+        else:
+            LOG(f"Common ancestor for '{repo_name}' found. Proceeding with sync.")
+    except Exception as e:
+        LOG(f"ERROR: Failed to verify git history for '{repo_name}'. Reason: {e}", file=sys.stderr)
+        sys.exit(1)
 
     LOG(f"Copying from \"{src_path}\" to \"{dest_root_path}\"")
 
@@ -330,17 +398,17 @@ def sync_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
     for file_or_dir in src_path.rglob("*"):
         if any(part in EXCLUDE_DIRS for part in file_or_dir.parts):
             continue
-        
+
         file_rel_path = file_or_dir.relative_to(src_path)
         dest_path = dest_root_path / file_rel_path
         if file_or_dir.is_file():
-            print(file_or_dir, dest_path)
             dest_path.parent.mkdir(parents=True, exist_ok=True)
             if not dest_path.exists() or is_diff_ignore_eol(file_or_dir, dest_path):
                 shutil.copy2(file_or_dir, dest_path)
         elif file_or_dir.is_dir():
             # Create directories if they don't exist
             dest_path.mkdir(parents=True, exist_ok=True)
+
 
 def show_changes(repo_name: str, rel_path: str) -> bool:
     repo_path = BUILD_FOLDER_PATH / rel_path
@@ -401,7 +469,7 @@ def prepare_iesa_bsp(tisdk_ref: str):
         LOG(f"No successful pipeline found for job '{target_job_name}' on ref '{target_ref}'.")
         sys.exit(1)
 
-    artifacts_dir = BSP_ARTIFACT_DIR
+    artifacts_dir = BSP_ARTIFACT_FOLDER_PATH
     # Clean artifacts directory contents
     if os.path.exists(artifacts_dir):
         LOG(f"Cleaning artifacts directory: {artifacts_dir}")

@@ -24,8 +24,8 @@ pip install -r requirements.txt
 ### Buid BINARY using LOCAL manifest + OVERRIDE with local repo
 ```bash
 source ~/local_tools/MyVenvFolder/bin/activate && python3 ~/local_tools/main_ow_local_build.py --build_type binary --manifest_source local --ow_manifest_branch Test-fan11july --overwrite_repos intellian_pkg upgrade submodule_spibeam insensesdk adc_lib third_party_apps --interactive false
+#Extra option: Quick rebuild `--sync false`
 ```
-
 ### Buid IESA using LOCAL manifest + OVERRIDE with local repo
 ```bash
 source ~/local_tools/MyVenvFolder/bin/activate && python3 ~/local_tools/main_ow_local_build.py --build_type iesa --tisdk_ref master --manifest_source local --ow_manifest_branch Test-fan11july --overwrite_repos intellian_pkg upgrade submodule_spibeam insensesdk adc_lib third_party_apps --interactive false

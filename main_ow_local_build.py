@@ -53,10 +53,10 @@ def main() -> None:
                         help="List of repository names to overwrite from local")
     parser.add_argument("-i", "--interactive", type=lambda x: x.lower() == 'true', default=False,
                         help="Run in interactive mode (true or false). Defaults to false.")
-    parser.add_argument("--force_delete_tmp_build", type=lambda x: x.lower() == 'true', default=False,
+    parser.add_argument("--force_reset_tmp_build", type=lambda x: x.lower() == 'true', default=False,
                         help="Force clearing tmp_build folder (true or false). Defaults to false.")
     parser.add_argument("--sync", type=lambda x: x.lower() == 'true', default=True,
-                        help="If true, perform tmp_build reset/creation then repo sync (from remote). Defaults to true.")
+                        help="If true, perform tmp_build reset (true or false) and repo sync. Defaults to true.")
     args = parser.parse_args()
     LOG(
         textwrap.dedent(
@@ -72,14 +72,14 @@ def main() -> None:
     manifest_branch: str = args.ow_manifest_branch  # Can be local or remote
     tisdk_ref: Optional[str] = args.tisdk_ref
     overwrite_repos: List[str] = args.overwrite_repos
-    force_delete_tmp_build: bool = args.force_delete_tmp_build
+    force_reset_tmp_build: bool = args.force_reset_tmp_build
     sync: bool = args.sync
     # Update overwrite repos no git suffix
     overwrite_repos = [get_path_no_git_suffix(r) for r in overwrite_repos]
     LOG(f"Parsed args: {args}")
 
     prebuild_check(build_type, manifest_source, manifest_branch, tisdk_ref, overwrite_repos)
-    pre_build_setup(build_type, manifest_source, manifest_branch, tisdk_ref, overwrite_repos, force_delete_tmp_build, sync)
+    pre_build_setup(build_type, manifest_source, manifest_branch, tisdk_ref, overwrite_repos, force_reset_tmp_build, sync)
     run_build(build_type, args.interactive)
 
 
@@ -94,8 +94,8 @@ def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: st
         if current_branch != ow_manifest_branch:
             is_branch_ok: bool = False
             if manifest_source == MANIFEST_SOURCE_LOCAL:
-                # Check if the manifest branch is an ancestor of the current local branch.
-                if is_ancestor(f"origin/{ow_manifest_branch}", current_branch, cwd=ow_sw_path_str):
+                # Check if the manifest branch from (local) is an ancestor of the current local branch.
+                if is_ancestor(f"{ow_manifest_branch}", current_branch, cwd=ow_sw_path_str):
                     is_branch_ok = True
                 else:
                     LOG(f"ERROR: Local branch '{current_branch}' is not a descendant of 'origin/{ow_manifest_branch}'", file=sys.stderr)
@@ -149,15 +149,16 @@ def is_ancestor(ancestor_ref: str, descentdant_ref: str, cwd: Union[str, Path]) 
     return result.returncode == 0
 
 
-def pre_build_setup(build_type: str, manifest_source: str, ow_manifest_branch: str, tisdk_ref: str, overwrite_repos: List[str], force_delete_tmp_build: bool, sync: bool) -> None:
+def pre_build_setup(build_type: str, manifest_source: str, ow_manifest_branch: str, tisdk_ref: str, overwrite_repos: List[str], force_reset_tmp_build: bool, sync: bool) -> None:
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build setup...")
     convert_files_in_folder_to_unix_style(OW_SW_PATH) # It will use LOCAL OW_SW to run build (docker run -it ...)
+
     if sync:
-        reset_or_create_tmp_build(force_delete_tmp_build)
+        reset_or_create_tmp_build(force_reset_tmp_build)
         manifest_repo_url = get_manifest_repo_url(manifest_source)
-        init_and_sync(manifest_repo_url, ow_manifest_branch) # Sync other repos (from REMOTE bracnh) from manifest (can be local or remote depened on manifest_source)
+        init_and_sync(manifest_repo_url, ow_manifest_branch) # Sync other repos from manifest of REMOTE OW_SW
     else:
-        LOG("Skipping tmp_build reset/creation and repo sync due to --sync=false flag.")
+        LOG("Skipping tmp_build reset and repo sync due to --sync false flag.")
 
     # {repo → relative path from build folder}, use local as they should be the same
     path_mapping: Dict[str, str] = parse_local_manifest()  # Mapping example: {"ow_sw_tools": "tools/ow_sw_tools"}
@@ -233,16 +234,16 @@ def run_build(build_type: str, interactive: bool = False) -> None:
         LOG(f"Build finished in {elapsed_time} seconds")
 
 
-def reset_or_create_tmp_build(force_delete_tmp_build: bool) -> None:
+def reset_or_create_tmp_build(force_reset_tmp_build: bool) -> None:
     repo_dir = BUILD_FOLDER_PATH / '.repo'
     manifest_file = repo_dir / 'manifest.xml'
     manifests_git_head = repo_dir / 'manifests' / '.git' / 'HEAD'
 
-    def should_reset_repo_instead_delete(force_delete: bool) -> bool:
-        return not force_delete and repo_dir.is_dir() and manifest_file.is_file() and manifests_git_head.is_file()
+    def should_reset_instead_clearing(force_reset: bool) -> bool:
+        return not force_reset and repo_dir.is_dir() and manifest_file.is_file() and manifests_git_head.is_file()
 
     if BUILD_FOLDER_PATH.exists():
-        if should_reset_repo_instead_delete(force_delete_tmp_build):
+        if should_reset_instead_clearing(force_reset_tmp_build):
             LOG(f"Resetting existing repo in {BUILD_FOLDER_PATH}...")
             try:
                 run_shell("repo forall -c 'git reset --hard' && repo forall -c 'git clean -fdx'", cwd=BUILD_FOLDER_PATH)
@@ -384,7 +385,7 @@ def sync_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
         if src_overwrite_commit == dest_orig_commit:
             LOG("Source and destination are at the same commit. No history check needed.")
         elif not is_ancestor(dest_orig_commit, src_overwrite_commit, cwd=src_path):
-            LOG(f"ERROR: Source (override) commit ({str(src_path)}: {src_overwrite_commit}) is not a descendant of destination ({str(dest_root_path)}: {dest_orig_commit}).\nMake sure check out correct branch +  force push local branch to remote (as it fetched dest via repo sync)!", file=sys.stderr)
+            LOG(f"ERROR: Source (override) commit ({str(src_path)}: {src_overwrite_commit}) is not a descendant of destination ({str(dest_root_path)}: {dest_orig_commit}).\nMake sure check out correct branch +  force push local branch to remote (as it fetched dest remotely via repo sync)!", file=sys.stderr)
             sys.exit(1)
         else:
             LOG(f"Common ancestor for '{repo_name}' found. Proceeding with sync.")

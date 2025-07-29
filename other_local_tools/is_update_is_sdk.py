@@ -13,9 +13,9 @@ from pathlib import Path
 # Base directory for the SDK repositories.
 CORE_REPOS_DIR = Path.home() / "core_repos"
 # Parent directory where the versioned SDK folder (e.g., inertial-sense-sdk-2.5.0) is located.
-INSENSE_SDK_PARENT_DIR = CORE_REPOS_DIR / "insensesdk"
+INSENSE_SDK_REPO_DIR = CORE_REPOS_DIR / "insensesdk"
 # Directory where the SDKs are extracted.
-SDK_INSTALL_DIR = INSENSE_SDK_PARENT_DIR / "InsenseSDK"
+SDK_INSTALL_DIR = INSENSE_SDK_REPO_DIR / "InsenseSDK"
 # Location of the libusb zip file.
 LIBUSB_ZIP_PATH = Path.home() / "downloads" / "libusb-master-1-0.zip"
 # --- End Configuration ---
@@ -32,7 +32,7 @@ def extract_version_from_zip(zip_path: Path) -> Optional[str]:
     return None
 
 
-def unzip_and_verify(zip_path: Path, dest_dir: Path) -> bool:
+def unzip_to_dest(zip_path: Path, dest_dir: Path) -> bool:
     """Unzips a file and verifies its extraction."""
     print(f"📦 Unzipping '{zip_path.name}' to '{dest_dir}'...")
     try:
@@ -59,7 +59,7 @@ def integrate_libusb(new_sdk_path: Path):
         return
 
     # 1. Unzip libusb
-    if not unzip_and_verify(LIBUSB_ZIP_PATH, libusb_src_dir):
+    if not unzip_to_dest(LIBUSB_ZIP_PATH, libusb_src_dir):
         return
 
     if not libusb_temp_dir.exists():
@@ -75,9 +75,10 @@ def integrate_libusb(new_sdk_path: Path):
     print(f"   -> Removing empty directory '{libusb_temp_dir.name}'...")
     shutil.rmtree(libusb_temp_dir)
     print("   -> libusb integration complete.")
+    check_commit_changes_to_git("Integrate libusb")
 
 
-def modify_sdk_cmake_files(new_sdk_path: Path):
+def modify_sdk_cmake_files(new_sdk_version, new_sdk_path: Path):
     """Modifies the CMakeLists.txt files within the new SDK."""
     print("📝 Modifying CMake files...")
 
@@ -112,6 +113,32 @@ def modify_sdk_cmake_files(new_sdk_path: Path):
     except FileNotFoundError:
         print(f"❌ ERROR: Cannot find '{cltool_cmake_path}'. Skipping.")
 
+    # 3. Update top level CMakeList.txt
+    print("🚀 Updating top-level SDK version...")
+    cmake_path = INSENSE_SDK_REPO_DIR / "CMakeLists.txt"
+    try:
+        content = cmake_path.read_text()
+        pattern = r'(set\(INSENSE_SDK_VERSION\s+")[^"]*("\))'
+
+        if not re.search(pattern, content):
+            print(f"   -> ⚠️ WARNING: Could not find INSENSE_SDK_VERSION variable in '{cmake_path}'.")
+            return
+
+        new_content, count = re.subn(pattern, rf'\g<1>{new_sdk_version}\g<2>', content)
+
+        if count > 0:
+            cmake_path.write_text(new_content)
+            print(f"   -> Set INSENSE_SDK_VERSION to \"{new_sdk_version}\" in '{cmake_path.name}'.")
+        else:
+            print(f"   -> ⚠️ WARNING: Version already set or pattern mismatch in '{cmake_path}'.")
+
+    except FileNotFoundError:
+        print(f"❌ ERROR: Top-level CMakeLists.txt not found at '{cmake_path}'.")
+    except Exception as e:
+        print(f"❌ ERROR: Failed to update top-level CMakeLists.txt: {e}")
+
+    check_commit_changes_to_git("Update CMakeLists.txt files", show_diff=True)
+
 
 def cleanup_old_sdks(install_dir: Path, new_sdk_dir_name: str):
     """Removes old SDK directories."""
@@ -124,6 +151,7 @@ def cleanup_old_sdks(install_dir: Path, new_sdk_dir_name: str):
             except Exception as e:
                 print(f"❌ ERROR: Failed to remove '{item.name}': {e}")
     print("   -> Cleanup complete.")
+    check_commit_changes_to_git("Cleanup old SDKs")
 
 
 def get_current_git_branch() -> Optional[str]:
@@ -134,7 +162,7 @@ def get_current_git_branch() -> Optional[str]:
             capture_output=True,
             text=True,
             check=True,
-            cwd=INSENSE_SDK_PARENT_DIR  # Run git command in the parent directory of the SDK
+            cwd=INSENSE_SDK_REPO_DIR  # Run git command in the parent directory of the SDK
         )
         return result.stdout.strip()
     except subprocess.CalledProcessError:
@@ -145,43 +173,36 @@ def get_current_git_branch() -> Optional[str]:
         return None
 
 
-def update_top_level_cmake(version: str):
-    """Updates the INSENSE_SDK_VERSION in the top-level CMakeLists.txt."""
-    print("🚀 Updating top-level SDK version...")
-    cmake_path = INSENSE_SDK_PARENT_DIR / "CMakeLists.txt"
-    try:
-        content = cmake_path.read_text()
-        pattern = r'(set\(INSENSE_SDK_VERSION\s+")[^"]*("\))'
+def check_commit_changes_to_git(message: str, show_diff: bool = False):
+    """Checks if changes need to be committed to Git."""
+    if not confirm_action(f"Do you want to commit '{message}' to Git?"):
+        return
 
-        if not re.search(pattern, content):
-            print(f"   -> ⚠️ WARNING: Could not find INSENSE_SDK_VERSION variable in '{cmake_path}'.")
-            return
-
-        new_content, count = re.subn(pattern, rf'\g<1>{version}\g<2>', content)
-
-        if count > 0:
-            cmake_path.write_text(new_content)
-            print(f"   -> Set INSENSE_SDK_VERSION to \"{version}\" in '{cmake_path.name}'.")
-        else:
-            print(f"   -> ⚠️ WARNING: Version already set or pattern mismatch in '{cmake_path}'.")
-
-    except FileNotFoundError:
-        print(f"❌ ERROR: Top-level CMakeLists.txt not found at '{cmake_path}'.")
-    except Exception as e:
-        print(f"❌ ERROR: Failed to update top-level CMakeLists.txt: {e}")
-
-
-def commit_changes_to_git(message: str):
-    """Adds all changes in the SDK parent directory and commits them."""
     print(f"Adding and committing changes to Git: '{message}'")
     try:
-        subprocess.run(["git", "add", "."], check=True, cwd=INSENSE_SDK_PARENT_DIR)
-        subprocess.run(["git", "commit", "-m", message], check=True, cwd=INSENSE_SDK_PARENT_DIR)
+        subprocess.run(["git", "add", "."], check=True, cwd=INSENSE_SDK_REPO_DIR)
+        if show_diff:
+            subprocess.run(["git", "--no-pager", "diff", "--cached"], check=True, cwd=INSENSE_SDK_REPO_DIR)
+        subprocess.run(["git", "commit", "-m", message], check=True, cwd=INSENSE_SDK_REPO_DIR)
         print("✅ Changes committed successfully.")
     except subprocess.CalledProcessError as e:
         print(f"❌ ERROR: Git commit failed: {e}")
     except FileNotFoundError:
         print("❌ ERROR: Git command not found. Please ensure Git is installed and in your PATH.")
+
+
+def confirm_action(prompt: str) -> bool:
+    """Asks the user for confirmation and returns True for 'y' (case-insensitive), False otherwise."""
+    while True:
+        current_branch = get_current_git_branch()
+        branch_info = f" (on branch: {current_branch})" if current_branch else ""
+        response = input(f"{prompt}{branch_info} (y/n): ").strip().lower()
+        if response == "y":
+            return True
+        elif response == "n":
+            return False
+        else:
+            print("Invalid input. Please enter 'y' or 'n'.")
 
 
 def main():
@@ -208,55 +229,24 @@ def main():
     new_sdk_dir_name = f"inertial-sense-sdk-{version}"
     new_sdk_path = SDK_INSTALL_DIR / new_sdk_dir_name
 
-    current_branch = get_current_git_branch()
-    branch_info = f" (on branch: {current_branch})" if current_branch else ""
-
-    def confirm_action(prompt: str) -> bool:
-        """Asks the user for confirmation and returns True for 'y' (case-insensitive), False otherwise."""
-        while True:
-            response = input(f"{prompt}{branch_info} (Y/N): ").strip().lower()
-            if response == "y":
-                return True
-            elif response == "n":
-                return False
-            else:
-                print("Invalid input. Please enter 'Y' or 'N'.")
-
     if new_sdk_path.exists():
-        print(f"⚠️ WARNING: SDK folder '{new_sdk_path}' already exists.")
-        if confirm_action(f"   -> Do you want to remove the existing SDK folder '{new_sdk_path}'?"):
-            try:
-                shutil.rmtree(new_sdk_path)
-                print(f"   -> Successfully removed old SDK folder '{new_sdk_path}'.")
-            except Exception as e:
-                print(f"❌ ERROR: Failed to remove '{new_sdk_path}': {e}")
-                sys.exit(1)
-        else:
-            print("Aborting SDK update process.")
-            sys.exit(1)
-
+        print(
+            f"❌ FATAL: SDK folder '{new_sdk_path}' already exists:\n1. 'cd {INSENSE_SDK_REPO_DIR}' and undo all commits\n2. Run 'cd /home/vien/core_repos/insensesdk && git reset --hard && git clean -fd!") # &&rm -rf {new_sdk_path}'
+        sys.exit(1)
 
     # Step 2: Unzip the new SDK
-    if not unzip_and_verify(sdk_zip_path, SDK_INSTALL_DIR):
+    if not unzip_to_dest(sdk_zip_path, SDK_INSTALL_DIR):
         sys.exit(1)
+    check_commit_changes_to_git(f"Unzip new SDK {version}")
 
     # Step 3: Integrate libusb
     integrate_libusb(new_sdk_path)
 
     # Step 4: Modify CMakeLists.txt files
-    modify_sdk_cmake_files(new_sdk_path)
+    modify_sdk_cmake_files(version, new_sdk_path)
 
     # Step 5: Remove old SDK folders
     cleanup_old_sdks(SDK_INSTALL_DIR, new_sdk_dir_name)
-
-    # Step 6: Update top-level CMake version
-    update_top_level_cmake(version)
-
-    if confirm_action("Do you want to commit these changes to the git repository?"):
-        commit_message = f"feat: Update Inertial Sense SDK to v{version}"
-        commit_changes_to_git(commit_message)
-    else:
-        print("Skipping git commit.")
 
     print("\n🎉 SDK update process finished successfully!")
 

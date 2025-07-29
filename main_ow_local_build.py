@@ -89,8 +89,7 @@ def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: st
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build check...")
     LOG(f"Check OW branch matches with manifest branch. This is because we use some OW folders from the build like ./external/, ... ")
     try:
-        current_branch = run_shell("git branch --show-current", cwd=ow_sw_path_str,
-                                    capture_output=True, text=True).stdout.strip()
+        current_branch = run_shell("git branch --show-current", cwd=ow_sw_path_str, capture_output=True, text=True).stdout.strip()
         if current_branch != ow_manifest_branch:
             is_branch_ok: bool = False
             if manifest_source == MANIFEST_SOURCE_LOCAL:

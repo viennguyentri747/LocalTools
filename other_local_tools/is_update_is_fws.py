@@ -9,17 +9,20 @@ from typing import Dict, List, NamedTuple, Optional
 
 # Define the paths and file prefixes
 DOWNLOADS_DIR = Path.home() / "downloads"
-DEST_DIR = Path.home() / "ow_sw_tools/packaging/opt_etc/kim_ftm_fw/"
+OW_SW_TOOLS_DIR = Path.home() / "ow_sw_tools"
+DEST_DIR = OW_SW_TOOLS_DIR / "packaging/opt_etc/kim_ftm_fw/"
 IMX_PREFIX = "IS_IMX-5_v"
 GPX_PREFIX = "IS-firmware_r"
 IMX_SYMLINK = "current_imx_fw.hex"
 GPX_SYMLINK = "current_gpx_fw.fpkg"
 
+
 class FirmwarePair(NamedTuple):
     """A named tuple to hold a pair of firmware files."""
-    imx_path: Path
-    gpx_path: Path
+    imx_full_path: Path
+    gpx_full_path: Path
     timestamp: str
+
 
 def find_firmware_pairs(version: str) -> List[FirmwarePair]:
     """
@@ -35,32 +38,39 @@ def find_firmware_pairs(version: str) -> List[FirmwarePair]:
     imx_pattern = re.compile(rf"{re.escape(IMX_PREFIX)}{re.escape(version)}\+(?P<ts>[\d-]+)\.hex")
     gpx_pattern = re.compile(rf"{re.escape(GPX_PREFIX)}{re.escape(version)}\+(?P<ts>[\d-]+)\.fpkg")
 
-    imx_files: Dict[str, Path] = {}
-    gpx_files: Dict[str, Path] = {}
+    imx_candidates: List[tuple[str, Path]] = []
+    gpx_candidates: List[tuple[str, Path]] = []
 
-    # Find and match timestamps from filenames
-    for f in DOWNLOADS_DIR.glob(f"*{version}*"):
-        imx_match = imx_pattern.match(f.name)
+    # Find and extract timestamps from filenames
+    for file_path in DOWNLOADS_DIR.glob(f"*{version}*"):
+        imx_match = imx_pattern.match(file_path.name)
         if imx_match:
-            imx_files[imx_match.group('ts')] = f
+            imx_candidates.append((imx_match.group('ts'), file_path))
             continue
 
-        gpx_match = gpx_pattern.match(f.name)
+        gpx_match = gpx_pattern.match(file_path.name)
         if gpx_match:
-            gpx_files[gpx_match.group('ts')] = f
+            gpx_candidates.append((gpx_match.group('ts'), file_path))
 
-    # Create pairs where both files with a matching timestamp exist
+    # Sort candidates by timestamp in reverse (newest to oldest)
+    imx_candidates.sort(key=lambda x: x[0], reverse=True)
+    gpx_candidates.sort(key=lambda x: x[0], reverse=True)
+
+    # Create pairs by matching the sorted lists
     pairs = []
-    common_timestamps = sorted(imx_files.keys() & gpx_files.keys(), reverse=True)
+    min_len = min(len(imx_candidates), len(gpx_candidates))
 
-    for ts in common_timestamps:
+    for i in range(min_len):
+        imx_ts, imx_path = imx_candidates[i]
+        gpx_ts, gpx_path = gpx_candidates[i]
         pairs.append(FirmwarePair(
-            imx_path=imx_files[ts],
-            gpx_path=gpx_files[ts],
-            timestamp=ts
+            imx_full_path=imx_path,
+            gpx_full_path=gpx_path,
+            timestamp=imx_ts  # Using IMX timestamp as the primary for the pair
         ))
-        
+
     return pairs
+
 
 def select_firmware_pair(pairs: List[FirmwarePair]) -> Optional[FirmwarePair]:
     """
@@ -75,17 +85,17 @@ def select_firmware_pair(pairs: List[FirmwarePair]) -> Optional[FirmwarePair]:
     if not pairs:
         print("❌ Error: No matching firmware file sets found.")
         return None
-    
+
     if len(pairs) == 1:
-        print(f"✅ Found one matching firmware set: {pairs[0].timestamp}")
+        print(f"✅ Found one matching firmware set: {pairs[0].imx_full_path.name}, {pairs[0].gpx_full_path.name}")
         return pairs[0]
 
     print("🔎 Found multiple firmware sets. Please choose one:")
     # Limit choice to the 3 most recent sets
     display_pairs = pairs[:3]
     for i, pair in enumerate(display_pairs):
-        print(f"  [{i+1}] IMX: {pair.imx_path.name}")
-        print(f"      GPX: {pair.gpx_path.name}")
+        print(f"  [{i+1}] IMX: {pair.imx_full_path.name}")
+        print(f"      GPX: {pair.gpx_full_path.name}")
 
     while True:
         try:
@@ -98,7 +108,8 @@ def select_firmware_pair(pairs: List[FirmwarePair]) -> Optional[FirmwarePair]:
         except (ValueError, IndexError):
             print("Invalid input. Please enter a number from the list.")
 
-def update_firmware(pair: FirmwarePair) -> None:
+
+def update_firmware(pair: FirmwarePair, version: str) -> None:
     """
     Updates the firmware files and symlinks in the destination directory.
 
@@ -106,20 +117,16 @@ def update_firmware(pair: FirmwarePair) -> None:
         pair: The firmware pair to use for the update.
     """
     print(f"\n🚀 Starting firmware update process in: {DEST_DIR}")
-    os.chdir(DEST_DIR)
-
-    # Store old symlink targets
-    old_imx_target = Path(os.readlink(IMX_SYMLINK)) if os.path.islink(IMX_SYMLINK) else None
-    old_gpx_target = Path(os.readlink(GPX_SYMLINK)) if os.path.islink(GPX_SYMLINK) else None
+    os.chdir(DEST_DIR)  # Change to the destination directory
 
     # Copy new files
-    print(f"Copying {pair.imx_path.name}...")
-    new_imx_path = Path(pair.imx_path.name)
-    new_imx_path.write_bytes(pair.imx_path.read_bytes())
-    
-    print(f"Copying {pair.gpx_path.name}...")
-    new_gpx_path = Path(pair.gpx_path.name)
-    new_gpx_path.write_bytes(pair.gpx_path.read_bytes())
+    new_imx_path = Path(pair.imx_full_path.name)
+    print(f"Copying from {pair.imx_full_path} to {DEST_DIR/new_imx_path}")
+    new_imx_path.write_bytes(pair.imx_full_path.read_bytes())
+
+    new_gpx_path = Path(pair.gpx_full_path.name)
+    print(f"Copying from {pair.gpx_full_path} to {DEST_DIR/new_gpx_path}")
+    new_gpx_path.write_bytes(pair.gpx_full_path.read_bytes())
 
     # Set permissions and update symlinks
     new_imx_path.chmod(0o755)
@@ -129,27 +136,41 @@ def update_firmware(pair: FirmwarePair) -> None:
     new_gpx_path.chmod(0o755)
     Path(GPX_SYMLINK).unlink(missing_ok=True)
     Path(GPX_SYMLINK).symlink_to(new_gpx_path)
-    
+
     print("\n✅ Symlinks updated successfully:")
     os.system(f"ls -l {IMX_SYMLINK} {GPX_SYMLINK}")
 
-    # Ask to remove old files
-    if old_imx_target and old_gpx_target:
-        print("\nOld firmware files were:")
-        print(f"  IMX: {old_imx_target.name}")
-        print(f"  GPX: {old_gpx_target.name}")
-        
+    # 🔧 Extra cleanup of OLD matching files in kim_ftm_fw
+    print("\n🧹 Scanning for extra firmware files to remove...")
+
+    extra_files = [
+        f for f in DEST_DIR.iterdir()
+        if (
+            (f.name.startswith(IMX_PREFIX) or f.name.startswith(GPX_PREFIX))
+            and f.name not in {new_imx_path.name, new_gpx_path.name}
+        )
+    ]
+
+    if extra_files:
+        print("Found extra firmware files:")
+        for f in extra_files:
+            print(f"  - {f.name}")
         try:
-            confirm = input("\nRemove old firmware files? [y/N]: ")
+            confirm = input("\nRemove these extra files? [y/N]: ")
             if confirm.lower() == 'y':
-                if old_imx_target.exists():
-                    old_imx_target.unlink()
-                    print(f"Removed: {old_imx_target.name}")
-                if old_gpx_target.exists():
-                    old_gpx_target.unlink()
-                    print(f"Removed: {old_gpx_target.name}")
+                for f in extra_files:
+                    try:
+                        f.unlink()
+                        print(f"Removed: {f.name}")
+                    except Exception as e:
+                        print(f"Failed to remove {f.name}: {e}")
         except Exception as e:
-            print(f"Error during cleanup: {e}")
+            print(f"Error during extra cleanup: {e}")
+    else:
+        print("✅ No extra matching firmware files found.")
+
+    print(
+        f"\n✅ Firmware update complete! Update change with command below:\ncd {OW_SW_TOOLS_DIR} && git stage {DEST_DIR} && git commit -m 'Firmware update to {version}'")
 
 
 def main() -> None:
@@ -158,17 +179,17 @@ def main() -> None:
         description="Update firmware files based on version."
     )
     parser.add_argument(
-        "version",
-        type=str,
-        help="The firmware version to find and update (e.g., '2.5.0')."
+        "-v", "--version", type=str, required=True, help="The firmware version to find and update (e.g., '2.5.0')."
     )
     args = parser.parse_args()
 
-    firmware_pairs = find_firmware_pairs(args.version)
+    version = args.version
+    firmware_pairs = find_firmware_pairs(version)
     selected_pair = select_firmware_pair(firmware_pairs)
 
     if selected_pair:
-        update_firmware(selected_pair)
+        update_firmware(selected_pair, version)
+
 
 if __name__ == "__main__":
     main()

@@ -4,25 +4,11 @@ Copy flash log files from 192.168.100.254 via one or more jump hosts.
 
 Usage examples:
   # Single IP, T* logs
-  python3 get_logs.py -t T -i 192.168.100.52
-
-  # Multiple IPs, E* logs
-  python3 get_logs.py --type E --ips 192.168.100.52 192.168.100.53
-
-  # Multiple log types, multiple IPs
-  python3 get_logs.py --type P T E --ips 192.168.100.52 192.168.100.53
-
-  # Filter by date
-  python3 get_logs.py --type T --ips 192.168.100.52 --date 20250625
-
-  # Multiple log types, multiple IPs, filter by date
-  python3 get_logs.py --type P T E --ips 192.168.100.52 192.168.100.53 --date 20250625
-
-  # Multiple dates
-  python3 get_logs.py --type T --ips 192.168.100.52 --date 20250625 20250626
+  python3 ~/local_tools/other_local_tools/get_acu_logs.py -t T -i 192.168.100.52
 
   # Multiple log types, multiple IPs, multiple dates
-  python3 get_logs.py --type P T E --ips 192.168.100.52 192.168.100.53 --date 20250625 20250626
+  python3 ~/local_tools/other_local_tools/get_acu_logs.py --type P T E --ips 192.168.100.52 192.168.100.53 --date 20250625 20250626
+
 Prerequisites:
   - Python 3.6+
   - SSH access (password or key) to jump host(s) and flash logs server

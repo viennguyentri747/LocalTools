@@ -1,3 +1,5 @@
+#!/usr/bin/env python3.10
+
 from datetime import datetime, timedelta
 import argparse # Import the argparse module for named command-line arguments
 

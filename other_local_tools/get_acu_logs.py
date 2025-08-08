@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.10
 """
 Copy flash log files from 192.168.100.254 via one or more jump hosts.
 

@@ -1,3 +1,5 @@
+#!/usr/bin/env python3.10
+
 import argparse
 from enum import IntEnum, Flag, auto
 from typing import List

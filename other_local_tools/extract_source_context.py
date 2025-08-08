@@ -1,4 +1,5 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.10
+
 import argparse
 import subprocess
 import sys
@@ -7,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Tuple
 import shutil
 import os
+import re
 
 # Constants
 # Processing modes
@@ -19,6 +21,10 @@ AVAILABLE_MODES = [MODE_ALL_NON_IGNORE_FILES, MODE_CMAKELISTS, MODE_ALL_FILES]
 DEFAULT_OUTPUT_BASE_DIR = 'testing'
 DEFAULT_OUTPUT_SUBDIR = '.ai_context'
 
+# Folder rotation settings
+CONTEXT_FOLDER_PREFIX = 'context_'
+DEFAULT_MAX_FOLDERS = 5
+
 # Commands
 CMD_GITINGEST = 'gitingest'
 CMD_WSLPATH = 'wslpath'
@@ -29,7 +35,7 @@ PATTERN_CMAKELISTS = 'CMakeLists.txt'
 EXCLUDE_PATTERNS_DEFAULT = [
     '.*', 'cmake*', 'build', 'Build', 'BUILD', '*.cmake',
     'node_modules', '__pycache__', '*.pyc', '*.pyo',
-    '.git', '.svn', '.hg', '*.log', '*.tmp'
+    '.git', '.svn', '.hg', '*.log', '*.tmp', "MyVenvFolder", "tmp_output"
 ]
 
 # Command line arguments
@@ -43,6 +49,7 @@ ARG_INCLUDE_PATTERN = '--include-pattern'
 ARG_EXCLUDE_PATTERN = '--exclude-pattern'
 ARG_MAX_WORKERS = '--max-workers'
 ARG_NO_OPEN_EXPLORER = '--no-open-explorer'
+ARG_MAX_FOLDERS = '--max-folders'
 
 GIT_INGEST_OUTPUT_FLAG = '--output'
 GIT_INGEST_INCLUDE_FLAG = '--include-pattern'
@@ -85,6 +92,41 @@ MODE_DESCRIPTIONS = {
 }
 
 
+def rotate_context_folders(output_dir: Path, max_folders: int) -> None:
+    """
+    Rotate context folders by keeping only the most recent n folders.
+    
+    Args:
+        output_dir: Base directory containing context folders
+        max_folders: Maximum number of folders to keep (default: 5)
+    """
+    if not output_dir.exists():
+        return
+    
+    # Find all folders matching the context prefix pattern
+    context_folders = []
+    pattern = rf"^{re.escape(CONTEXT_FOLDER_PREFIX)}\d{{8}}_\d{{6}}$"
+    
+    for item in output_dir.iterdir():
+        if item.is_dir() and re.match(pattern, item.name):
+            context_folders.append(item)
+    
+    # Sort by modification time (newest first)
+    context_folders.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+    
+    # Remove excess folders
+    folders_to_remove = context_folders[max_folders:]
+    
+    if folders_to_remove:
+        print(f"{MSG_INFO_PREFIX} Rotating folders: keeping {min(len(context_folders), max_folders)} most recent context folders")
+        for folder in folders_to_remove:
+            try:
+                shutil.rmtree(folder)
+                print(f"{MSG_INFO_PREFIX} Removed old context folder: {folder.name}")
+            except Exception as e:
+                print(f"{MSG_WARNING_PREFIX} Failed to remove folder {folder.name}: {e}")
+
+
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
@@ -107,6 +149,8 @@ def parse_args() -> argparse.Namespace:
                         help='Maximum number of parallel threads to run.')
     parser.add_argument(ARG_NO_OPEN_EXPLORER, action='store_true',
                         help='Do not open Windows Explorer to highlight the output file(s) after completion.')
+    parser.add_argument(ARG_MAX_FOLDERS, type=int, default=DEFAULT_MAX_FOLDERS,
+                        help=f'Maximum number of context folders to keep (default: {DEFAULT_MAX_FOLDERS}).')
     return parser.parse_args()
 
 
@@ -211,8 +255,7 @@ def open_explorer_to_file(file_path: Path) -> None:
 
             # Open Explorer with file selected
             subprocess.run(
-                [CMD_EXPLORER, WSL_SELECT_FLAG, windows_path],
-                check=True
+                [CMD_EXPLORER, WSL_SELECT_FLAG, windows_path], check=True
             )
             print(f"{MSG_INFO_PREFIX} Opened Explorer to highlight '{file_path}'")
         else:
@@ -224,31 +267,31 @@ def open_explorer_to_file(file_path: Path) -> None:
 def merge_output_files(output_files: List[Path], output_dir: Path) -> Path:
     """
     Merge multiple output files into a single file.
-    
+   
     Args:
         output_files: List of output file paths to merge
         output_dir: Directory where the merged file will be saved
-        
+       
     Returns:
         Path to the merged file
     """
     file_names = [f.name for f in output_files]
     print(f"{MSG_INFO_PREFIX} Merging files {', '.join(file_names)} into a single file...")
-    
+   
     # Create a descriptive filename for the merged file (no timestamp since already in timestamped folder)
     merged_filename = f"merged_context{TXT_EXTENSION}"
     merged_path = output_dir / merged_filename
-    
+   
     # Merge all files
     with open(merged_path, 'w', encoding='utf-8') as merged_file:
         for i, file_path in enumerate(output_files):
             merged_file.write(f"\n\n{'='*50}\n")
             merged_file.write(f"FILE {i+1}/{len(output_files)}: {file_path.name}\n")
             merged_file.write(f"{'='*50}\n\n")
-            
+           
             with open(file_path, 'r', encoding='utf-8') as input_file:
                 merged_file.write(input_file.read())
-    
+   
     print(f"{MSG_SUCCESS_PREFIX} Merged {len(output_files)} files into '{merged_path}'")
     return merged_path
 
@@ -256,21 +299,21 @@ def merge_output_files(output_files: List[Path], output_dir: Path) -> Path:
 def create_log_file(args: argparse.Namespace, output_dir: Path, timestamp: str) -> Path:
     """
     Create a log file with context information.
-    
+   
     Args:
         args: Parsed command line arguments
         output_dir: Directory where the log file will be saved
         timestamp: Timestamp string for the log entry
-        
+       
     Returns:
         Path to the created log file
     """
     log_path = output_dir / "log.txt"
-    
+   
     with open(log_path, 'w', encoding='utf-8') as log_file:
         log_file.write(f"Extract Source Context Log - {timestamp}\n")
         log_file.write(f"{'='*50}\n\n")
-        
+       
         log_file.write("Arguments:\n")
         log_file.write(f"  Paths: {args.paths}\n")
         log_file.write(f"  Output directory: {args.output_dir}\n")
@@ -278,21 +321,22 @@ def create_log_file(args: argparse.Namespace, output_dir: Path, timestamp: str) 
         log_file.write(f"  Include patterns: {args.include_pattern}\n")
         log_file.write(f"  Exclude patterns: {args.exclude_pattern}\n")
         log_file.write(f"  Max workers: {args.max_workers}\n")
+        log_file.write(f"  Max folders: {args.max_folders}\n")
         log_file.write(f"  No open explorer: {args.no_open_explorer}\n")
-        
+       
         # Get mode-specific patterns
         mode_include, mode_exclude = get_mode_patterns(args.mode)
         log_file.write(f"\nMode-specific patterns:\n")
         log_file.write(f"  Include: {mode_include}\n")
         log_file.write(f"  Exclude: {mode_exclude}\n")
-        
+       
         # Combined patterns
         final_include = mode_include + args.include_pattern
         final_exclude = mode_exclude + args.exclude_pattern
         log_file.write(f"\nFinal patterns:\n")
         log_file.write(f"  Include: {final_include}\n")
         log_file.write(f"  Exclude: {final_exclude}\n")
-    
+   
     return log_path
 
 
@@ -308,11 +352,14 @@ def main() -> None:
     # Create timestamp for this run
     timestamp = subprocess.run(['date', '+%Y%m%d_%H%M%S'], capture_output=True, text=True).stdout.strip()
 
+    # Rotate existing context folders before creating a new one
+    rotate_context_folders(args.output_dir, args.max_folders - 1) #Minus 1 because we will create a new one
+
     # Create timestamped output directory
-    final_output_dir_name = f"context_{timestamp}"
+    final_output_dir_name = f"{CONTEXT_FOLDER_PREFIX}{timestamp}"
     final_output_dir = args.output_dir / final_output_dir_name
     final_output_dir.mkdir(parents=True, exist_ok=True)
-    
+   
     # Create log file
     log_path = create_log_file(args, final_output_dir, timestamp)
     print(f"{MSG_INFO_PREFIX} Log file created at: {log_path}")

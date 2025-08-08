@@ -78,6 +78,8 @@ def main() -> None:
     overwrite_repos = [get_path_no_git_suffix(r) for r in overwrite_repos]
     LOG(f"Parsed args: {args}")
 
+    # LOG(f"CD to {OW_SW_PATH}")
+    # os.chdir(OW_SW_PATH)
     prebuild_check(build_type, manifest_source, manifest_branch, tisdk_ref, overwrite_repos)
     pre_build_setup(build_type, manifest_source, manifest_branch, tisdk_ref, overwrite_repos, force_reset_tmp_build, sync)
     run_build(build_type, args.interactive)
@@ -89,6 +91,15 @@ def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: st
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build check...")
     LOG(f"Check OW branch matches with manifest branch. This is because we use some OW folders from the build like ./external/, ... ")
     try:
+        LOG(f"Checking if manifest branch '{ow_manifest_branch}' exists in '{ow_sw_path_str}'...")
+        # git rev-parse --verify will return 0 if the ref exists, non-zero otherwise.
+        # It checks local branches, remote-tracking branches, tags, etc.
+        branch_exists_result = run_shell(f"git rev-parse --verify {ow_manifest_branch}", cwd=ow_sw_path_str, capture_output=True, text=True, check_throw_exception_on_exit_code= False)
+        if branch_exists_result.returncode != 0:
+            LOG(f"ERROR: Manifest branch '{ow_manifest_branch}' does not exist in '{ow_sw_path_str}'. Please ensure the branch is available.", file=sys.stderr)
+            sys.exit(1)
+        LOG(f"Manifest branch '{ow_manifest_branch}' exists.")
+
         current_branch = run_shell("git branch --show-current", cwd=ow_sw_path_str, capture_output=True, text=True).stdout.strip()
         if current_branch != ow_manifest_branch:
             is_branch_ok: bool = False
@@ -97,7 +108,7 @@ def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: st
                 if is_ancestor(f"{ow_manifest_branch}", current_branch, cwd=ow_sw_path_str):
                     is_branch_ok = True
                 else:
-                    LOG(f"ERROR: Local branch '{current_branch}' is not a descendant of 'origin/{ow_manifest_branch}'", file=sys.stderr)
+                    LOG(f"ERROR: Local branch '{current_branch}' is not a descendant of '{ow_manifest_branch}' (or its remote tracking branch if applicable).", file=sys.stderr)
                     is_branch_ok = False
             else:
                 LOG(f"ERROR: OW_SW_PATH ({ow_sw_path_str}) is on branch '{current_branch}', but manifest branch is '{ow_manifest_branch}'. Checkout correct OW_SW_PATH branch or update manifest branch. Ex: cd {ow_sw_path_str} && git checkout {ow_manifest_branch}", file=sys.stderr)
@@ -144,7 +155,7 @@ def is_ancestor(ancestor_ref: str, descentdant_ref: str, cwd: Union[str, Path]) 
         True if the ancestry condition is met, False otherwise.
     """
     cmd = f"git merge-base --is-ancestor {ancestor_ref} {descentdant_ref}"
-    result = run_shell(cmd, cwd=cwd, check_exception_on_exit_code=False)
+    result = run_shell(cmd, cwd=cwd, check_throw_exception_on_exit_code=False)
     return result.returncode == 0
 
 
@@ -180,7 +191,7 @@ def pre_build_setup(build_type: str, manifest_source: str, ow_manifest_branch: s
         prepare_iesa_bsp(tisdk_ref)
 
 
-def convert_files_in_folder_to_unix_style(folder_path: Path) -> None:
+def convert_files_in_folder_to_unix_style(folder_path: Path, postfixes: List[str] = [".py", ".sh"]) -> None:
     LOG(f"Converting files in {folder_path} to Unix style line endings...")
     try:
         path_to_use = F"{str(folder_path.absolute())}/"
@@ -194,17 +205,29 @@ def convert_files_in_folder_to_unix_style(folder_path: Path) -> None:
         # join them with " -o ", and wrap the whole thing in \( … \)
         prune_clause = f"\\( {' -o '.join(prune_parts)} \\) -prune -o"
 
+        # Build name patterns for the find command
+        name_patterns = [f"-name '*{ext}'" for ext in postfixes]
+        name_clause = " -o ".join(name_patterns)
+
         # now assemble the full find command
         cmd = (
             f"find {path_to_use} {prune_clause} "
-            "-type f \\( -name '*.py' -o -name '*.sh' \\) "
+            f"-type f \\( {name_clause} \\) "
             "-print0 | xargs -0 dos2unix"
         )
 
-        run_shell(cmd, check_exception_on_exit_code=False)
-        LOG("Conversion of .py and .sh files to Unix style line endings completed.")
+        run_shell(cmd, check_throw_exception_on_exit_code=False)
+        LOG(f"Conversion of {', '.join(postfixes)} files to Unix style line endings completed.")
+
+        # Grant execute permissions to files postfixes if they are in the postfixes list
+        chmod_cmd = (
+            f"find {path_to_use} {prune_clause} "
+            "-type f -name '*.sh' "
+            "-print0 | xargs -0 chmod +x"
+        )
+        run_shell(chmod_cmd, check_throw_exception_on_exit_code=False)
     except Exception as e:
-        LOG(f"Error converting files to Unix style line endings: {e}", file=sys.stderr)
+        LOG(f"Error converting files to Unix style line endings or setting permissions: {e}", file=sys.stderr)
 
 
 def run_build(build_type: str, interactive: bool = False) -> None:
@@ -224,7 +247,7 @@ def run_build(build_type: str, interactive: bool = False) -> None:
         LOG(f"{LINE_SEPARATOR}Entering interactive mode.")
         LOG(f"Run 'make {make_target}' to start {build_type} building.", highlight=True)
         LOG(f"Type 'exit' or press Ctrl+D to leave interactive mode.")
-        run_shell(docker_cmd + "bash", check_exception_on_exit_code=False)
+        run_shell(docker_cmd + "bash", check_throw_exception_on_exit_code=False)
         # For now, we pass the control to bash process -> Code will not reach unless we exit interactive mode (run_shell will block)
         LOG(f"Exiting interactive mode...")
     else:

@@ -3,3 +3,4 @@ MyVenvFolder/
 __pycache__/
 artifacts/
 bsp_artifacts/
+tmp_output/

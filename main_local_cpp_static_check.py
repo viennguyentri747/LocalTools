@@ -133,10 +133,10 @@ def main() -> None:
 
     if not skip_tidy:
         clang_tidy_cmd = build_clang_tidy_cmd(input_files_or_dirs, ignore_dirs)
-        run_shell(clang_tidy_cmd, check_exception_on_exit_code=False)
+        run_shell(clang_tidy_cmd, check_throw_exception_on_exit_code=False)
 
     cppcheck_cmd = build_cppcheck_cmd(input_files_or_dirs, ignore_dirs)
-    run_shell(cppcheck_cmd, check_exception_on_exit_code=False)
+    run_shell(cppcheck_cmd, check_throw_exception_on_exit_code=False)
 
 
 if __name__ == '__main__':

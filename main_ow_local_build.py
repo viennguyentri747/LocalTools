@@ -45,11 +45,12 @@ def main() -> None:
                         help="Build type (binary or iesa). Defaults to binary.")
     parser.add_argument("--manifest_source", choices=[MANIFEST_SOURCE_LOCAL, MANIFEST_SOURCE_REMOTE], default="local",
                         help=F"Source for the manifest repository URL ({MANIFEST_SOURCE_LOCAL} or {MANIFEST_SOURCE_REMOTE}). Defaults to {MANIFEST_SOURCE_LOCAL}. Note that although it is local manifest, the source of sync is still remote so will need to push branch of dependent local repos specified in local manifest (not ow_sw_tools).")
-    parser.add_argument("-b", "--ow_manifest_branch", type=str, required=True,
+    parser.add_argument("-b", "--ow_manifest_branch", type=Optional[str], default=None,
                         help="Branch of oneweb_project_sw_tools for manifest (either local or remote branch, depend on --manifest_source). Ex: 'manpack_master'")
     # parser.add_argument("--check_manifest_branch", type=lambda x: x.lower() == 'true', default=True,
     #                     help="Check if OW_SW_PATH branch matches manifest branch (true or false). Defaults to true.")  # Only set this to FALSE if you know what you're doing
-    parser.add_argument("--tisdk_ref", type=str, default=None, help="TISDK Ref for BSP (for creating .iesa). Ex: 'manpack_master'")
+    parser.add_argument("--tisdk_ref", type=str, default=None,
+                        help="TISDK Ref for BSP (for creating .iesa). Ex: 'manpack_master'")
     parser.add_argument("--overwrite_repos", nargs='*', default=[],
                         help="List of repository names to overwrite from local")
     parser.add_argument("-i", "--interactive", type=lambda x: x.lower() == 'true', default=False,
@@ -58,7 +59,7 @@ def main() -> None:
                         help="Force clearing tmp_build folder (true or false). Defaults to false.")
     parser.add_argument("--sync", type=lambda x: x.lower() == 'true', default=True,
                         help="If true, perform tmp_build reset (true or false) and repo sync. Defaults to true.")
-    parser.add_argument("--use_ow_current_branch", type=lambda x: x.lower() == 'true', default=False,
+    parser.add_argument("--use_current_ow_branch", type=lambda x: x.lower() == 'true', default=False,
                         help="Use the current branch of ow_sw_tools repo. Defaults to false.")
     args = parser.parse_args()
     LOG(
@@ -72,12 +73,11 @@ def main() -> None:
     build_type: str = args.build_type
     # is_overwrite_local_repos: bool = args.is_overwrite_local_repos
     manifest_source: str = args.manifest_source
-    manifest_branch: str = args.ow_manifest_branch  # Can be local or remote
     tisdk_ref: Optional[str] = args.tisdk_ref
     overwrite_repos: List[str] = args.overwrite_repos
     force_reset_tmp_build: bool = args.force_reset_tmp_build
     sync: bool = args.sync
-    use_ow_current_branch: bool = args.use_ow_current_branch
+    use_current_ow_branch: bool = args.use_current_ow_branch
     # Update overwrite repos no git suffix
     overwrite_repos = [get_path_no_git_suffix(r) for r in overwrite_repos]
     LOG(f"Parsed args: {args}")
@@ -85,17 +85,27 @@ def main() -> None:
     # LOG(f"CD to {OW_SW_PATH}")
     # os.chdir(OW_SW_PATH)
     ow_sw_path_str = str(OW_SW_PATH)
-    current_branch = run_shell("git branch --show-current", cwd=ow_sw_path_str, capture_output=True, text=True).stdout.strip()
+    current_branch = run_shell("git branch --show-current", cwd=ow_sw_path_str,
+                               capture_output=True, text=True).stdout.strip()
 
-    if use_ow_current_branch:
+    manifest_branch: Optional[str] = None  # Can be local or remote
+    if use_current_ow_branch:
         if manifest_source == MANIFEST_SOURCE_LOCAL:
             LOG(f"Using current branch '{current_branch}' as manifest branch.")
             manifest_branch = current_branch
         else:
-            LOG(f"Warning: --use_ow_current_branch is only effective with --manifest_source local. Ignoring for remote manifest.")
+            LOG(f"ERROR: --use_current_ow_branch is only valid when --manifest_source is local.", file=sys.stderr)
+            sys.exit(1)
+    else:
+        manifest_branch = args.ow_manifest_branch
+        if args.ow_manifest_branch is None:
+            LOG(f"ERROR: --ow_manifest_branch is required when not using --use_current_ow_branch.", file=sys.stderr)
+            sys.exit(1)
 
-    prebuild_check(build_type, manifest_source, manifest_branch, tisdk_ref, overwrite_repos, use_ow_current_branch, current_branch)
-    pre_build_setup(build_type, manifest_source, manifest_branch, tisdk_ref, overwrite_repos, force_reset_tmp_build, sync)
+    prebuild_check(build_type, manifest_source, manifest_branch, tisdk_ref,
+                   overwrite_repos, use_current_ow_branch, current_branch)
+    pre_build_setup(build_type, manifest_source, manifest_branch,
+                    tisdk_ref, overwrite_repos, force_reset_tmp_build, sync)
     run_build(build_type, args.interactive)
 
     if build_type == BUILD_TYPE_IESA:
@@ -108,7 +118,7 @@ def main() -> None:
                 OUTPUT_IESA_PATH.rename(new_iesa_path)
                 LOG(f"Renamed '{OUTPUT_IESA_PATH.name}' to '{new_iesa_path.name}'")
                 LOG(f"Find output IESA here (WSL path): {new_iesa_path.resolve()}")
-                
+
                 LOG("\nUse this below command to copy to target IP:\n")
                 output_path = new_iesa_path.resolve()
                 LOG(f'output_path="{output_path}" && read -p "Enter source IP address: " source_ip && rmh && sudo chmod 644 "$output_path" && scp -rJ root@$source_ip "$output_path" root@192.168.100.254:/home/root/download/')
@@ -121,29 +131,31 @@ def main() -> None:
 
 
 # ───────────────────────────  helpers / actions  ─────────────────────── #
-def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: str, input_tisdk_ref: str, overwrite_repos: List[str], use_ow_current_branch: bool, current_branch: str):
+def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: str, input_tisdk_ref: str, overwrite_repos: List[str], use_current_ow_branch: bool, current_branch: str):
     ow_sw_path_str = str(OW_SW_PATH)
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build check...")
     LOG(f"Check OW branch matches with manifest branch. This is because we use some OW folders from the build like ./external/, ... ")
     try:
-        if not use_ow_current_branch:
-            LOG(f"Checking if manifest branch '{ow_manifest_branch}' exists in '{ow_sw_path_str}'...")
-            branch_exists_result = run_shell(f"git rev-parse --verify {ow_manifest_branch}", cwd=ow_sw_path_str, capture_output=True, text=True, check_throw_exception_on_exit_code=False)
+        if not use_current_ow_branch:
+            base_manifest_branch = ow_manifest_branch
+            LOG(f"Checking if manifest branch '{base_manifest_branch}' exists in '{ow_sw_path_str}'...")
+            branch_exists_result = run_shell(
+                f"git rev-parse --verify {base_manifest_branch}", cwd=ow_sw_path_str, capture_output=True, text=True, check_throw_exception_on_exit_code=False)
             if branch_exists_result.returncode != 0:
-                LOG(f"ERROR: Manifest branch '{ow_manifest_branch}' does not exist in '{ow_sw_path_str}'. Please ensure the branch is available.", file=sys.stderr)
+                LOG(f"ERROR: Manifest branch '{base_manifest_branch}' does not exist in '{ow_sw_path_str}'. Please ensure the branch is available.", file=sys.stderr)
                 sys.exit(1)
-            LOG(f"Manifest branch '{ow_manifest_branch}' exists.")
+            LOG(f"Manifest branch '{base_manifest_branch}' exists.")
 
-            if current_branch != ow_manifest_branch:
+            if current_branch != base_manifest_branch:
                 is_branch_ok: bool = False
                 if manifest_source == MANIFEST_SOURCE_LOCAL:
-                    if is_ancestor(f"{ow_manifest_branch}", current_branch, cwd=ow_sw_path_str):
+                    if is_ancestor(f"{base_manifest_branch}", current_branch, cwd=ow_sw_path_str):
                         is_branch_ok = True
                     else:
-                        LOG(f"ERROR: Local branch '{current_branch}' is not a descendant of '{ow_manifest_branch}' (or its remote tracking branch if applicable).", file=sys.stderr)
+                        LOG(f"ERROR: Local branch '{current_branch}' is not a descendant of '{base_manifest_branch}' (or its remote tracking branch if applicable).", file=sys.stderr)
                         is_branch_ok = False
                 else:
-                    LOG(f"ERROR: OW_SW_PATH ({ow_sw_path_str}) is on branch '{current_branch}', but manifest branch is '{ow_manifest_branch}'. Checkout correct OW_SW_PATH branch or update manifest branch. Ex: cd {ow_sw_path_str} && git checkout {ow_manifest_branch}", file=sys.stderr)
+                    LOG(f"ERROR: OW_SW_PATH ({ow_sw_path_str}) is on branch '{current_branch}', but manifest branch is '{base_manifest_branch}'. Checkout correct OW_SW_PATH branch or update manifest branch. Ex: cd {ow_sw_path_str} && git checkout {base_manifest_branch}", file=sys.stderr)
                     LOG(f"This is kinda wierd but because we run docker")
                 if not is_branch_ok:
                     sys.exit(1)
@@ -194,12 +206,12 @@ def is_ancestor(ancestor_ref: str, descentdant_ref: str, cwd: Union[str, Path]) 
 
 def pre_build_setup(build_type: str, manifest_source: str, ow_manifest_branch: str, tisdk_ref: str, overwrite_repos: List[str], force_reset_tmp_build: bool, sync: bool) -> None:
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build setup...")
-    setup_executable_files(OW_SW_PATH) # It will use LOCAL OW_SW to run build (docker run -it ...)
+    setup_executable_files(OW_SW_PATH)  # It will use LOCAL OW_SW to run build (docker run -it ...)
 
     if sync:
         reset_or_create_tmp_build(force_reset_tmp_build)
         manifest_repo_url = get_manifest_repo_url(manifest_source)
-        init_and_sync(manifest_repo_url, ow_manifest_branch) # Sync other repos from manifest of REMOTE OW_SW
+        init_and_sync(manifest_repo_url, ow_manifest_branch)  # Sync other repos from manifest of REMOTE OW_SW
     else:
         LOG("Skipping tmp_build reset and repo sync due to --sync false flag.")
 
@@ -227,7 +239,7 @@ def pre_build_setup(build_type: str, manifest_source: str, ow_manifest_branch: s
 def setup_executable_files(folder_path: Path, postfixes: Optional[List[str]] = None) -> None:
     # Define the set of script extensions that should be made executable.
     supported_script_postfixes = {".sh", ".py", ".pl", ".awk", ".sed"}
-    
+
     # Default to .py and .sh if no postfixes are specified.
     if postfixes is None:
         postfixes = [".py", ".sh"]
@@ -236,13 +248,13 @@ def setup_executable_files(folder_path: Path, postfixes: Optional[List[str]] = N
         if not folder_path.exists():
             LOG(f"Path does not exist, cannot proceed: {folder_path}")
             return
-        
+
         if not folder_path.is_dir():
             LOG(f"Path is not a directory. This function only accepts directory paths. Path: {folder_path}")
             return
 
         LOG(f"Processing a directory: {folder_path}")
-        
+
         # Filter the user-provided postfixes to only include supported script types.
         valid_postfixes = [p for p in postfixes if p in supported_script_postfixes]
         unsupported = set(postfixes) - set(valid_postfixes)
@@ -295,20 +307,41 @@ def run_build(build_type: str, interactive: bool = False) -> None:
     else:
         raise ValueError(f"Unknown build type: {build_type}, expected {BUILD_TYPE_BINARY} or {BUILD_TYPE_IESA}")
 
-    docker_cmd = (
+    docker_cmd_base = (
         f"docker run -it --rm -v {OW_SW_PATH}:{OW_SW_PATH} -w {OW_SW_PATH} oneweb_sw "
+    )
+
+    # Command to find and convert script files to Unix format (similar to setup_executable_files logic)
+    # This targets the same file types that setup_executable_files processes
+    dos2unix_cmd = (
+        "find . \\( -name tmp_build -o -name .git -o -name __pycache__ -o -name node_modules \\) -prune -o "
+        "-type f \\( -name '*.py' -o -name '*.sh' -o -name '*.pl' -o -name '*.awk' -o -name '*.sed' \\) "
+        "-print0 | xargs -0 dos2unix"
     )
 
     time_now = datetime.datetime.now()
     if interactive:
         LOG(f"{LINE_SEPARATOR}Entering interactive mode.")
-        LOG(f"Run 'make {make_target}' to start {build_type} building.", highlight=True)
+        LOG("Note: dos2unix will be run automatically when you execute make commands.")
+        LOG(f"Run 'dos2unix_and_make() {{ {dos2unix_cmd} && make {make_target}; }}' to start {build_type} building with dos2unix.", highlight=True)
+        LOG(f"Or run individual commands: first '{dos2unix_cmd.replace('xargs -0 dos2unix', 'xargs -0 dos2unix')}', then 'make {make_target}'")
         LOG(f"Type 'exit' or press Ctrl+D to leave interactive mode.")
-        run_shell(docker_cmd + "bash", check_throw_exception_on_exit_code=False)
-        # For now, we pass the control to bash process -> Code will not reach unless we exit interactive mode (run_shell will block)
+
+        # Create a bash function for convenience and enter interactive mode
+        bash_setup = f"""
+        dos2unix_and_make() {{
+            echo "Running dos2unix on script files..."
+            {dos2unix_cmd}
+            echo "Running make {make_target}..."
+            make {make_target}
+        }}
+        """
+        run_shell(docker_cmd_base + f"bash -c '{bash_setup}; bash'", check_throw_exception_on_exit_code=False)
         LOG(f"Exiting interactive mode...")
     else:
-        run_shell(docker_cmd + f"bash -c 'make {make_target}'")
+        LOG("Running dos2unix on script files and build command...")
+        # Chain dos2unix and make commands
+        run_shell(docker_cmd_base + f"bash -c {dos2unix_cmd} && make {make_target}")
         elapsed_time = (datetime.datetime.now() - time_now).total_seconds()
         LOG(f"Build finished in {elapsed_time} seconds")
 
@@ -459,7 +492,7 @@ def sync_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
         src_overwrite_commit = run_shell("git rev-parse HEAD", cwd=src_path,
                                          capture_output=True, text=True).stdout.strip()
         dest_orig_commit = run_shell("git rev-parse HEAD", cwd=dest_root_path,
-                                     capture_output=True, text=True).stdout.strip() # Fetch remotely via repo sync
+                                     capture_output=True, text=True).stdout.strip()  # Fetch remotely via repo sync
 
         if src_overwrite_commit == dest_orig_commit:
             LOG("Source and destination are at the same commit. No history check needed.")
@@ -585,4 +618,3 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         LOG("\nAborted by user.", file=sys.stderr)
         sys.exit(1)
-

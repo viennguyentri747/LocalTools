@@ -21,6 +21,7 @@ import yaml
 
 CORE_REPOS_FOLDER_PATH = Path.home() / "workspace" / "intellian_core_repos/"
 OW_SW_PATH = Path.home() / "ow_sw_tools/"
+OUTPUT_IESA_PATH = OW_SW_PATH / "install_iesa_tarball.iesa"
 # OW_SW_PATH = CORE_REPOS_PATH / "ow_sw_tools"
 BUILD_FOLDER_PATH = OW_SW_PATH / "tmp_build/"
 SCRIPT_FOLDER_PATH = Path.home() / "local_tools/"
@@ -83,6 +84,27 @@ def main() -> None:
     prebuild_check(build_type, manifest_source, manifest_branch, tisdk_ref, overwrite_repos)
     pre_build_setup(build_type, manifest_source, manifest_branch, tisdk_ref, overwrite_repos, force_reset_tmp_build, sync)
     run_build(build_type, args.interactive)
+
+    if build_type == BUILD_TYPE_IESA:
+        LOG(f"{MAIN_STEP_LOG_PREFIX} IESA build finished. Renaming artifact...")
+        if OUTPUT_IESA_PATH.is_file():
+            new_iesa_name = f"v_{manifest_branch}.iesa"
+            new_iesa_path = OUTPUT_IESA_PATH.parent / new_iesa_name
+            try:
+                # In linux, rename will overwrite.
+                OUTPUT_IESA_PATH.rename(new_iesa_path)
+                LOG(f"Renamed '{OUTPUT_IESA_PATH.name}' to '{new_iesa_path.name}'")
+                LOG(f"Find output IESA here (WSL path): {new_iesa_path.resolve()}")
+                
+                LOG("\nUse this below command to copy to target IP:\n")
+                output_path = new_iesa_path.resolve()
+                LOG(f'output_path="{output_path}" && read -p "Enter source IP address: " source_ip && rmh && sudo chmod 644 "$output_path" && scp -rJ root@$source_ip "$output_path" root@192.168.100.254:/home/root/download/')
+            except OSError as e:
+                LOG(f"Error renaming file: {e}", file=sys.stderr)
+                sys.exit(1)
+        else:
+            LOG(f"ERROR: Expected IESA artifact not found at '{OUTPUT_IESA_PATH}' or it's not a file.", file=sys.stderr)
+            sys.exit(1)
 
 
 # ───────────────────────────  helpers / actions  ─────────────────────── #

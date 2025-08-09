@@ -58,6 +58,8 @@ def main() -> None:
                         help="Force clearing tmp_build folder (true or false). Defaults to false.")
     parser.add_argument("--sync", type=lambda x: x.lower() == 'true', default=True,
                         help="If true, perform tmp_build reset (true or false) and repo sync. Defaults to true.")
+    parser.add_argument("--use_ow_current_branch", type=lambda x: x.lower() == 'true', default=False,
+                        help="Use the current branch of ow_sw_tools repo. Defaults to false.")
     args = parser.parse_args()
     LOG(
         textwrap.dedent(
@@ -75,13 +77,24 @@ def main() -> None:
     overwrite_repos: List[str] = args.overwrite_repos
     force_reset_tmp_build: bool = args.force_reset_tmp_build
     sync: bool = args.sync
+    use_ow_current_branch: bool = args.use_ow_current_branch
     # Update overwrite repos no git suffix
     overwrite_repos = [get_path_no_git_suffix(r) for r in overwrite_repos]
     LOG(f"Parsed args: {args}")
 
     # LOG(f"CD to {OW_SW_PATH}")
     # os.chdir(OW_SW_PATH)
-    prebuild_check(build_type, manifest_source, manifest_branch, tisdk_ref, overwrite_repos)
+    ow_sw_path_str = str(OW_SW_PATH)
+    current_branch = run_shell("git branch --show-current", cwd=ow_sw_path_str, capture_output=True, text=True).stdout.strip()
+
+    if use_ow_current_branch:
+        if manifest_source == MANIFEST_SOURCE_LOCAL:
+            LOG(f"Using current branch '{current_branch}' as manifest branch.")
+            manifest_branch = current_branch
+        else:
+            LOG(f"Warning: --use_ow_current_branch is only effective with --manifest_source local. Ignoring for remote manifest.")
+
+    prebuild_check(build_type, manifest_source, manifest_branch, tisdk_ref, overwrite_repos, use_ow_current_branch, current_branch)
     pre_build_setup(build_type, manifest_source, manifest_branch, tisdk_ref, overwrite_repos, force_reset_tmp_build, sync)
     run_build(build_type, args.interactive)
 
@@ -108,34 +121,32 @@ def main() -> None:
 
 
 # ───────────────────────────  helpers / actions  ─────────────────────── #
-def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: str, input_tisdk_ref: str, overwrite_repos: List[str]):
+def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: str, input_tisdk_ref: str, overwrite_repos: List[str], use_ow_current_branch: bool, current_branch: str):
     ow_sw_path_str = str(OW_SW_PATH)
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build check...")
     LOG(f"Check OW branch matches with manifest branch. This is because we use some OW folders from the build like ./external/, ... ")
     try:
-        LOG(f"Checking if manifest branch '{ow_manifest_branch}' exists in '{ow_sw_path_str}'...")
-        # git rev-parse --verify will return 0 if the ref exists, non-zero otherwise.
-        # It checks local branches, remote-tracking branches, tags, etc.
-        branch_exists_result = run_shell(f"git rev-parse --verify {ow_manifest_branch}", cwd=ow_sw_path_str, capture_output=True, text=True, check_throw_exception_on_exit_code= False)
-        if branch_exists_result.returncode != 0:
-            LOG(f"ERROR: Manifest branch '{ow_manifest_branch}' does not exist in '{ow_sw_path_str}'. Please ensure the branch is available.", file=sys.stderr)
-            sys.exit(1)
-        LOG(f"Manifest branch '{ow_manifest_branch}' exists.")
-
-        current_branch = run_shell("git branch --show-current", cwd=ow_sw_path_str, capture_output=True, text=True).stdout.strip()
-        if current_branch != ow_manifest_branch:
-            is_branch_ok: bool = False
-            if manifest_source == MANIFEST_SOURCE_LOCAL:
-                # Check if the manifest branch from (local) is an ancestor of the current local branch.
-                if is_ancestor(f"{ow_manifest_branch}", current_branch, cwd=ow_sw_path_str):
-                    is_branch_ok = True
-                else:
-                    LOG(f"ERROR: Local branch '{current_branch}' is not a descendant of '{ow_manifest_branch}' (or its remote tracking branch if applicable).", file=sys.stderr)
-                    is_branch_ok = False
-            else:
-                LOG(f"ERROR: OW_SW_PATH ({ow_sw_path_str}) is on branch '{current_branch}', but manifest branch is '{ow_manifest_branch}'. Checkout correct OW_SW_PATH branch or update manifest branch. Ex: cd {ow_sw_path_str} && git checkout {ow_manifest_branch}", file=sys.stderr)
-            if not is_branch_ok:
+        if not use_ow_current_branch:
+            LOG(f"Checking if manifest branch '{ow_manifest_branch}' exists in '{ow_sw_path_str}'...")
+            branch_exists_result = run_shell(f"git rev-parse --verify {ow_manifest_branch}", cwd=ow_sw_path_str, capture_output=True, text=True, check_throw_exception_on_exit_code=False)
+            if branch_exists_result.returncode != 0:
+                LOG(f"ERROR: Manifest branch '{ow_manifest_branch}' does not exist in '{ow_sw_path_str}'. Please ensure the branch is available.", file=sys.stderr)
                 sys.exit(1)
+            LOG(f"Manifest branch '{ow_manifest_branch}' exists.")
+
+            if current_branch != ow_manifest_branch:
+                is_branch_ok: bool = False
+                if manifest_source == MANIFEST_SOURCE_LOCAL:
+                    if is_ancestor(f"{ow_manifest_branch}", current_branch, cwd=ow_sw_path_str):
+                        is_branch_ok = True
+                    else:
+                        LOG(f"ERROR: Local branch '{current_branch}' is not a descendant of '{ow_manifest_branch}' (or its remote tracking branch if applicable).", file=sys.stderr)
+                        is_branch_ok = False
+                else:
+                    LOG(f"ERROR: OW_SW_PATH ({ow_sw_path_str}) is on branch '{current_branch}', but manifest branch is '{ow_manifest_branch}'. Checkout correct OW_SW_PATH branch or update manifest branch. Ex: cd {ow_sw_path_str} && git checkout {ow_manifest_branch}", file=sys.stderr)
+                    LOG(f"This is kinda wierd but because we run docker")
+                if not is_branch_ok:
+                    sys.exit(1)
     except Exception as e:
         LOG(f"ERROR: Error while checking OW_SW_PATH branch: {e}", file=sys.stderr)
         sys.exit(1)
@@ -574,3 +585,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         LOG("\nAborted by user.", file=sys.stderr)
         sys.exit(1)
+

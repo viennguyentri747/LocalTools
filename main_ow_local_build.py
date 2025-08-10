@@ -122,7 +122,7 @@ def main() -> None:
 
                 LOG("\nUse this below command to copy to target IP:\n")
                 output_path = new_iesa_path.resolve()
-                LOG(f'output_path="{output_path}" && read -p "Enter source IP address: " source_ip && rmh && sudo chmod 644 "$output_path" && scp -rJ root@$source_ip "$output_path" root@192.168.100.254:/home/root/download/')
+                LOG(f'output_path="{output_path}" && read -e -i "192.168.10" -p "Enter source IP address: " source_ip && rmh && sudo chmod 644 "$output_path" && scp -rJ root@$source_ip "$output_path" root@192.168.100.254:/home/root/download/')
             except OSError as e:
                 LOG(f"Error renaming file: {e}", file=sys.stderr)
                 sys.exit(1)

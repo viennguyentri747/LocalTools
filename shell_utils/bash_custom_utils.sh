@@ -7,14 +7,6 @@ NOTE_PERMANENT_COMMAND='May need to copy key to UT (for permanent login) before 
 alias rmh="rm -f ~/.ssh/known_hosts"
 alias sshp="sshpass -p"
 alias cb="xclip -selection clipboard"
-# Alias with argument
-#fetch_uts() {
-#    ~/custom_python_utils/MyVenvFolder/bin/python ~/custom_python_utils/fetch_uts_info.py "$@"
-#}
-
-#install_iesa() {
-#    ~/custom_python_utils/MyVenvFolder/bin/python ~/custom_python_utils/install_ut_iesa.py "$@"
-#}
 
 # Function to get IP based on area
 get_ip() {

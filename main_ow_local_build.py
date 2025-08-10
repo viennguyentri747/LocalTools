@@ -6,6 +6,7 @@ import datetime
 import os
 from pathlib import Path
 import shlex
+import shlex
 import shutil
 import subprocess
 import sys
@@ -206,7 +207,7 @@ def is_ancestor(ancestor_ref: str, descentdant_ref: str, cwd: Union[str, Path]) 
 
 def pre_build_setup(build_type: str, manifest_source: str, ow_manifest_branch: str, tisdk_ref: str, overwrite_repos: List[str], force_reset_tmp_build: bool, sync: bool) -> None:
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build setup...")
-    setup_executable_files(OW_SW_PATH)  # It will use LOCAL OW_SW to run build (docker run -it ...)
+    # setup_executable_files(OW_SW_PATH)  # It will use LOCAL OW_SW to run build (docker run -it ...)
 
     if sync:
         reset_or_create_tmp_build(force_reset_tmp_build)
@@ -276,12 +277,12 @@ def setup_executable_files(folder_path: Path, postfixes: Optional[List[str]] = N
         name_clause = " -o ".join(name_patterns)
 
         # Command to convert all matching files to Unix line endings.
-        # Using -print0 and xargs -0 handles filenames with spaces or special characters.
+        # Using -exec handles filenames with spaces or special characters and avoids "argument line too long" errors.
         LOG(f"Converting {', '.join(valid_postfixes)} files to Unix line endings...")
         dos2unix_cmd = (
             f"find {path_to_use} {prune_clause} "
             f"-type f \\( {name_clause} \\) "
-            "-print0 | xargs -0 dos2unix"
+            "-exec dos2unix {} +"
         )
         run_shell(dos2unix_cmd, check_throw_exception_on_exit_code=False)
 
@@ -290,7 +291,7 @@ def setup_executable_files(folder_path: Path, postfixes: Optional[List[str]] = N
         chmod_cmd = (
             f"find {path_to_use} {prune_clause} "
             f"-type f \\( {name_clause} \\) "
-            "-print0 | xargs -0 chmod +x"
+            "-exec chmod +x {} +"
         )
         run_shell(chmod_cmd, check_throw_exception_on_exit_code=False)
         LOG("Directory processing complete.")
@@ -314,34 +315,29 @@ def run_build(build_type: str, interactive: bool = False) -> None:
     # Command to find and convert script files to Unix format (similar to setup_executable_files logic)
     # This targets the same file types that setup_executable_files processes
     dos2unix_cmd = (
-        "find . \\( -name tmp_build -o -name .git -o -name __pycache__ -o -name node_modules \\) -prune -o "
-        "-type f \\( -name '*.py' -o -name '*.sh' -o -name '*.pl' -o -name '*.awk' -o -name '*.sed' \\) "
-        "-print0 | xargs -0 dos2unix"
+        f"apt-get install -y dos2unix && find {OW_SW_PATH.absolute()}/packaging \\( -name tmp_build -o -name .git -o -name __pycache__ \\) -prune -o -type f \\( -name '*.py' -o -name '*.sh' \\) "
+        "-exec dos2unix {} +"
+    )
+
+    chmod_cmd = (
+        f"chmod -R +x {OW_SW_PATH.absolute()}/"    
     )
 
     time_now = datetime.datetime.now()
     if interactive:
         LOG(f"{LINE_SEPARATOR}Entering interactive mode.")
-        LOG("Note: dos2unix will be run automatically when you execute make commands.")
-        LOG(f"Run 'dos2unix_and_make() {{ {dos2unix_cmd} && make {make_target}; }}' to start {build_type} building with dos2unix.", highlight=True)
-        LOG(f"Or run individual commands: first '{dos2unix_cmd.replace('xargs -0 dos2unix', 'xargs -0 dos2unix')}', then 'make {make_target}'")
-        LOG(f"Type 'exit' or press Ctrl+D to leave interactive mode.")
 
         # Create a bash function for convenience and enter interactive mode
-        bash_setup = f"""
-        dos2unix_and_make() {{
-            echo "Running dos2unix on script files..."
-            {dos2unix_cmd}
-            echo "Running make {make_target}..."
-            make {make_target}
-        }}
-        """
-        run_shell(docker_cmd_base + f"bash -c '{bash_setup}; bash'", check_throw_exception_on_exit_code=False)
+        bash_setup = f"""/bin/bash -c "echo 'Running dos2unix on script files...'; {dos2unix_cmd} && echo 'Granting execute permissions to script files...'; {chmod_cmd} && echo -e '\\nRun make {make_target} to start {build_type} building.\\n\\nType exit or press Ctrl+D to leave interactive mode.' && exec bash" """
+
+        run_shell(docker_cmd_base + bash_setup, check_throw_exception_on_exit_code=False)
         LOG(f"Exiting interactive mode...")
     else:
         LOG("Running dos2unix on script files and build command...")
         # Chain dos2unix and make commands
-        run_shell(docker_cmd_base + f"bash -c {dos2unix_cmd} && make {make_target}")
+        combined_cmd = f"{dos2unix_cmd} && {chmod_cmd} && make {make_target}"
+
+        run_shell(docker_cmd_base + f"bash -c '{combined_cmd}'")
         elapsed_time = (datetime.datetime.now() - time_now).total_seconds()
         LOG(f"Build finished in {elapsed_time} seconds")
 

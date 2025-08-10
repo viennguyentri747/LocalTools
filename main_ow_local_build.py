@@ -237,69 +237,6 @@ def pre_build_setup(build_type: str, manifest_source: str, ow_manifest_branch: s
         prepare_iesa_bsp(tisdk_ref)
 
 
-def setup_executable_files(folder_path: Path, postfixes: Optional[List[str]] = None) -> None:
-    # Define the set of script extensions that should be made executable.
-    supported_script_postfixes = {".sh", ".py", ".pl", ".awk", ".sed"}
-
-    # Default to .py and .sh if no postfixes are specified.
-    if postfixes is None:
-        postfixes = [".py", ".sh"]
-
-    try:
-        if not folder_path.exists():
-            LOG(f"Path does not exist, cannot proceed: {folder_path}")
-            return
-
-        if not folder_path.is_dir():
-            LOG(f"Path is not a directory. This function only accepts directory paths. Path: {folder_path}")
-            return
-
-        LOG(f"Processing a directory: {folder_path}")
-
-        # Filter the user-provided postfixes to only include supported script types.
-        valid_postfixes = [p for p in postfixes if p in supported_script_postfixes]
-        unsupported = set(postfixes) - set(valid_postfixes)
-        for p in unsupported:
-            LOG(f"Ignoring unsupported file extension for directory scan: {p}")
-
-        if not valid_postfixes:
-            LOG("No supported file types to process in the directory. Exiting.")
-            return
-
-        # Common setup for the 'find' command to exclude certain folders.
-        path_to_use = shlex.quote(str(folder_path))
-        ignore_folders = ["tmp_build", ".git", "__pycache__", "node_modules"]
-        prune_parts = [f"-name {shlex.quote(d)} -type d" for d in ignore_folders]
-        prune_clause = f"\\( {' -o '.join(prune_parts)} \\) -prune -o" if prune_parts else ""
-
-        # Build the name-matching part of the find command.
-        name_patterns = [f"-name '*{ext}'" for ext in valid_postfixes]
-        name_clause = " -o ".join(name_patterns)
-
-        # Command to convert all matching files to Unix line endings.
-        # Using -exec handles filenames with spaces or special characters and avoids "argument line too long" errors.
-        LOG(f"Converting {', '.join(valid_postfixes)} files to Unix line endings...")
-        dos2unix_cmd = (
-            f"find {path_to_use} {prune_clause} "
-            f"-type f \\( {name_clause} \\) "
-            "-exec dos2unix {} +"
-        )
-        run_shell(dos2unix_cmd, check_throw_exception_on_exit_code=False)
-
-        # Command to grant execute permissions to the same set of files.
-        LOG(f"Granting execute permissions to {', '.join(valid_postfixes)} files...")
-        chmod_cmd = (
-            f"find {path_to_use} {prune_clause} "
-            f"-type f \\( {name_clause} \\) "
-            "-exec chmod +x {} +"
-        )
-        run_shell(chmod_cmd, check_throw_exception_on_exit_code=False)
-        LOG("Directory processing complete.")
-
-    except Exception as e:
-        LOG(f"A critical error occurred in setup_executable_files for path '{folder_path}': {e}", exc_info=True)
-
-
 def run_build(build_type: str, interactive: bool = False) -> None:
     if build_type == BUILD_TYPE_BINARY:
         make_target = "arm"

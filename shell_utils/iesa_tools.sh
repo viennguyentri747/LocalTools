@@ -2,14 +2,36 @@
 
 sync_from_tmp_build() {
   echo -e "Available Repositories:\n---------------------"
-  grep -oP 'name="\K[^"]+' "$HOME/ow_sw_tools/tools/manifests/iesa_manifest_gitlab.xml" | grep -v -w -E "intellian_adc|oneweb_legacy|oneweb_n|prototyping|third_party_apps"
+  repo_list=($(grep -oP 'name="\K[^"]+' "$HOME/ow_sw_tools/tools/manifests/iesa_manifest_gitlab.xml" | grep -v -w -E "intellian_adc|oneweb_legacy|oneweb_n|prototyping|third_party_apps"))
+  for i in "${!repo_list[@]}"; do
+    echo "$((i+1)). ${repo_list[i]}"
+  done
   echo -e "---------------------\n"
   
-  read -p "Enter repo name from list above: " repo_name
-  if [ -z "$repo_name" ]; then
-    echo "Error: No repository name entered. Aborting."
+  read -p "Enter repo name OR repo index from list above: " repo_input
+  
+  # Check if input is a number (index) or name
+  if [[ "$repo_input" =~ ^[0-9]+$ ]] && [ "$repo_input" -ge 1 ] && [ "$repo_input" -le "${#repo_list[@]}" ]; then
+    repo_name="${repo_list[$((repo_input-1))]}"
+  else
+    repo_name="$repo_input"
+  fi
+  
+  # Validate repo_name
+  valid_repo=false
+  for repo in "${repo_list[@]}"; do
+    if [ "$repo" = "$repo_name" ]; then
+      valid_repo=true
+      break
+    fi
+  done
+  
+  if [ "$valid_repo" = false ]; then
+    echo "Error: Repository '$repo_name' not found in the list. Aborting."
     return 1
   fi
+  
+  echo "Selected: $repo_name"
 
   # --- 3. Define paths and ask for confirmation ---
   SOURCE_DIR="$HOME/ow_sw_tools/tmp_build/$(grep -oP "name=\"$repo_name\" path=\"\K[^\"]+" "$HOME/ow_sw_tools/tools/manifests/iesa_manifest_gitlab.xml")/"

@@ -122,7 +122,7 @@ def main() -> None:
 
                 LOG("\nUse this below command to copy to target IP:\n")
                 output_path = new_iesa_path.resolve()
-                LOG(f'output_path="{output_path}" && read -e -i "192.168.10" -p "Enter source IP address: " source_ip && rmh && sudo chmod 644 "$output_path" && scp -rJ root@$source_ip "$output_path" root@192.168.100.254:/home/root/download/')
+                LOG(f'output_path="{output_path}" && read -e -i "192.168.10" -p "Enter source IP address: " source_ip && rmh && sudo chmod 644 "$output_path" && scp -rJ root@$source_ip "$output_path" root@192.168.100.254:/home/root/download/', show_time=False)
             except OSError as e:
                 LOG(f"Error renaming file: {e}", file=sys.stderr)
                 sys.exit(1)
@@ -260,7 +260,7 @@ def run_build(build_type: str, interactive: bool = False) -> None:
         f"chmod -R +x {OW_SW_PATH.absolute()}/"    
     )
 
-    time_now = datetime.datetime.now()
+    time_start = datetime.datetime.now()
     if interactive:
         LOG(f"{LINE_SEPARATOR}Entering interactive mode.")
 
@@ -275,8 +275,8 @@ def run_build(build_type: str, interactive: bool = False) -> None:
         combined_cmd = f"{dos2unix_cmd} && {chmod_cmd} && make {make_target}"
 
         run_shell(docker_cmd_base + f"bash -c '{combined_cmd}'")
-        elapsed_time = (datetime.datetime.now() - time_now).total_seconds()
-        LOG(f"Build finished in {elapsed_time} seconds")
+        elapsed_time = (datetime.datetime.now() - time_start).total_seconds()
+        LOG(f"Build finished in {elapsed_time} seconds", show_time=True)
 
 
 def reset_or_create_tmp_build(force_reset_tmp_build: bool) -> None:

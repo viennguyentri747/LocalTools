@@ -14,9 +14,8 @@ import textwrap
 import xml.etree.ElementTree as ET
 from typing import Dict, List, Optional, Union
 import argparse
-from gitlab_helper import get_latest_successful_pipeline_id, download_job_artifacts, get_gl_project, read_token_from_file
-from utils import get_file_md5sum, LOG, is_diff_ignore_eol, run_shell
-from constants import *
+from dev_common.gitlab_helper import get_latest_successful_pipeline_id, download_job_artifacts, get_gl_project, read_token_from_file
+from dev_common import *
 import yaml
 # ─────────────────────────────  constants  ───────────────────────────── #
 
@@ -114,18 +113,14 @@ def main() -> None:
         if OUTPUT_IESA_PATH.is_file():
             new_iesa_name = f"v_{manifest_branch}.iesa"
             new_iesa_path = OUTPUT_IESA_PATH.parent / new_iesa_name
-            try:
-                # In linux, rename will overwrite.
-                OUTPUT_IESA_PATH.rename(new_iesa_path)
-                LOG(f"Renamed '{OUTPUT_IESA_PATH.name}' to '{new_iesa_path.name}'")
-                LOG(f"Find output IESA here (WSL path): {new_iesa_path.resolve()}")
+            # In linux, rename will overwrite.
+            OUTPUT_IESA_PATH.rename(new_iesa_path)
+            LOG(f"Renamed '{OUTPUT_IESA_PATH.name}' to '{new_iesa_path.name}'")
+            LOG(f"Find output IESA here (WSL path): {new_iesa_path.resolve()}")
 
-                LOG("\nUse this below command to copy to target IP:\n")
-                output_path = new_iesa_path.resolve()
-                LOG(f'output_path="{output_path}" && read -e -i "192.168.10" -p "Enter source IP address: " source_ip && rmh && sudo chmod 644 "$output_path" && scp -rJ root@$source_ip "$output_path" root@192.168.100.254:/home/root/download/', show_time=False)
-            except OSError as e:
-                LOG(f"Error renaming file: {e}", file=sys.stderr)
-                sys.exit(1)
+            LOG("\nUse this below command to copy to target IP:\n")
+            output_path = new_iesa_path.resolve()
+            LOG(f'output_path="{output_path}" && read -e -i "192.168.10" -p "Enter source IP address: " source_ip && rmh && sudo chmod 644 "$output_path" && scp -rJ root@$source_ip "$output_path" root@192.168.100.254:/home/root/download/', show_time=False)
         else:
             LOG(f"ERROR: Expected IESA artifact not found at '{OUTPUT_IESA_PATH}' or it's not a file.", file=sys.stderr)
             sys.exit(1)
@@ -162,7 +157,7 @@ def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: st
                     sys.exit(1)
     except Exception as e:
         LOG(f"ERROR: Error while checking OW_SW_PATH branch: {e}", file=sys.stderr)
-        sys.exit(1)
+        raise e
 
     if build_type == BUILD_TYPE_IESA:
         if not input_tisdk_ref:
@@ -260,7 +255,7 @@ def run_build(build_type: str, interactive: bool = False) -> None:
         f"chmod -R +x {OW_SW_PATH.absolute()}/"    
     )
 
-    time_start = datetime.datetime.now()
+    time_start = datetime.now()
     if interactive:
         LOG(f"{LINE_SEPARATOR}Entering interactive mode.")
 
@@ -275,7 +270,7 @@ def run_build(build_type: str, interactive: bool = False) -> None:
         combined_cmd = f"{dos2unix_cmd} && {chmod_cmd} && make {make_target}"
 
         run_shell(docker_cmd_base + f"bash -c '{combined_cmd}'")
-        elapsed_time = (datetime.datetime.now() - time_start).total_seconds()
+        elapsed_time = (datetime.now() - time_start).total_seconds()
         LOG(f"Build finished in {elapsed_time} seconds", show_time=True)
 
 
@@ -308,12 +303,8 @@ def get_tisdk_ref_from_ci_yml(file_path: str) -> Optional[str]:
     tisdk_ref = None
     sdk_release_ref = None
 
-    try:
-        with open(file_path, 'r') as f:
-            ci_config = yaml.safe_load(f)
-    except Exception as e:
-        LOG(f"Error reading {file_path}: {e}", file=sys.stderr)
-        return None
+    with open(file_path, 'r') as f:
+        ci_config = yaml.safe_load(f)
 
     # Search through all items in the YAML file to find job definitions
     for job_details in ci_config.values():
@@ -354,7 +345,8 @@ def init_and_sync(manifest_repo_url: str, manifest_repo_branch: str) -> None:
             with open(manifest_full_path, 'r') as f:
                 LOG(f.read())
         except Exception as e:
-            LOG(f"Error reading manifest file: {e}")
+            LOG(f"ERROR: Error reading manifest file: {e}")
+            raise e
         LOG("--- End Manifest Content ---")
     else:
         LOG(
@@ -436,7 +428,7 @@ def sync_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
             LOG(f"Common ancestor for '{repo_name}' found. Proceeding with sync.")
     except Exception as e:
         LOG(f"ERROR: Failed to verify git history for '{repo_name}'. Reason: {e}", file=sys.stderr)
-        sys.exit(1)
+        raise e
 
     LOG(f"Copying from \"{src_path}\" to \"{dest_root_path}\"")
 
@@ -546,7 +538,9 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        LOG(f"Error: {e}", file=sys.stderr)
+        exception_trace = traceback.format_exc()
+        LOG(f"ERROR: {exception_trace}", file=sys.stderr, show_traceback=True)
+        # LOG(f"ERROR: {e}", file=sys.stderr, show_traceback=True)
         sys.exit(1)
     except KeyboardInterrupt:
         LOG("\nAborted by user.", file=sys.stderr)

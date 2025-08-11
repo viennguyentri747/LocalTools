@@ -6,8 +6,7 @@ import subprocess
 import re
 import sys
 import argparse
-from utils import run_shell, LOG, change_dir
-from constants import LINE_SEPARATOR
+from dev_common import *
 import pyperclip
 
 

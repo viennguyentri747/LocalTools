@@ -5,6 +5,7 @@ import subprocess
 import sys
 from typing import List, Literal, Optional, Union
 from datetime import datetime
+import traceback
 
 
 def run_shell(cmd: Union[str, List[str]], cwd: Optional[Path] = None, check_throw_exception_on_exit_code: bool = True, stdout=None, stderr=None, text=None, capture_output: bool = False) -> subprocess.CompletedProcess:
@@ -22,7 +23,7 @@ def get_file_md5sum(file_path):
         md5 = hashlib.md5(f.read()).hexdigest()
     return md5
 
-def LOG(*values: object, sep: str = " ", end: str = "\n", file=None, highlight: bool = False, show_time = True):
+def LOG(*values: object, sep: str = " ", end: str = "\n", file=None, highlight: bool = False, show_time = True, show_traceback: bool = False):
     # Prepare the message
     message = sep.join(str(value) for value in values)
     
@@ -30,6 +31,18 @@ def LOG(*values: object, sep: str = " ", end: str = "\n", file=None, highlight: 
     if show_time:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         message = f"[{timestamp}] {message}"
+    
+    # Add backtrace if requested
+    if show_traceback:
+        tb = traceback.format_stack()
+        print(f"Total stack frames: {len(tb)}")  # Debug line
+        max_frames = 3 # Maximum number of frames to print
+        if len(tb) > max_frames: #Keep only the last 10 frames
+            filtered_tb = tb[-max_frames:]
+        else:
+            filtered_tb = tb  # Keep all frames if stack is shallow
+        
+        message = f"{message}\nBacktrace:\n" + "".join(filtered_tb)
     
     if highlight:
         HIGHLIGHT_COLOR = "\033[92m"  # green
@@ -40,7 +53,6 @@ def LOG(*values: object, sep: str = " ", end: str = "\n", file=None, highlight: 
         print(f"{RESET}", end=end, file=file)       # reset
     else:
         print(message, end=end, file=file)
-
 
 def is_diff_ignore_eol(file1: Path, file2: Path) -> bool:
     return normalize_lines(file1) != normalize_lines(file2)

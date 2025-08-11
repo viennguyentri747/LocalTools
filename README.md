@@ -1,1 +1,0 @@
-/mnt/c/MyWorkspace/Obsidian/ObsidianWorkVault/Notes/_Root/Productivity/CurrentWorking/Diary/Working Company/Intellian Working (Link, How to…)/Intellian Software/Intellian ACU-IESA Software (common how to (commands, service, config…)/My local tools README (Common How to, Prerequistes ...).md

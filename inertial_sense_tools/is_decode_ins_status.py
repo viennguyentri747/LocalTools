@@ -139,11 +139,12 @@ def get_rtk_compassing_status(ins_status: int) -> str:
 
 def get_gps_nav_fix_status(ins_status: int) -> str:
     """Decodes the GPS Nav Fix status."""
+    # Fixed mapping according to eGpsNavFixStatus enum
     fix_map = {
-        0: "No Fix",
-        1: "2D Fix",
-        2: "3D Fix",
-        3: "SBAS Fix",
+        0: "None",           # NAV_FIX_STATUS_NONE
+        1: "3D Fix",         # NAV_FIX_STATUS_3D
+        2: "RTK Float",      # NAV_FIX_STATUS_RTK_FLOAT
+        3: "RTK Fix",        # NAV_FIX_STATUS_RTK_FIX
     }
     fix_val = (ins_status & INS_STATUS_GPS_NAV_FIX_MASK) >> INS_STATUS_GPS_NAV_FIX_OFFSET
     return fix_map.get(fix_val, "N/A")

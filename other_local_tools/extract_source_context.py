@@ -8,6 +8,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Tuple
 import shutil
 import re
+import tiktoken
+from dev_common import *
 
 # Constants
 # Processing modes
@@ -412,16 +414,29 @@ def main() -> None:
         print(f"{FAILURE_EMOJI} Failed to process {len(failures)} paths:", file=sys.stderr)
         for f in failures:
             print(f"  - {f}", file=sys.stderr)
+    output_file_path = None
 
-    # Open explorer by default unless explicitly disabled
-    if not args.no_open_explorer and output_files:
+    if len(output_files) == 1:
+        output_file_path = output_files[0]
+    else:
+        output_file_path = merge_output_files(output_files, final_output_dir)
+    with open(output_file_path, "r", encoding="utf-8") as f:
+        file_contents = f.read()
+
+        encoding = tiktoken.get_encoding("cl100k_base")
+        token_count = len(encoding.encode(file_contents))
+        filename = os.path.basename(output_file_path)
+        LOG(f"{LINE_SEPARATOR}")
+        print(f"Estimated token count for {filename}: {beautify_number(token_count)}")
+
+    # Open explorer if requested
+    if not args.no_open_explorer and output_file_path:
         if len(output_files) == 1:
             # Single file - open it directly
-            open_explorer_to_file(output_files[0])
+            open_explorer_to_file(output_file_path)
         else:
             # Multiple files - merge them first, then open the merged file
-            merged_file = merge_output_files(output_files, final_output_dir)
-            open_explorer_to_file(merged_file)
+            open_explorer_to_file(output_file_path)
 
     if failures:
         sys.exit(1)

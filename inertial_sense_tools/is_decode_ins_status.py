@@ -1,4 +1,6 @@
 #!/usr/bin/env python3.10
+# To get status: 
+# tail -F /var/log/ins_monitor_log | grep -i insStatus
 
 import sys
 import argparse

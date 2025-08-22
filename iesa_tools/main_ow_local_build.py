@@ -14,7 +14,7 @@ import textwrap
 import xml.etree.ElementTree as ET
 from typing import Dict, List, Optional, Union
 import argparse
-from dev_common.gitlab_helper import get_latest_successful_pipeline_id, download_job_artifacts, get_gl_project, read_token_from_file
+# from dev_common.gitlab_utils import get_latest_successful_pipeline_id, download_job_artifacts, get_gl_project, read_token_from_file
 from dev_common import *
 import yaml
 # ─────────────────────────────  constants  ───────────────────────────── #
@@ -56,7 +56,7 @@ def main() -> None:
     parser.add_argument("-i", "--interactive", type=lambda x: x.lower() == 'true', default=False,
                         help="Run in interactive mode (true or false). Defaults to false.")
     parser.add_argument("--force_reset_tmp_build", type=lambda x: x.lower() == 'true', default=False,
-                        help="Force clearing tmp_build folder (true or false). Defaults to false.")
+                        help="Force clearing tmp_build folder before sync (true or false). Defaults to False.")
     parser.add_argument("--sync", type=lambda x: x.lower() == 'true', default=True,
                         help="If true, perform tmp_build reset (true or false) and repo sync. Defaults to true.")
     parser.add_argument("--use_current_ow_branch", type=lambda x: x.lower() == 'true', default=False,
@@ -94,12 +94,12 @@ def main() -> None:
             LOG(f"Using current branch '{current_branch}' as manifest branch.")
             manifest_branch = current_branch
         else:
-            LOG(f"ERROR: --use_current_ow_branch is only valid when --manifest_source is local.", file=sys.stderr, show_traceback=True)
+            LOG(f"ERROR: --use_current_ow_branch is only valid when --manifest_source is local.", file=sys.stderr)
             sys.exit(1)
     else:
         manifest_branch = args.ow_manifest_branch
         if args.ow_manifest_branch is None:
-            LOG(f"ERROR: --ow_manifest_branch is required when not using --use_current_ow_branch.", file=sys.stderr, show_traceback=True)
+            LOG(f"ERROR: --ow_manifest_branch is required when not using --use_current_ow_branch.", file=sys.stderr)
             sys.exit(1)
 
     prebuild_check(build_type, manifest_source, manifest_branch, tisdk_ref,
@@ -115,14 +115,31 @@ def main() -> None:
             new_iesa_path = OUTPUT_IESA_PATH.parent / new_iesa_name
             # In linux, rename will overwrite.
             OUTPUT_IESA_PATH.rename(new_iesa_path)
+            new_iesa_output_abs_path = new_iesa_path.resolve()
             LOG(f"Renamed '{OUTPUT_IESA_PATH.name}' to '{new_iesa_path.name}'")
-            LOG(f"Find output IESA here (WSL path): {new_iesa_path.resolve()}")
-
-            LOG("\nUse this below command to copy to target IP:\n")
-            output_path = new_iesa_path.resolve()
-            LOG(f'output_path="{output_path}" && read -e -i "192.168.10" -p "Enter source IP address: " source_ip && rmh && sudo chmod 644 "$output_path" && scp -rJ root@$source_ip "$output_path" root@192.168.100.254:/home/root/download/', show_time=False)
+            LOG(f"Find output IESA here (WSL path): {new_iesa_output_abs_path}")
+            LOG(f"{LINE_SEPARATOR}")
+            # run_shell(f"sudo chmod 644 {new_iesa_output_abs_path}")
+            # original_md5 = md5sum(new_iesa_output_abs_path)
+            LOG("Use this below command to copy to target IP:\n")
+            LOG(
+                f'output_path="{new_iesa_output_abs_path}" '
+                '&& read -e -i "192.168.10" -p "Enter source IP address: " source_ip '
+                '&& rmh '
+                '&& sudo chmod 644 "$output_path" '
+                '&& scp -rJ root@$source_ip "$output_path" root@192.168.100.254:/home/root/download/ '
+                '&& original_md5=$(md5sum "$output_path" | cut -d" " -f1) '
+                '&& noti '
+                '&& echo -e "IESA copied completed. Install on target UT $source_ip with this below command:\\n"'
+                f'&& echo "original_md5=\\"$original_md5\\"; actual_md5=\\$(md5sum /home/root/download/{new_iesa_name} | cut -d\\\" \\\" -f1); echo \\\"original md5sum: \\$original_md5\\\"; echo \\\"actual md5sum: \\$actual_md5\\\"; if [ \\\"\\$original_md5\\\" = \\\"\\$actual_md5\\\" ]; then echo \\\"MD5 match! Install? y/n\\\"; read -r confirm; [ \\\"\\$confirm\\\" = \\\"y\\\" -o \\\"\\$confirm\\\" = \\\"Y\\\" ] && iesa_umcmd install pkg {new_iesa_name} && tail -F /var/log/upgrade_log; else echo \\\"MD5 MISMATCH! Not installing.\\\"; fi"', show_time=False
+            )
+            # LOG(f"{LINE_SEPARATOR}")
+            # LOG(f"{LINE_SEPARATOR}")
+            # LOG(f"Install on target UT with command below:\n")
+            # #iesa_umcmd install pkg v_TEST_MANP-268_Support-Fan-On-Temp-Config-For-Fan-Via-Api.iesa
+            # LOG(f"iesa_umcmd install pkg {new_iesa_name}", show_time=False)
         else:
-            LOG(f"ERROR: Expected IESA artifact not found at '{OUTPUT_IESA_PATH}' or it's not a file.", file=sys.stderr, show_traceback=True)
+            LOG(f"ERROR: Expected IESA artifact not found at '{OUTPUT_IESA_PATH}' or it's not a file.", file=sys.stderr)
             sys.exit(1)
 
 
@@ -131,44 +148,40 @@ def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: st
     ow_sw_path_str = str(OW_SW_PATH)
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build check...")
     LOG(f"Check OW branch matches with manifest branch. This is because we use some OW folders from the build like ./external/, ... ")
-    try:
-        if not use_current_ow_branch:
-            base_manifest_branch = ow_manifest_branch
-            LOG(f"Checking if manifest branch '{base_manifest_branch}' exists in '{ow_sw_path_str}'...")
-            branch_exists_result = run_shell(
-                f"git rev-parse --verify {base_manifest_branch}", cwd=ow_sw_path_str, capture_output=True, text=True, check_throw_exception_on_exit_code=False)
-            if branch_exists_result.returncode != 0:
-                LOG(f"ERROR: Manifest branch '{base_manifest_branch}' does not exist in '{ow_sw_path_str}'. Please ensure the branch is available.", file=sys.stderr, show_traceback=True)
-                sys.exit(1)
-            LOG(f"Manifest branch '{base_manifest_branch}' exists.")
+    if not use_current_ow_branch:
+        base_manifest_branch = ow_manifest_branch
+        LOG(f"Checking if manifest branch '{base_manifest_branch}' exists in '{ow_sw_path_str}'...")
+        branch_exists_result = run_shell(
+            f"git rev-parse --verify {base_manifest_branch}", cwd=ow_sw_path_str, capture_output=True, text=True, check_throw_exception_on_exit_code=False)
+        if branch_exists_result.returncode != 0:
+            LOG(f"ERROR: Manifest branch '{base_manifest_branch}' does not exist in '{ow_sw_path_str}'. Please ensure the branch is available.", file=sys.stderr)
+            sys.exit(1)
+        LOG(f"Manifest branch '{base_manifest_branch}' exists.")
 
-            if current_branch != base_manifest_branch:
-                is_branch_ok: bool = False
-                if manifest_source == MANIFEST_SOURCE_LOCAL:
-                    if is_ancestor(f"{base_manifest_branch}", current_branch, cwd=ow_sw_path_str):
-                        is_branch_ok = True
-                    else:
-                        LOG(f"ERROR: Local branch '{current_branch}' is not a descendant of '{base_manifest_branch}' (or its remote tracking branch if applicable).", file=sys.stderr, show_traceback=True)
-                        is_branch_ok = False
+        if current_branch != base_manifest_branch:
+            is_branch_ok: bool = False
+            if manifest_source == MANIFEST_SOURCE_LOCAL:
+                if is_ancestor(f"{base_manifest_branch}", current_branch, cwd=ow_sw_path_str):
+                    is_branch_ok = True
                 else:
-                    LOG(f"ERROR: OW_SW_PATH ({ow_sw_path_str}) is on branch '{current_branch}', but manifest branch is '{base_manifest_branch}'. Checkout correct OW_SW_PATH branch or update manifest branch. Ex: cd {ow_sw_path_str} && git checkout {base_manifest_branch}", file=sys.stderr, show_traceback=True)
-                    LOG(f"This is kinda wierd but because we run docker")
-                if not is_branch_ok:
-                    sys.exit(1)
-    except Exception as e:
-        LOG(f"ERROR: Error while checking OW_SW_PATH branch: {e}", file=sys.stderr, show_traceback=True)
-        raise e
+                    LOG(f"ERROR: Local branch '{current_branch}' is not a descendant of '{base_manifest_branch}' (or its remote tracking branch if applicable).", file=sys.stderr)
+                    is_branch_ok = False
+            else:
+                LOG(f"ERROR: OW_SW_PATH ({ow_sw_path_str}) is on branch '{current_branch}', but manifest branch is '{base_manifest_branch}'. Checkout correct OW_SW_PATH branch or update manifest branch. Ex: cd {ow_sw_path_str} && git checkout {base_manifest_branch}", file=sys.stderr)
+                LOG(f"This is kinda wierd but because we run docker")
+            if not is_branch_ok:
+                sys.exit(1)
 
     if build_type == BUILD_TYPE_IESA:
         if not input_tisdk_ref:
-            LOG(f"ERROR: TISDK ref is not provided.", file=sys.stderr, show_traceback=True)
+            LOG(f"ERROR: TISDK ref is not provided.", file=sys.stderr)
             sys.exit(1)
 
         LOG(f"Check TISDK ref {input_tisdk_ref} matches with {GITLAB_CI_YML_PATH}'s tisdk branch to avoid using wrong BSP")
         tisdk_ref_from_ci_yml: Optional[str] = get_tisdk_ref_from_ci_yml(GITLAB_CI_YML_PATH)
         if input_tisdk_ref != tisdk_ref_from_ci_yml:
             # Maybe we should check if tisdk_ref is ahead of tisdk_branch in the future if need change tisdk ref separately
-            LOG(f"ERROR: TISDK ref '{input_tisdk_ref}' does not match with {GITLAB_CI_YML_PATH}'s tisdk branch '{tisdk_ref_from_ci_yml}'.", file=sys.stderr, show_traceback=True)
+            LOG(f"ERROR: TISDK ref '{input_tisdk_ref}' does not match with {GITLAB_CI_YML_PATH}'s tisdk branch '{tisdk_ref_from_ci_yml}'.", file=sys.stderr)
             sys.exit(1)
         else:
             LOG(f"TISDK ref '{input_tisdk_ref}' matches with {GITLAB_CI_YML_PATH}'s tisdk branch '{tisdk_ref_from_ci_yml}'.")
@@ -179,7 +192,7 @@ def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: st
         for repo_name in overwrite_repos:
             if repo_name not in path_mapping:
                 LOG(
-                    f"ERROR: Invalid overwrite repo name: {repo_name}\nAvailable repo names in manifest: {list(path_mapping.keys())}", show_traceback=True)
+                    f"ERROR: Invalid overwrite repo name: {repo_name}\nAvailable repo names in manifest: {list(path_mapping.keys())}")
                 sys.exit(1)
 
 
@@ -207,7 +220,8 @@ def pre_build_setup(build_type: str, manifest_source: str, ow_manifest_branch: s
     if sync:
         reset_or_create_tmp_build(force_reset_tmp_build)
         manifest_repo_url = get_manifest_repo_url(manifest_source)
-        init_and_sync_from_remote(manifest_repo_url, ow_manifest_branch)  # Sync other repos from manifest of REMOTE OW_SW
+        # Sync other repos from manifest of REMOTE OW_SW
+        init_and_sync_from_remote(manifest_repo_url, ow_manifest_branch)
     else:
         LOG("Skipping tmp_build reset and repo sync due to --sync false flag.")
 
@@ -219,7 +233,7 @@ def pre_build_setup(build_type: str, manifest_source: str, ow_manifest_branch: s
         repo_names = [get_path_no_git_suffix(r) for r in overwrite_repos]
         for repo_name in repo_names:
             if repo_name not in path_mapping:
-                LOG(f"ERROR: Specified repo \"{repo_name}\" not found in manifest.", file=sys.stderr, show_traceback=True)
+                LOG(f"ERROR: Specified repo \"{repo_name}\" not found in manifest.", file=sys.stderr)
                 sys.exit(1)
             repo_rel_path_vs_tmp_build = path_mapping[repo_name]
             sync_local_code(repo_name, repo_rel_path_vs_tmp_build)
@@ -238,7 +252,7 @@ def run_build(build_type: str, interactive: bool = False) -> None:
     elif build_type == BUILD_TYPE_IESA:
         make_target = "package"
     else:
-        raise ValueError(f"Unknown build type: {build_type}, expected {BUILD_TYPE_BINARY} or {BUILD_TYPE_IESA}")
+        throw_exception(f"Unknown build type: {build_type}, expected {BUILD_TYPE_BINARY} or {BUILD_TYPE_IESA}")
 
     docker_cmd_base = (
         f"docker run -it --rm -v {OW_SW_PATH}:{OW_SW_PATH} -w {OW_SW_PATH} oneweb_sw "
@@ -252,7 +266,7 @@ def run_build(build_type: str, interactive: bool = False) -> None:
     )
 
     chmod_cmd = (
-        f"chmod -R +x {OW_SW_PATH.absolute()}/"    
+        f"chmod -R +x {OW_SW_PATH.absolute()}/"
     )
 
     time_start = datetime.now()
@@ -272,6 +286,7 @@ def run_build(build_type: str, interactive: bool = False) -> None:
         run_shell(docker_cmd_base + f"bash -c '{combined_cmd}'")
         elapsed_time = (datetime.now() - time_start).total_seconds()
         LOG(f"Build finished in {elapsed_time} seconds", show_time=True)
+        show_noti(title="Build finished", message=f"Build finished in {elapsed_time} seconds")
 
 
 def reset_or_create_tmp_build(force_reset_tmp_build: bool) -> None:
@@ -283,16 +298,18 @@ def reset_or_create_tmp_build(force_reset_tmp_build: bool) -> None:
         return not force_reset and repo_dir.is_dir() and manifest_file.is_file() and manifests_git_head.is_file()
 
     if BUILD_FOLDER_PATH.exists():
+        should_reset: bool = False
         if should_reset_instead_clearing(force_reset_tmp_build):
             LOG(f"Resetting existing repo in {BUILD_FOLDER_PATH}...")
             try:
                 run_shell("repo forall -c 'git reset --hard' && repo forall -c 'git clean -fdx'", cwd=BUILD_FOLDER_PATH)
             except subprocess.CalledProcessError:
                 LOG(f"Warning: 'repo forall' failed in {BUILD_FOLDER_PATH}. Assuming broken repo and clearing...")
-                run_shell("sudo rm -rf " + str(BUILD_FOLDER_PATH))
-                BUILD_FOLDER_PATH.mkdir(parents=True)
+                should_reset = True
         else:
             LOG(f"Force clearing tmp_build folder at {BUILD_FOLDER_PATH}...")
+            should_reset = True
+        if should_reset:
             run_shell("sudo rm -rf " + str(BUILD_FOLDER_PATH))
             BUILD_FOLDER_PATH.mkdir(parents=True)
     else:
@@ -324,7 +341,7 @@ def get_tisdk_ref_from_ci_yml(file_path: str) -> Optional[str]:
 
     if (tisdk_ref is None or sdk_release_ref is None) or (tisdk_ref != sdk_release_ref):
         LOG(
-            f"ERROR: TISDK ref mismatch in CI config. 'sdk_create_tarball' ref is '{tisdk_ref}' while 'sdk_create_tarball_release' is '{sdk_release_ref}'.", file=sys.stderr, show_traceback=True)
+            f"ERROR: TISDK ref mismatch in CI config. 'sdk_create_tarball' ref is '{tisdk_ref}' while 'sdk_create_tarball_release' is '{sdk_release_ref}'.", file=sys.stderr)
         return None
 
     return tisdk_ref
@@ -341,17 +358,12 @@ def init_and_sync_from_remote(manifest_repo_url: str, manifest_repo_branch: str)
     LOG("\n--------------------- MANIFEST ---------------------")
     if os.path.exists(manifest_full_path):
         LOG(f"--- Manifest Content ({manifest_full_path}) ---")
-        try:
-            with open(manifest_full_path, 'r') as f:
-                LOG(f.read())
-        except Exception as e:
-            LOG(f"ERROR: Error reading manifest file: {e}", show_traceback=True)
-            raise e
+        with open(manifest_full_path, 'r') as f:
+            LOG(f.read())
         LOG("--- End Manifest Content ---")
     else:
-        LOG(
+        throw_exception(
             f"Manifest file not found at: {manifest_full_path}. This might happen if {MANIFEST_FILE_NAME} was not found in the manifest repository.")
-        raise FileNotFoundError
 
     run_shell("repo sync", cwd=BUILD_FOLDER_PATH)
 
@@ -359,7 +371,7 @@ def init_and_sync_from_remote(manifest_repo_url: str, manifest_repo_branch: str)
 def parse_local_manifest(manifest_file: Path = MANIFEST_FILE_PATH) -> Dict[str, str]:
     """Return {project-name → path} from the manifest XML."""
     if not manifest_file.is_file():
-        LOG(f"ERROR: manifest not found at {manifest_file}", file=sys.stderr, show_traceback=True)
+        LOG(f"ERROR: manifest not found at {manifest_file}", file=sys.stderr)
         sys.exit(1)
 
     tree = ET.parse(manifest_file)
@@ -370,7 +382,7 @@ def parse_local_manifest(manifest_file: Path = MANIFEST_FILE_PATH) -> Dict[str, 
         path = proj.attrib.get("path")
         if name and path:
             if name in mapping:
-                LOG(f"ERROR: duplicate project name \"{name}\" in manifest", file=sys.stderr, show_traceback=True)
+                LOG(f"ERROR: duplicate project name \"{name}\" in manifest", file=sys.stderr)
                 sys.exit(1)
 
             mapping[name] = path
@@ -409,32 +421,30 @@ def sync_local_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
     dest_root_path = BUILD_FOLDER_PATH / repo_rel_path_vs_tmp_build
 
     if not src_path.is_dir() or not dest_root_path.is_dir():
-        LOG(f"ERROR: Source or destination not found at {src_path} or {dest_root_path}", file=sys.stderr, show_traceback=True)
-        sys.exit(1)
+        LOG(f"ERROR: Source or destination not found at {src_path} or {dest_root_path}", file=sys.stderr)
+        throw_exception(f"Source or destination not found at {src_path} or {dest_root_path}")
 
     LOG(f"Verifying git history for '{repo_name}'...")
-    try:
-        src_overwrite_commit = run_shell("git rev-parse HEAD", cwd=src_path,
-                                         capture_output=True, text=True).stdout.strip()
-        dest_orig_commit = run_shell("git rev-parse HEAD", cwd=dest_root_path,
-                                     capture_output=True, text=True).stdout.strip()  # Fetch remotely via repo sync
+    src_overwrite_commit = run_shell("git rev-parse HEAD", cwd=src_path,
+                                     capture_output=True, text=True).stdout.strip()
+    dest_orig_commit = run_shell("git rev-parse HEAD", cwd=dest_root_path,
+                                 capture_output=True, text=True).stdout.strip()  # Fetch remotely via repo sync
 
-        if src_overwrite_commit == dest_orig_commit:
-            LOG("Source and destination are at the same commit. No history check needed.")
-        elif not is_ancestor(dest_orig_commit, src_overwrite_commit, cwd=src_path):
-            LOG(f"ERROR: Source (override) commit ({str(src_path)}: {src_overwrite_commit}) is not a descendant of destination ({str(dest_root_path)}: {dest_orig_commit}).\nMake sure check out correct branch +  force push local branch to remote (as it fetched dest remotely via repo sync)!", file=sys.stderr, show_traceback=True)
-            sys.exit(1)
-        else:
-            LOG(f"Common ancestor for '{repo_name}' found. Proceeding with sync.")
-    except Exception as e:
-        LOG(f"ERROR: Failed to verify git history for '{repo_name}'. Reason: {e}", file=sys.stderr, show_traceback=True)
-        raise e
+    if src_overwrite_commit == dest_orig_commit:
+        LOG("Source and destination are at the same commit. No history check needed.")
+    elif not is_ancestor(dest_orig_commit, src_overwrite_commit, cwd=src_path):
+        LOG(f"ERROR: Source (override) commit ({str(src_path)}: {src_overwrite_commit}) is not a descendant of destination ({str(dest_root_path)}: {dest_orig_commit}).\nMake sure check out correct branch +  force push local branch to remote (as it fetched dest remotely via repo sync)!", file=sys.stderr)
+        throw_exception(
+            f"Source commit {src_overwrite_commit} is not a descendant of destination commit {dest_orig_commit}.")
+    else:
+        LOG(f"Common ancestor for '{repo_name}' found. Proceeding with sync.")
 
     LOG(f"Copying from \"{src_path}\" to \"{dest_root_path}\"")
 
     EXCLUDE_DIRS = {".git", ".vscode"}
     for file_or_dir in src_path.rglob("*"):
-        if any(part in EXCLUDE_DIRS for part in file_or_dir.parts): #parts = [part1, part2, part3] if path is "part1/part2/part3"
+        # parts = [part1, part2, part3] if path is "part1/part2/part3"
+        if any(part in EXCLUDE_DIRS for part in file_or_dir.parts):
             continue
 
         file_rel_path = file_or_dir.relative_to(src_path)
@@ -477,7 +487,8 @@ def get_manifest_repo_url(manifest_source: str) -> Optional[str]:
     elif manifest_source == MANIFEST_SOURCE_LOCAL:
         manifest_url = f"file://{OW_SW_PATH}"
     else:
-        raise ValueError(f"Unknown source: {manifest_source}, expected 'remote' or 'local'")
+        throw_exception(
+            f"Unknown manifest source: {manifest_source}, expected {MANIFEST_SOURCE_LOCAL} or {MANIFEST_SOURCE_REMOTE}")
 
     LOG(f"Using manifest source: {manifest_source} ({manifest_url})")
     return manifest_url
@@ -488,7 +499,7 @@ def prepare_iesa_bsp(tisdk_ref: str):
     # Logic to read token from file if not in env
     private_token = read_token_from_file(CREDENTIAL_FILE_PATH, GL_TISDK_TOKEN_KEY_NAME)
     if not private_token:
-        LOG("Error: GitLab private token not found in credentials file.", show_traceback=True)
+        LOG("Error: GitLab private token not found in credentials file.")
         sys.exit(1)
 
     # Details of the target project and job
@@ -504,7 +515,7 @@ def prepare_iesa_bsp(tisdk_ref: str):
 
     pipeline_id = get_latest_successful_pipeline_id(target_project, target_job_name, target_ref)
     if not pipeline_id:
-        LOG(f"No successful pipeline found for job '{target_job_name}' on ref '{target_ref}'.", show_traceback=True)
+        LOG(f"No successful pipeline found for job '{target_job_name}' on ref '{target_ref}'.")
         sys.exit(1)
 
     artifacts_dir = BSP_ARTIFACT_FOLDER_PATH
@@ -533,15 +544,21 @@ def prepare_iesa_bsp(tisdk_ref: str):
             subprocess.run(["ls", "-la", BSP_SYMLINK_PATH_FOR_BUILD])
 
 
+def throw_exception(message: str):
+    """
+    Helper function to throw an error with a message.
+    """
+    raise Exception(message)
+
+
 # ───────────────────────  module entry-point  ────────────────────────── #
 if __name__ == "__main__":
     try:
         main()
     except Exception as e:
         exception_trace = traceback.format_exc()
-        LOG(f"ERROR: {exception_trace}", file=sys.stderr, show_traceback=True)
-        # LOG(f"ERROR: {e}", file=sys.stderr, show_traceback=True)
-        sys.exit(1)
+        LOG(f"ERROR: {exception_trace}", file=sys.stderr)
+        show_noti(title="Error", message=f"An error occurred: {e}")
     except KeyboardInterrupt:
-        LOG("\nAborted by user.", file=sys.stderr, show_traceback=True)
+        LOG("\nAborted by user.", file=sys.stderr)
         sys.exit(1)

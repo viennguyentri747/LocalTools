@@ -3,11 +3,6 @@
 ut_pass='use4Tst!'
 NOTE_PERMANENT_COMMAND='May need to copy key to UT (for permanent login) before running this command first time. Try to run login_permanent OR login_permanent_lab'
 
-# Alias without argument
-alias rmh="rm -f ~/.ssh/known_hosts"
-alias sshp="sshpass -p"
-alias cb="xclip -selection clipboard"
-
 # Function to get IP based on area
 get_ip() {
     case "$1" in

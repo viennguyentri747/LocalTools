@@ -7,6 +7,12 @@ from typing import List, Literal, Optional, Union
 from datetime import datetime
 import traceback
 
+# Import plyer for notifications
+try:
+    from plyer import notification
+    PLYER_AVAILABLE = True
+except ImportError:
+    PLYER_AVAILABLE = False
 
 def run_shell(cmd: Union[str, List[str]], cwd: Optional[Path] = None, check_throw_exception_on_exit_code: bool = True, stdout=None, stderr=None, text=None, capture_output: bool = False) -> subprocess.CompletedProcess:
     """Echo + run a shell command"""
@@ -36,12 +42,12 @@ def LOG(*values: object, sep: str = " ", end: str = "\n", file=None, highlight: 
     if show_traceback:
         tb = traceback.format_stack()
         print(f"Total stack frames: {len(tb)}")  # Debug line
-        max_frames = 3 # Maximum number of frames to print
-        if len(tb) > max_frames: #Keep only the last 10 frames
+        max_frames = 3  # Maximum number of frames to print
+        if len(tb) > max_frames:
+            #Keep only the last 10 frames
             filtered_tb = tb[-max_frames:]
         else:
             filtered_tb = tb  # Keep all frames if stack is shallow
-        
         message = f"{message}\nBacktrace:\n" + "".join(filtered_tb)
     
     if highlight:
@@ -50,7 +56,7 @@ def LOG(*values: object, sep: str = " ", end: str = "\n", file=None, highlight: 
         RESET = "\033[0m"
         print(f"{BOLD}{HIGHLIGHT_COLOR}", end="", file=file)  # turn to highlight color
         print(message, end="", file=file)  # print message
-        print(f"{RESET}", end=end, file=file)       # reset
+        print(f"{RESET}", end=end, file=file)  # reset
     else:
         print(message, end=end, file=file)
 
@@ -60,3 +66,8 @@ def is_diff_ignore_eol(file1: Path, file2: Path) -> bool:
 def normalize_lines(p: Path) -> bytes:
     with p.open("rb") as f:
         return f.read().replace(b"\r\n", b"\n")
+
+def md5sum(file_path):
+    with open(file_path, 'rb') as f:
+        md5 = hashlib.md5(f.read()).hexdigest()
+    return md5

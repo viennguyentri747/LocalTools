@@ -54,7 +54,7 @@ rm() {
             mv "$file" "$trash_target"
             echo "Backed up '$file' to '$trash_target'"
         else
-            echo "rm: cannot remove '$file': No such file or directory" >&2
+            echo "No '$file' found -> Ignoring!" >&2
         fi
     done
 }

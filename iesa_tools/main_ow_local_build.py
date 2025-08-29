@@ -20,10 +20,14 @@ import yaml
 # ─────────────────────────────  constants  ───────────────────────────── #
 
 CORE_REPOS_FOLDER_PATH = Path.home() / "workspace" / "intellian_core_repos/"
+################################################
 OW_SW_PATH = Path.home() / "ow_sw_tools/"
 OUTPUT_IESA_PATH = OW_SW_PATH / "install_iesa_tarball.iesa"
 # OW_SW_PATH = CORE_REPOS_PATH / "ow_sw_tools"
 BUILD_FOLDER_PATH = OW_SW_PATH / "tmp_build/"
+BUILD_OUTPUT_FOLDER_PATH = BUILD_FOLDER_PATH / "out"
+BUILD_BINARY_OUTPUT_PATH = BUILD_OUTPUT_FOLDER_PATH / "bin"
+################################################
 SCRIPT_FOLDER_PATH = Path.home() / "local_tools/"
 CREDENTIAL_FILE_PATH = SCRIPT_FOLDER_PATH / ".gitlab_credentials"
 GITLAB_CI_YML_PATH = OW_SW_PATH / ".gitlab-ci.yml"
@@ -127,10 +131,7 @@ def main() -> None:
                 '&& read -e -i "192.168.10" -p "Enter source IP address: " source_ip '
                 '&& rmh '
                 '&& sudo chmod 644 "$output_path" '
-                '&& scp -rJ root@$source_ip "$output_path" root@192.168.100.254:/home/root/download/ '
-                '&& original_md5=$(md5sum "$output_path" | cut -d" " -f1) '
-                '&& noti '
-                '&& echo -e "IESA copied completed. Install on target UT $source_ip with this below command:\\n"'
+                '&& scp -rJ root@$source_ip "$output_path" root@192.168.100.254:/home/root/download/ && { original_md5=$(md5sum "$output_path" | cut -d" " -f1); noti "SCP copy completed successfully"; echo -e "IESA copied completed. Install on target UT $source_ip with this below command:\\n"; } || { noti "SCP copy failed"; exit 1; } '
                 f'&& echo "original_md5=\\"$original_md5\\"; actual_md5=\\$(md5sum /home/root/download/{new_iesa_name} | cut -d\\\" \\\" -f1); echo \\\"original md5sum: \\$original_md5\\\"; echo \\\"actual md5sum: \\$actual_md5\\\"; if [ \\\"\\$original_md5\\\" = \\\"\\$actual_md5\\\" ]; then echo \\\"MD5 match! Install? y/n\\\"; read -r confirm; [ \\\"\\$confirm\\\" = \\\"y\\\" -o \\\"\\$confirm\\\" = \\\"Y\\\" ] && iesa_umcmd install pkg {new_iesa_name} && tail -F /var/log/upgrade_log; else echo \\\"MD5 MISMATCH! Not installing.\\\"; fi"', show_time=False
             )
             # LOG(f"{LINE_SEPARATOR}")
@@ -141,7 +142,9 @@ def main() -> None:
         else:
             LOG(f"ERROR: Expected IESA artifact not found at '{OUTPUT_IESA_PATH}' or it's not a file.", file=sys.stderr)
             sys.exit(1)
-
+    else:
+        LOG(f"{MAIN_STEP_LOG_PREFIX} Binary build finished.")
+        LOG(f"Find output binary files in '{BUILD_BINARY_OUTPUT_PATH}'")
 
 # ───────────────────────────  helpers / actions  ─────────────────────── #
 def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: str, input_tisdk_ref: str, overwrite_repos: List[str], use_current_ow_branch: bool, current_branch: str):
@@ -272,6 +275,7 @@ def run_build(build_type: str, interactive: bool = False) -> None:
 
     time_start = datetime.now()
     if interactive:
+        show_noti(title="Interactive Mode", message="Starting interactive mode...")
         LOG(f"{LINE_SEPARATOR}Entering interactive mode.")
 
         # Create a bash function for convenience and enter interactive mode

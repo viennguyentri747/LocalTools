@@ -23,12 +23,21 @@ LIBUSB_ZIP_PATH = Path.home() / "downloads" / "libusb-master-1-0.zip"
 
 def extract_version_from_zip(zip_path: Path) -> Optional[str]:
     """Extracts the version number from the SDK zip filename."""
-    match = re.search(r"inertial-sense-sdk-([\d\.]+)\.zip", zip_path.name)
+    prefix = "inertial-sense-sdk-"
+    match = re.search(rf"{prefix}([\d\.]+)\.zip", zip_path.name)
     if match:
         version = match.group(1)
         print(f"✅ Found SDK version: {version}")
         return version
-    print(f"❌ ERROR: Could not extract version from filename: {zip_path.name}")
+    # TODO: if not found, try use text after inertial-sense-sdk- and before .zip
+    print(
+        f"⚠️ WARNING: Could not extract version number from filename: {zip_path.name}, falling back to getting whole text after {prefix}")
+    match = re.search(rf"{prefix}(.+)\.zip", zip_path.name)
+    if match:
+        version = match.group(1)
+        print(f"✅ Found SDK version: {version}")
+        return version
+    print(f"❌ FATAL: Could not extract version from filename: {zip_path.name}")
     return None
 
 
@@ -231,7 +240,7 @@ def main():
 
     if new_sdk_path.exists():
         print(
-            f"❌ FATAL: SDK folder '{new_sdk_path}' already exists:\n1. 'cd {INSENSE_SDK_REPO_DIR}' and undo all commits\n2. Run 'cd /home/vien/core_repos/insensesdk && git reset --hard && git clean -fd!") # &&rm -rf {new_sdk_path}'
+            f"❌ FATAL: SDK folder '{new_sdk_path}' already exists:\n1. 'cd {INSENSE_SDK_REPO_DIR}' and undo all commits\n2. Run 'cd /home/vien/core_repos/insensesdk && git reset --hard && git clean -fd'!")  # &&rm -rf {new_sdk_path}'
         sys.exit(1)
 
     # Step 2: Unzip the new SDK

@@ -69,6 +69,9 @@ login_permanent() {
     sshpass -p $ut_pass ssh-copy-id -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${ip_prefix}.$last_octet
 }
 
+# TODO create a wrapper for SCP that basically rerun scp as is with all args but add echo after finishing "Done" message
+
+
 # Function to perform SCP
 scp_acu() {
     local area=$1

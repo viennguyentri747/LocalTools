@@ -1,21 +1,19 @@
+#!/bin/bash
+
 trash_dir="$HOME/.local/share/Trash/"
-mkdir -p "$trash_dir"
 
 rm() {
     local files_to_remove=()
     local permanent_delete=false
     local rm_options=()
     
-    # Create trash directory if it doesn't exist (only if not permanent delete)
-    mkdir -p "$trash_dir"
-    
     # Parse arguments
     for arg in "$@"; do
         case "$arg" in
-            -permanent|--permanent) 
+            -permanent|--permanent)
                 permanent_delete=true
                 ;;
-            -*) 
+            -*)
                 # Collect other options for permanent delete mode
                 rm_options+=("$arg")
                 ;;
@@ -39,22 +37,38 @@ rm() {
         return $?
     fi
     
+    # Create trash directory if it doesn't exist (only for trash mode)
+    mkdir -p "$trash_dir"
+    
+    # Get absolute path of trash directory for comparison
+    local trash_realpath=$(realpath "$trash_dir" 2>/dev/null)
+    
     # Move each file/folder to trash directory
     for file in "${files_to_remove[@]}"; do
         if [ -e "$file" ]; then
+            # Get absolute path of the file for comparison
+            local file_realpath=$(realpath "$file" 2>/dev/null)
+            
+            # Skip backing up the trash directory itself (multiple checks)
+            if [ "$file_realpath" = "$trash_realpath" ] || [ "$file" -ef "$trash_dir" ] ||  [[ "$file_realpath" == "$trash_realpath"/* ]]; then
+                echo "Skipping trash directory or its contents: '$file'" >&2
+                continue
+            fi
+            
             # Generate unique name if file already exists in trash
             local basename=$(basename "$file")
             local trash_target="$trash_dir/$basename"
-            # local counter=1 # For extra copies
+            # local counter=1
+            
             # while [ -e "$trash_target" ]; do
             #     trash_target="$trash_dir/${basename}.${counter}"
             #     ((counter++))
             # done
             
             mv "$file" "$trash_target"
-            echo "Backed up '$file' to '$trash_target'"
+            echo "Moved '$file' to trash: '$trash_target'"
         else
-            echo "No '$file' found -> Ignoring!" >&2
+            echo "rm: cannot remove '$file': No such file or directory" >&2
         fi
     done
 }

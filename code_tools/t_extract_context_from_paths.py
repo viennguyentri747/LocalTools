@@ -23,7 +23,7 @@ DEFAULT_OUTPUT_BASE_DIR = 'testing'
 DEFAULT_OUTPUT_SUBDIR = '.ai_context'
 
 # Folder rotation settings
-CONTEXT_FOLDER_PREFIX = 'context_'
+CONTEXT_FOLDER_PREFIX = 'context_paths_'
 DEFAULT_MAX_FOLDERS = 5
 
 # Commands
@@ -96,36 +96,36 @@ MODE_DESCRIPTIONS = {
 def rotate_context_folders(output_dir: Path, max_folders: int) -> None:
     """
     Rotate context folders by keeping only the most recent n folders.
-    
+
     Args:
         output_dir: Base directory containing context folders
         max_folders: Maximum number of folders to keep (default: 5)
     """
     if not output_dir.exists():
         return
-    
+
     # Find all folders matching the context prefix pattern
     context_folders = []
     pattern = rf"^{re.escape(CONTEXT_FOLDER_PREFIX)}\d{{8}}_\d{{6}}$"
-    
+
     for item in output_dir.iterdir():
         if item.is_dir() and re.match(pattern, item.name):
             context_folders.append(item)
-    
+
     # Sort by modification time (newest first)
     context_folders.sort(key=lambda x: x.stat().st_mtime, reverse=True)
-    
+
     # Remove excess folders
     folders_to_remove = context_folders[max_folders:]
-    
+
     if folders_to_remove:
-        print(f"{MSG_INFO_PREFIX} Rotating folders: keeping {min(len(context_folders), max_folders)} most recent context folders")
+        LOG(f"Rotating folders: keeping {min(len(context_folders), max_folders)} most recent context folders")
         for folder in folders_to_remove:
             try:
                 shutil.rmtree(folder)
-                print(f"{MSG_INFO_PREFIX} Removed old context folder: {folder.name}")
+                LOG(f"Removed old context folder: {folder.name}")
             except Exception as e:
-                print(f"{MSG_WARNING_PREFIX} Failed to remove folder {folder.name}: {e}")
+                LOG(f"Failed to remove folder {folder.name}: {e}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -210,7 +210,7 @@ def run_gitingest(input_path: Path, output_dir: Path, include: List[str], exclud
         command.extend([GIT_INGEST_EXCLUDE_FLAG, pattern])
 
     try:
-        print(f"{MSG_INFO_PREFIX} Starting gitingest for '{input_path}' in {mode} mode... Commmand:\n{' '.join(command)}")
+        LOG(f"Starting gitingest for '{input_path}' in {mode} mode... Commmand:\n{' '.join(command)}")
         process = subprocess.run(
             command,
             check=True,
@@ -258,63 +258,63 @@ def open_explorer_to_file(file_path: Path) -> None:
             subprocess.run(
                 [CMD_EXPLORER, WSL_SELECT_FLAG, windows_path], check=True
             )
-            print(f"{MSG_INFO_PREFIX} Opened Explorer to highlight '{file_path}'")
+            LOG(f"Opened Explorer to highlight '{file_path}'")
         else:
-            print(f"{MSG_INFO_PREFIX} {MSG_EXPLORER_WSL_ONLY}")
+            LOG(f"{MSG_EXPLORER_WSL_ONLY}")
     except Exception as e:
-        print(f"{MSG_WARNING_PREFIX} Failed to open Explorer: {e}")
+        LOG(f"Failed to open Explorer: {e}")
 
 
 def merge_output_files(output_files: List[Path], output_dir: Path) -> Path:
     """
     Merge multiple output files into a single file.
-   
+
     Args:
         output_files: List of output file paths to merge
         output_dir: Directory where the merged file will be saved
-       
+
     Returns:
         Path to the merged file
     """
     file_names = [f.name for f in output_files]
-    print(f"{MSG_INFO_PREFIX} Merging files {', '.join(file_names)} into a single file...")
-   
+    LOG(f"Merging files {', '.join(file_names)} into a single file...")
+
     # Create a descriptive filename for the merged file (no timestamp since already in timestamped folder)
     merged_filename = f"merged_context{TXT_EXTENSION}"
     merged_path = output_dir / merged_filename
-   
+
     # Merge all files
     with open(merged_path, 'w', encoding='utf-8') as merged_file:
         for i, file_path in enumerate(output_files):
             merged_file.write(f"\n\n{'='*50}\n")
             merged_file.write(f"FILE {i+1}/{len(output_files)}: {file_path.name}\n")
             merged_file.write(f"{'='*50}\n\n")
-           
+
             with open(file_path, 'r', encoding='utf-8') as input_file:
                 merged_file.write(input_file.read())
-   
-    print(f"{MSG_SUCCESS_PREFIX} Merged {len(output_files)} files into '{merged_path}'")
+
+    LOG(f"Merged {len(output_files)} files into '{merged_path}'")
     return merged_path
 
 
 def create_log_file(args: argparse.Namespace, output_dir: Path, timestamp: str) -> Path:
     """
     Create a log file with context information.
-   
+
     Args:
         args: Parsed command line arguments
         output_dir: Directory where the log file will be saved
         timestamp: Timestamp string for the log entry
-       
+
     Returns:
         Path to the created log file
     """
     log_path = output_dir / "log.txt"
-   
+
     with open(log_path, 'w', encoding='utf-8') as log_file:
         log_file.write(f"Extract Source Context Log - {timestamp}\n")
         log_file.write(f"{'='*50}\n\n")
-       
+
         log_file.write("Arguments:\n")
         log_file.write(f"  Paths: {args.paths}\n")
         log_file.write(f"  Output directory: {args.output_dir}\n")
@@ -324,20 +324,20 @@ def create_log_file(args: argparse.Namespace, output_dir: Path, timestamp: str) 
         log_file.write(f"  Max workers: {args.max_workers}\n")
         log_file.write(f"  Max folders: {args.max_folders}\n")
         log_file.write(f"  No open explorer: {args.no_open_explorer}\n")
-       
+
         # Get mode-specific patterns
         mode_include, mode_exclude = get_mode_patterns(args.mode)
         log_file.write(f"\nMode-specific patterns:\n")
         log_file.write(f"  Include: {mode_include}\n")
         log_file.write(f"  Exclude: {mode_exclude}\n")
-       
+
         # Combined patterns
         final_include = mode_include + args.include_pattern
         final_exclude = mode_exclude + args.exclude_pattern
         log_file.write(f"\nFinal patterns:\n")
         log_file.write(f"  Include: {final_include}\n")
         log_file.write(f"  Exclude: {final_exclude}\n")
-   
+
     return log_path
 
 
@@ -347,23 +347,23 @@ def main() -> None:
 
     # Verify gitingest command exists before starting threads
     if not shutil.which(CMD_GITINGEST):
-        print(f"{MSG_FATAL_PREFIX} {MSG_GITINGEST_NOT_AVAILABLE}", file=sys.stderr)
+        LOG(f"{MSG_GITINGEST_NOT_AVAILABLE}", file=sys.stderr)
         sys.exit(1)
 
     # Create timestamp for this run
     timestamp = subprocess.run(['date', '+%Y%m%d_%H%M%S'], capture_output=True, text=True).stdout.strip()
 
     # Rotate existing context folders before creating a new one
-    rotate_context_folders(args.output_dir, args.max_folders - 1) #Minus 1 because we will create a new one
+    rotate_context_folders(args.output_dir, args.max_folders - 1)  # Minus 1 because we will create a new one
 
     # Create timestamped output directory
     final_output_dir_name = f"{CONTEXT_FOLDER_PREFIX}{timestamp}"
     final_output_dir = args.output_dir / final_output_dir_name
     final_output_dir.mkdir(parents=True, exist_ok=True)
-   
+
     # Create log file
     log_path = create_log_file(args, final_output_dir, timestamp)
-    print(f"{MSG_INFO_PREFIX} Log file created at: {log_path}")
+    LOG(f"Log file created at: {log_path}")
 
     # Get mode-specific patterns
     mode_include, mode_exclude = get_mode_patterns(args.mode)
@@ -372,13 +372,13 @@ def main() -> None:
     final_include = mode_include + args.include_pattern
     final_exclude = mode_exclude + args.exclude_pattern
 
-    print(f"{MSG_INFO_PREFIX} Running in '{args.mode}' mode")
-    print(f"{MSG_INFO_PREFIX} Output directory: {final_output_dir}")
+    LOG(f"Running in '{args.mode}' mode")
+    LOG(f"Output directory: {final_output_dir}")
     if final_include:
-        print(f"{MSG_INFO_PREFIX} Include patterns: {final_include}")
+        LOG(f"Include patterns: {final_include}")
     if final_exclude:
-        print(f"{MSG_INFO_PREFIX} Exclude patterns: {final_exclude}")
-    print()
+        LOG(f"Exclude patterns: {final_exclude}")
+    LOG()
 
     successes = []
     failures = []
@@ -396,24 +396,24 @@ def main() -> None:
             path = future_to_path[future]
             try:
                 is_success, message, output_path = future.result()
-                print(message)
+                LOG(message)
                 if is_success:
                     successes.append(path)
                     output_files.append(output_path)
                 else:
                     failures.append(path)
             except Exception as exc:
-                print(f"{MSG_ERROR_PREFIX} Path '{path}' generated an exception: {exc}")
+                LOG(f"Path '{path}' generated an exception: {exc}")
                 failures.append(path)
 
-    # Print a final summary of results
-    print(f"\n{SUMMARY_SEPARATOR}")
+    # LOG a final summary of results
+    LOG(f"\n{SUMMARY_SEPARATOR}")
     if successes:
-        print(f"{SUCCESS_EMOJI} Successfully processed {len(successes)} paths in '{args.mode}' mode.")
+        LOG(f"{SUCCESS_EMOJI} Successfully processed {len(successes)} paths in '{args.mode}' mode.")
     if failures:
-        print(f"{FAILURE_EMOJI} Failed to process {len(failures)} paths:", file=sys.stderr)
+        LOG(f"{FAILURE_EMOJI} Failed to process {len(failures)} paths:", file=sys.stderr)
         for f in failures:
-            print(f"  - {f}", file=sys.stderr)
+            LOG(f"  - {f}", file=sys.stderr)
     output_file_path = None
 
     if len(output_files) == 1:
@@ -427,7 +427,7 @@ def main() -> None:
         token_count = len(encoding.encode(file_contents))
         filename = os.path.basename(output_file_path)
         LOG(f"{LINE_SEPARATOR}")
-        print(f"Estimated token count for {filename}: {beautify_number(token_count)}")
+        LOG(f"Estimated token count for {filename}: {beautify_number(token_count)}")
 
     # Open explorer if requested
     if not args.no_open_explorer and output_file_path:
@@ -441,7 +441,7 @@ def main() -> None:
     if failures:
         sys.exit(1)
     else:
-        print(f"{CELEBRATION_EMOJI} {MSG_ALL_PROCESSED_SUCCESS}")
+        LOG(f"{CELEBRATION_EMOJI} {MSG_ALL_PROCESSED_SUCCESS}")
 
 
 if __name__ == '__main__':

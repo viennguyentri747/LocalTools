@@ -11,7 +11,8 @@ setup(
         "python_gitlab==4.13.0",
         "plyer==2.1.0",
         "tiktoken==0.7.0",
-        "readable-number==0.1.3"
+        "readable-number==0.1.3",
+        "gitingest==0.3.1",
     ],
     python_requires=">=3.6",
 )

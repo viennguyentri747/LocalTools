@@ -2,7 +2,6 @@ import hashlib
 import os
 from pathlib import Path
 import subprocess
-import sys
 from typing import List, Literal, Optional, Union
 from datetime import datetime
 import traceback

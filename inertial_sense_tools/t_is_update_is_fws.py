@@ -6,6 +6,7 @@ import os
 import re
 from pathlib import Path
 from typing import Dict, List, NamedTuple, Optional
+from dev_common import *
 
 # Define the paths and file prefixes
 DOWNLOADS_DIR = Path.home() / "downloads"
@@ -156,8 +157,8 @@ def update_firmware(pair: FirmwarePair, version: str) -> None:
         for f in extra_files:
             print(f"  - {f.name}")
         try:
-            confirm = input("\nRemove these extra files? [y/N]: ")
-            if confirm.lower() == 'y':
+            is_ok = prompt_confirmation("Do you want to remove these extra files?")
+            if is_ok.lower() == 'y':
                 for f in extra_files:
                     try:
                         f.unlink()

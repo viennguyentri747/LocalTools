@@ -69,8 +69,21 @@ login_permanent() {
     sshpass -p $ut_pass ssh-copy-id -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${ip_prefix}.$last_octet
 }
 
-# TODO create a wrapper for SCP that basically rerun scp as is with all args but add echo after finishing "Done" message
-
+# Wrapper for scp: run real scp with all args, then echo a completion message
+scp() {
+    # Use 'command' to bypass this function and call the real scp binary
+    command scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$@"
+    local status=$?
+    local message=""
+    if [ $status -eq 0 ]; then
+        message="SCP completed successfully."
+    else
+        message="SCP failed with status $status."
+    fi
+    echo "$message"
+    noti "SCP Command" "$message"
+    return $status
+}
 
 # Function to perform SCP
 scp_acu() {

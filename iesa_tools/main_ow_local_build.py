@@ -129,16 +129,11 @@ def main() -> None:
             LOG(
                 f'output_path="{new_iesa_output_abs_path}" '
                 '&& read -e -i "192.168.10" -p "Enter source IP address: " source_ip '
-                '&& rmh '
+                # '&& rmh '
                 '&& sudo chmod 644 "$output_path" '
                 '&& scp -rJ root@$source_ip "$output_path" root@192.168.100.254:/home/root/download/ && { original_md5=$(md5sum "$output_path" | cut -d" " -f1); noti "SCP copy completed successfully"; echo -e "IESA copied completed. Install on target UT $source_ip with this below command:\\n"; } || { noti "SCP copy failed"; exit 1; } '
                 f'&& echo "original_md5=\\"$original_md5\\"; actual_md5=\\$(md5sum /home/root/download/{new_iesa_name} | cut -d\\\" \\\" -f1); echo \\\"original md5sum: \\$original_md5\\\"; echo \\\"actual md5sum: \\$actual_md5\\\"; if [ \\\"\\$original_md5\\\" = \\\"\\$actual_md5\\\" ]; then echo \\\"MD5 match! Install? y/n\\\"; read -r confirm; [ \\\"\\$confirm\\\" = \\\"y\\\" -o \\\"\\$confirm\\\" = \\\"Y\\\" ] && iesa_umcmd install pkg {new_iesa_name} && tail -F /var/log/upgrade_log; else echo \\\"MD5 MISMATCH! Not installing.\\\"; fi"', show_time=False
             )
-            # LOG(f"{LINE_SEPARATOR}")
-            # LOG(f"{LINE_SEPARATOR}")
-            # LOG(f"Install on target UT with command below:\n")
-            # #iesa_umcmd install pkg v_TEST_MANP-268_Support-Fan-On-Temp-Config-For-Fan-Via-Api.iesa
-            # LOG(f"iesa_umcmd install pkg {new_iesa_name}", show_time=False)
         else:
             LOG(f"ERROR: Expected IESA artifact not found at '{OUTPUT_IESA_PATH}' or it's not a file.", file=sys.stderr)
             sys.exit(1)

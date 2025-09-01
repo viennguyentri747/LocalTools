@@ -63,7 +63,7 @@ def main() -> None:
                         help="Force clearing tmp_build folder before sync (true or false). Defaults to False.")
     parser.add_argument("--sync", type=lambda x: x.lower() == 'true', default=True,
                         help="If true, perform tmp_build reset (true or false) and repo sync. Defaults to true.")
-    parser.add_argument("--use_current_ow_branch", type=lambda x: x.lower() == 'true', default=False,
+    parser.add_argument("--use_current_ow_branch", type=lambda x: x.lower() == 'true', default=True,
                         help="Use the current branch of ow_sw_tools repo. Defaults to false.")
     args = parser.parse_args()
     LOG(

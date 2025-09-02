@@ -220,8 +220,16 @@ def main():
         description="Automate the Inertial Sense SDK update process.",
         formatter_class=argparse.RawTextHelpFormatter
     )
+    parser.formatter_class = argparse.RawTextHelpFormatter
+    parser.epilog = """Examples:
+# Example 1
+#KIM RELEASE (insense_sdk)
+~/local_tools/inertial_sense_tools/is_update_is_sdk.py -p ~/downloads/inertial-sense-sdk-2.5.1.zip
+#KIM FW (oneweb_project_sw_tools)
+~/local_tools/inertial_sense_tools/is_update_is_fws.py
+"""
     parser.add_argument("--sdk_path", "-p", type=Path, required=True,
-                        help="Path to the new SDK zip file (e.g., ~/downloads/inertial-sense-sdk-2.5.0.zip)")
+  help="Path to the new SDK zip file (e.g., ~/downloads/inertial-sense-sdk-2.5.0.zip)")
     args = parser.parse_args()
     sdk_zip_path = args.sdk_path.expanduser()
 

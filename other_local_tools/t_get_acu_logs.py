@@ -26,6 +26,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description='Pull flash log files via SSH jump hosts.'
     )
+    parser.formatter_class = argparse.RawTextHelpFormatter
+    parser.epilog = """Examples:
+
+# Example 1
+~/local_tools/other_local_tools/get_acu_logs.py --type P T E --ips 192.168.100.52 192.168.100.53 --date 20250625 20250626
+"""
     parser.add_argument(
         '-t', '--type',
         nargs='+',

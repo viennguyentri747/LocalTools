@@ -12,6 +12,12 @@ import pyperclip
 
 def main():
     parser = argparse.ArgumentParser(description="Process .gitlab-ci.yml for local execution.")
+    parser.formatter_class = argparse.RawTextHelpFormatter
+    parser.epilog = """Examples:
+
+# Example 1
+source ~/local_tools/MyVenvFolder/bin/activate && cd ~/core_repos/intellian_pkg/ && python3 ~/local_tools/main_local_gitlab_ci.py -p ~/core_repos/intellian_pkg/.gitlab-ci.yml
+"""
     parser.add_argument("-p", "--gl_yml_file_path", help="Path to the source .gitlab-ci.yml file")
     args = parser.parse_args()
 

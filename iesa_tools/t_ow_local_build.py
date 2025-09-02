@@ -45,6 +45,12 @@ MAIN_STEP_LOG_PREFIX = f"{LINE_SEPARATOR}\n[MAIN_STEP]"
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="OneWeb SW-Tools local build helper.")
+    parser.formatter_class = argparse.RawTextHelpFormatter
+    parser.epilog = """Examples:
+
+# Example 1
+source ~/local_tools/MyVenvFolder/bin/activate && python3 ~/local_tools/iesa_tools/t_main_ow_local_build.py --build_type iesa --tisdk_ref manpack_master --manifest_source local --use_current_ow_branch true --overwrite_repos intellian_pkg upgrade submodule_spibeam insensesdk adc_lib --interactive false --force_reset_tmp_build true
+"""
     parser.add_argument("--build_type", choices=[BUILD_TYPE_BINARY, BUILD_TYPE_IESA], type=str, default=BUILD_TYPE_BINARY,
                         help="Build type (binary or iesa). Defaults to binary.")
     parser.add_argument("--manifest_source", choices=[MANIFEST_SOURCE_LOCAL, MANIFEST_SOURCE_REMOTE], default="local",

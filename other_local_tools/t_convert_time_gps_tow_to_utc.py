@@ -48,10 +48,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Calculate GPS and UTC time based on GPS week and time of week milliseconds."
     )
+    parser.formatter_class = argparse.RawTextHelpFormatter
+    parser.epilog = """Examples:
 
+# Example 1
+python3 ~/local_tools/other_local_tools/convert_time_gps_tow_to_utc.py --week 2373 --time_of_week_ms 271835600
+"""
     # Add arguments for GPS week and time of week milliseconds
     parser.add_argument(
-        "--week",
+     "--week",
         type=int,
         required=True,
         help="The GPS week number."

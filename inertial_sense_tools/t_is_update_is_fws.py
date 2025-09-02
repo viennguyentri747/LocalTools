@@ -179,6 +179,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Update firmware files based on version."
     )
+    parser.formatter_class = argparse.RawTextHelpFormatter
+    parser.epilog = """Examples:
+
+# Example 1
+#KIM RELEASE (insense_sdk)
+~/local_tools/inertial_sense_tools/is_update_is_sdk.py -p ~/downloads/inertial-sense-sdk-2.5.1.zip
+#KIM FW (oneweb_project_sw_tools)
+~/local_tools/inertial_sense_tools/is_update_is_fws.py
+"""
     parser.add_argument(
         "-v", "--version", type=str, required=True, help="The firmware version to find and update (e.g., '2.5.0')."
     )

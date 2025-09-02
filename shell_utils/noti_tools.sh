@@ -1,6 +1,4 @@
 noti() {
-    local snore_path="/mnt/c/MyWorkspace/Miscs/SnoreToast/snoretoast.exe"
-
     # Show help if -h or --help is passed
     if [[ "$1" == "-h" || "$1" == "--help" ]]; then
         cat <<EOF
@@ -19,11 +17,6 @@ EOF
         return 0
     fi
 
-    if [ ! -x "$snore_path" ]; then
-        echo "❌ SnoreToast not found at $snore_path"
-        return 1
-    fi
-
     local title="${1:-Notification}"
     local default_message="Your task is done!"
     local message="${2:-$default_message}"
@@ -31,5 +24,5 @@ EOF
     local duration="${3:-$default_duration}"
 
     # Run detached, use disown to avoid hangup signal
-	nohup "$snore_path" -t "$title" -m "$message" -d "$duration" >/dev/null 2>&1 & disown
+    python3 dev_common/noti_utils.py --title "$title" --message "$message" --duration "$duration"
 }

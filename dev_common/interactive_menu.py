@@ -5,39 +5,6 @@ import sys
 from typing import List, Optional
 
 
-def _draw_menu(
-    stdscr: "curses._CursesWindow",
-    options: List[str],
-    title: Optional[str],
-    cursor: int,
-    top: int,
-) -> None:
-    stdscr.erase()
-    height, width = stdscr.getmaxyx()
-
-    # Reserve first line for title (if any)
-    row = 0
-    if title:
-        title_text = title[: max(0, width - 1)]
-        stdscr.addstr(row, 0, title_text, curses.A_BOLD)
-        row += 1
-
-    visible_rows = height - row
-    if visible_rows <= 0:
-        stdscr.refresh()
-        return
-
-    end = min(len(options), top + visible_rows)
-    for i, opt in enumerate(options[top:end], start=top):
-        y = row + (i - top)
-        line = opt[: max(0, width - 1)]
-        if i == cursor:
-            stdscr.addstr(y, 0, line, curses.A_REVERSE)
-        else:
-            stdscr.addstr(y, 0, line)
-    stdscr.refresh()
-
-
 def interactive_select_with_arrows(options: List[str], title: Optional[str] = None) -> Optional[int]:
     """Interactive selector using arrow keys.
 
@@ -51,17 +18,30 @@ def interactive_select_with_arrows(options: List[str], title: Optional[str] = No
     if not options:
         return None
 
+    full_title = f"{title} (↑/↓ or j/k, Enter to select, q to cancel)"
     # Fallback if not a terminal
     if not sys.stdin.isatty() or not sys.stdout.isatty():
-        return _numeric_fallback(options, f"{title}. (↑/↓ or j/k, Enter to select, q to cancel)")
+        return _numeric_fallback(options, full_title)
     try:
-        return curses.wrapper(_menu_curses, options, title)
+        return curses.wrapper(_interactive_menu_selector, options, full_title)
     except Exception:
         # If curses fails for any reason, gracefully fall back
-        return _numeric_fallback(options, title)
+        return _numeric_fallback(options, full_title)
 
 
-def _menu_curses(stdscr: "curses._CursesWindow", options: List[str], title: Optional[str]) -> Optional[int]:
+def _interactive_menu_selector(stdscr: "curses._CursesWindow", options: List[str], title: Optional[str] = None) -> Optional[int]:
+    """
+    Display a keyboard-navigable terminal menu for option selection.
+    Navigation: UP/DOWN or k/j (move), HOME/END (jump), ENTER (select), ESC/q (cancel)
+    
+    Args:
+        stdscr: Curses window for rendering
+        options: List of menu option strings
+        title: Optional header text
+        
+    Returns:
+        Zero-based index of selected option, or None if cancelled
+    """
     curses.curs_set(0)
     stdscr.keypad(True)
     curses.use_default_colors()
@@ -102,7 +82,42 @@ def _menu_curses(stdscr: "curses._CursesWindow", options: List[str], title: Opti
             pass
 
 
+def _draw_menu(
+    stdscr: "curses._CursesWindow",
+    options: List[str],
+    title: Optional[str],
+    cursor: int,
+    top: int,
+) -> None:
+    """Draws the menu on the screen with the given options, title, cursor position, and top visible index."""
+    stdscr.erase()
+    height, width = stdscr.getmaxyx()
+
+    # Reserve first line for title (if any)
+    row = 0
+    if title:
+        title_text = title[: max(0, width - 1)]
+        stdscr.addstr(row, 0, title_text, curses.A_BOLD)
+        row += 1
+
+    visible_rows = height - row
+    if visible_rows <= 0:
+        stdscr.refresh()
+        return
+
+    end = min(len(options), top + visible_rows)
+    for i, opt in enumerate(options[top:end], start=top):
+        y = row + (i - top)
+        line = opt[: max(0, width - 1)]
+        if i == cursor:
+            stdscr.addstr(y, 0, line, curses.A_REVERSE)
+        else:
+            stdscr.addstr(y, 0, line)
+    stdscr.refresh()
+
+
 def _numeric_fallback(options: List[str], title: Optional[str] = None) -> Optional[int]:
+    """Provides a fallback numeric selection when curses is not available or fails."""
     if title:
         print(title)
     for i, opt in enumerate(options, start=1):

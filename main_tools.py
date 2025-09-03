@@ -10,8 +10,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Optional
-
-from dev_common.terminal_menu import interactive_select_with_arrows
+from dev_common.interactive_menu import interactive_select_with_arrows
 
 
 @dataclass
@@ -205,7 +204,7 @@ def interactive_select(tools: List[ToolEntry]) -> Optional[ToolEntry]:
         return None
     # Flatten display as folder/filename for the menu
     options = [t.display for t in tools]
-    title = " (↑/↓ or j/k,)"
+    title = ""
     idx = interactive_select_with_arrows(options, title="Select a tool")
     if idx is None:
         return None

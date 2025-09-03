@@ -10,7 +10,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Optional
-from dev_common.interactive_menu import interactive_select_with_arrows
+from dev_common.interactive_menu import interactive_select_with_arrows, OptionData
 
 
 @dataclass
@@ -205,28 +205,16 @@ def interactive_select(tools: List[ToolEntry]) -> Optional[ToolEntry]:
     groups = _group_by_folder(tools)
     if not groups:
         return None
-    # Build options with headers and indented children
-    options = []
-    selectables = []
-    tool_list = []
+    # Build option_data with headers and indented children
+    option_data = []
     for folder, folder_tools in groups:
-        options.append(f"{folder}:")
-        selectables.append(False)
+        option_data.append(OptionData(title=f"{folder}:", selectable=False))
         for t in folder_tools:
-            options.append(f"  {t.filename}")
-            selectables.append(True)
-            tool_list.append(t)
-    idx = interactive_select_with_arrows(options, title="Select a tool", selectables=selectables)
-    if idx is None:
+            option_data.append(OptionData(title=f"  {t.filename}", selectable=True, data=t))
+    selected = interactive_select_with_arrows(option_data, menu_title="Select a tool")
+    if selected is None or not selected.selectable:
         return None
-    # Find the corresponding tool
-    tool_idx = 0
-    for i in range(len(options)):
-        if selectables[i]:
-            if i == idx:
-                return tool_list[tool_idx]
-            tool_idx += 1
-    return None
+    return selected.data
 
 
 def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:

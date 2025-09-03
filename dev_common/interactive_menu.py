@@ -3,9 +3,18 @@ from __future__ import annotations
 import curses
 import sys
 from typing import List, Optional
+from dataclasses import dataclass
+from typing import Any
 
 
-def interactive_select_with_arrows(options: List[str], title: Optional[str] = None, selectables: Optional[List[bool]] = None) -> Optional[int]:
+@dataclass
+class OptionData:
+    title: str
+    selectable: bool
+    data: Optional[Any] = None
+
+
+def interactive_select_with_arrows(option_data: List[OptionData], menu_title: Optional[str] = None) -> Optional[OptionData]:
     """Interactive selector using arrow keys.
 
     - Up/Down or k/j to navigate
@@ -15,54 +24,51 @@ def interactive_select_with_arrows(options: List[str], title: Optional[str] = No
     Falls back to numeric selection if stdout/stderr are not TTYs
     or if curses fails to initialize.
     """
-    if not options:
+    if not option_data:
         return None
 
-    full_title = f"{title} (↑/↓ or j/k, Enter to select, q to cancel)"
+    full_title = f"{menu_title} (↑/↓ or j/k, Enter to select, q to cancel)"
     # Fallback if not a terminal
     if not sys.stdin.isatty() or not sys.stdout.isatty():
-        return _numeric_fallback(options, full_title, selectables)
+        return _numeric_fallback(option_data, full_title)
     try:
-        return curses.wrapper(_interactive_menu_selector, options, full_title, selectables)
+        return curses.wrapper(_interactive_menu_selector, option_data, full_title)
     except Exception:
         # If curses fails for any reason, gracefully fall back
-        return _numeric_fallback(options, title, selectables)
+        return _numeric_fallback(option_data, menu_title)
 
 
-def _next_selectable(options: List[str], selectables: List[bool], current: int, direction: int) -> int:
+def _next_selectable(option_data: List[OptionData], current: int, direction: int) -> int:
     """Find the next selectable index in the given direction, wrapping around if necessary."""
-    n = len(options)
+    n = len(option_data)
     i = current
     while True:
         i = (i + direction) % n
         if i == current:
             return current  # No other selectable items, stay put
-        if selectables[i]:
+        if option_data[i].selectable:
             return i
 
 
-def _interactive_menu_selector(stdscr: "curses._CursesWindow", options: List[str], title: Optional[str], selectables: Optional[List[bool]]) -> Optional[int]:
+def _interactive_menu_selector(stdscr: "curses._CursesWindow", option_data: List[OptionData], title: Optional[str]) -> Optional[OptionData]:
     """
     Display a keyboard-navigable terminal menu for option selection.
     Navigation: UP/DOWN or k/j (move), HOME/END (jump), ENTER (select), ESC/q (cancel)
     
     Args:
         stdscr: Curses window for rendering
-        options: List of menu option strings
+        option_data: List of OptionData for menu options
         title: Optional header text
-        selectables: Optional list of booleans indicating if each option is selectable
         
     Returns:
-        Zero-based index of selected option, or None if cancelled
+        Selected OptionData, or None if cancelled
     """
-    if selectables is None:
-        selectables = [True] * len(options)
     curses.curs_set(0)
     stdscr.keypad(True)
     curses.use_default_colors()
 
     # Start cursor on first selectable item
-    cursor = next((i for i in range(len(options)) if selectables[i]), 0)
+    cursor = next((i for i in range(len(option_data)) if option_data[i].selectable), 0)
     top = 0
 
     while True:
@@ -76,19 +82,19 @@ def _interactive_menu_selector(stdscr: "curses._CursesWindow", options: List[str
         elif cursor >= top + visible_rows:
             top = cursor - visible_rows + 1
 
-        _draw_menu(stdscr, options, title, cursor, top)
+        _draw_menu(stdscr, option_data, title, cursor, top)
 
         ch = stdscr.getch()
         if ch in (curses.KEY_UP, ord('k')):
-            cursor = _next_selectable(options, selectables, cursor, -1)
+            cursor = _next_selectable(option_data, cursor, -1)
         elif ch in (curses.KEY_DOWN, ord('j')):
-            cursor = _next_selectable(options, selectables, cursor, 1)
+            cursor = _next_selectable(option_data, cursor, 1)
         elif ch in (curses.KEY_HOME,):
-            cursor = next((i for i in range(len(options)) if selectables[i]), 0)
+            cursor = next((i for i in range(len(option_data)) if option_data[i].selectable), 0)
         elif ch in (curses.KEY_END,):
-            cursor = next((i for i in range(len(options) - 1, -1, -1) if selectables[i]), len(options) - 1)
+            cursor = next((i for i in range(len(option_data) - 1, -1, -1) if option_data[i].selectable), len(option_data) - 1)
         elif ch in (10, 13, curses.KEY_ENTER):  # Enter
-            return cursor
+            return option_data[cursor]
         elif ch in (27, ord('q')):  # ESC or q to cancel
             return None
         elif ch == curses.KEY_RESIZE:
@@ -98,12 +104,12 @@ def _interactive_menu_selector(stdscr: "curses._CursesWindow", options: List[str
 
 def _draw_menu(
     stdscr: "curses._CursesWindow",
-    options: List[str],
+    option_data: List[OptionData],
     title: Optional[str],
     cursor: int,
     top: int,
 ) -> None:
-    """Draws the menu on the screen with the given options, title, cursor position, and top visible index."""
+    """Draws the menu on the screen with the given option_data, title, cursor position, and top visible index."""
     stdscr.erase()
     height, width = stdscr.getmaxyx()
 
@@ -119,10 +125,10 @@ def _draw_menu(
         stdscr.refresh()
         return
 
-    end = min(len(options), top + visible_rows)
-    for i, opt in enumerate(options[top:end], start=top):
+    end = min(len(option_data), top + visible_rows)
+    for i, od in enumerate(option_data[top:end], start=top):
         y = row + (i - top)
-        line = opt[: max(0, width - 1)]
+        line = od.title[: max(0, width - 1)]
         if i == cursor:
             stdscr.addstr(y, 0, line, curses.A_REVERSE)
         else:
@@ -130,17 +136,15 @@ def _draw_menu(
     stdscr.refresh()
 
 
-def _numeric_fallback(options: List[str], title: Optional[str] = None, selectables: Optional[List[bool]] = None) -> Optional[int]:
+def _numeric_fallback(option_data: List[OptionData], title: Optional[str] = None) -> Optional[OptionData]:
     """Provides a fallback numeric selection when curses is not available or fails."""
-    if selectables is None:
-        selectables = [True] * len(options)
-    selectable_indices = [i for i, s in enumerate(selectables) if s]
+    selectable_indices = [i for i, od in enumerate(option_data) if od.selectable]
     if not selectable_indices:
         return None
     if title:
         print(title)
     for num, idx in enumerate(selectable_indices, start=1):
-        print(f"  [{num}] {options[idx]}")
+        print(f"  [{num}] {option_data[idx].title}")
     while True:
         try:
             raw = input("Select number (or 'q' to cancel): ").strip()
@@ -151,8 +155,8 @@ def _numeric_fallback(options: List[str], title: Optional[str] = None, selectabl
         if raw.isdigit():
             num = int(raw)
             if 1 <= num <= len(selectable_indices):
-                return selectable_indices[num - 1]
+                return option_data[selectable_indices[num - 1]]
         print("Invalid choice. Enter a number from the list.")
 
 
-__all__ = ["interactive_select_with_arrows"]
+__all__ = ["interactive_select_with_arrows", "OptionData"]

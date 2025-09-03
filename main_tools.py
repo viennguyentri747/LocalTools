@@ -202,13 +202,31 @@ def interactive_select(tools: List[ToolEntry]) -> Optional[ToolEntry]:
     if not tools:
         print("No tools available to select.")
         return None
-    # Flatten display as folder/filename for the menu
-    options = [t.display for t in tools]
-    title = ""
-    idx = interactive_select_with_arrows(options, title="Select a tool")
+    groups = _group_by_folder(tools)
+    if not groups:
+        return None
+    # Build options with headers and indented children
+    options = []
+    selectables = []
+    tool_list = []
+    for folder, folder_tools in groups:
+        options.append(f"{folder}:")
+        selectables.append(False)
+        for t in folder_tools:
+            options.append(f"  {t.filename}")
+            selectables.append(True)
+            tool_list.append(t)
+    idx = interactive_select_with_arrows(options, title="Select a tool", selectables=selectables)
     if idx is None:
         return None
-    return tools[idx]
+    # Find the corresponding tool
+    tool_idx = 0
+    for i in range(len(options)):
+        if selectables[i]:
+            if i == idx:
+                return tool_list[tool_idx]
+            tool_idx += 1
+    return None
 
 
 def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:

@@ -28,7 +28,7 @@ def get_file_md5sum(file_path):
         md5 = hashlib.md5(f.read()).hexdigest()
     return md5
 
-def LOG(*values: object, sep: str = " ", end: str = "\n", file=None, highlight: bool = False, show_time = True, show_traceback: bool = False):
+def LOG(*values: object, sep: str = " ", end: str = "\n", file=None, highlight: bool = False, show_time = True, show_traceback: bool = False, flush: bool = True) -> None:
     # Prepare the message
     message = sep.join(str(value) for value in values)
     
@@ -53,11 +53,11 @@ def LOG(*values: object, sep: str = " ", end: str = "\n", file=None, highlight: 
         HIGHLIGHT_COLOR = "\033[92m"  # green
         BOLD = "\033[1m"
         RESET = "\033[0m"
-        print(f"{BOLD}{HIGHLIGHT_COLOR}", end="", file=file)  # turn to highlight color
-        print(message, end="", file=file)  # print message
-        print(f"{RESET}", end=end, file=file)  # reset
+        print(f"{BOLD}{HIGHLIGHT_COLOR}", end="", file=file, flush=flush)  # turn to highlight color
+        print(message, end="", file=file, flush=flush)  # print message
+        print(f"{RESET}", end=end, file=file, flush=flush)  # reset
     else:
-        print(message, end=end, file=file)
+        print(message, end=end, file=file, flush=flush)
 
 def is_diff_ignore_eol(file1: Path, file2: Path) -> bool:
     return normalize_lines(file1) != normalize_lines(file2)

@@ -165,16 +165,6 @@ def prompt_input_with_paths(
         is_fuzzy_completion = at_pos != -1
 
         if is_fuzzy_completion:
-            # Delete mention symbol + whatever was typed after it, all at once! then insert the completion.
-            ########
-            # chars_to_delete = len(text_before_cursor) - at_pos
-            # buffer.delete_before_cursor(chars_to_delete)
-            # insert_text = completion.text
-            # if insert_text.startswith(MENTION_SYMBOL):
-            #     insert_text = insert_text[len(MENTION_SYMBOL):]
-            # buffer.insert_text(insert_text)
-            ########
-
             # Add a space if none exists after cursor
             current_text = buffer.document.text
             cursor_pos = buffer.document.cursor_position

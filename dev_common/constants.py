@@ -5,3 +5,9 @@ MANIFEST_SOURCE_LOCAL = "local"
 MANIFEST_SOURCE_REMOTE = "remote"
 BUILD_TYPE_IESA = "iesa"
 BUILD_TYPE_BINARY = "binary"
+
+# Argument name constants
+ARGUMENT_PREFIX = "--"
+ARG_TOOL_PREFIX = f"{ARGUMENT_PREFIX}prefix"
+ARG_TOOL_FOLDER_PATTERN = f"{ARGUMENT_PREFIX}folder-pattern"
+ARG_TOOL_ROOT_PATH = f"{ARGUMENT_PREFIX}root-path"

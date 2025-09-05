@@ -6,18 +6,29 @@ import subprocess
 import re
 import sys
 import argparse
+from pathlib import Path
 from dev_common import *
+from dev_common.tools_utils import ToolTemplate
 import pyperclip
+
+
+def get_tool_templates() -> List[ToolTemplate]:
+    return [
+        ToolTemplate(
+            name="Process GitLab CI",
+            description="Process .gitlab-ci.yml for local execution",
+            args={
+                "--gl_yml_file_path": "~/core_repos/intellian_pkg/.gitlab-ci.yml",
+            }
+        ),
+    ]
 
 
 def main():
     parser = argparse.ArgumentParser(description="Process .gitlab-ci.yml for local execution.")
     parser.formatter_class = argparse.RawTextHelpFormatter
-    parser.epilog = """Examples:
+    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
 
-# Example 1
-source ~/local_tools/MyVenvFolder/bin/activate && cd ~/core_repos/intellian_pkg/ && python3 ~/local_tools/main_local_gitlab_ci.py -p ~/core_repos/intellian_pkg/.gitlab-ci.yml
-"""
     parser.add_argument("-p", "--gl_yml_file_path", help="Path to the source .gitlab-ci.yml file")
     args = parser.parse_args()
 
@@ -36,7 +47,7 @@ source ~/local_tools/MyVenvFolder/bin/activate && cd ~/core_repos/intellian_pkg/
 
     # Step 1: Copy everything from the source directory to the temporary folder using rsync
     LOG(f"Copying contents from {source_folder} to {tmp_working_folder} using rsync...")
-    
+
     rsync_command = ["rsync", "-a", "--delete"]
     # Exclude some folders from copying (with --delete then those will not exist at all in target folder)
     ignore_folders_from_source = [".vscode", ".git", tmp_working_folder.name]
@@ -56,7 +67,7 @@ source ~/local_tools/MyVenvFolder/bin/activate && cd ~/core_repos/intellian_pkg/
     assert tmp_working_folder.exists(), "Temp working folder was not created!"
     tmp_gl_yml_file = tmp_working_folder / yml_file_name
     assert tmp_gl_yml_file.exists(), f"Copied .gitlab-ci.yml not found in temp folder: {tmp_gl_yml_file}"
-    
+
     # Step 2: Get all relevant global git config URL rewrites
     result_git_url_overwrites = run_shell(
         "git config --global --get-regexp '^url\\..*\\.insteadOf$'",
@@ -69,7 +80,7 @@ source ~/local_tools/MyVenvFolder/bin/activate && cd ~/core_repos/intellian_pkg/
     replacements = {}
     LOG(f"Found: {result_git_url_overwrites.stdout}")
     for line in result_git_url_overwrites.stdout.strip().splitlines():
-        # url.https://gitlab-ci-token:gl.....@gitlab.com/intellian_adc/.insteadof https://gitlab.com/intellian_adc/
+        # url.https://gitlab-ci-token:gl.....@gitlab.com/intellian_adc/.insteadOf https://gitlab.com/intellian_adc/
         match = re.match(r'^url\.(.+?)\.insteadof\s+(.+)$', line, re.IGNORECASE)
         if match:
             full_url, original_url = match.groups()
@@ -86,7 +97,7 @@ source ~/local_tools/MyVenvFolder/bin/activate && cd ~/core_repos/intellian_pkg/
         # Optional: match and replace only inside git config lines
         pattern = rf"(git\s+config\s+--global\s+url\.).+?(\.insteadof\s+{escaped_original_url})"
         replacement = rf"\1{replacement_url}\2"
-        
+
         LOG(f"[DEBUG] Regex pattern: {pattern}, replacement: {replacement}")
         LOG(f"[DEBUG] Replacing: {original_url} → {replacement_url}")
         content, count = re.subn(pattern, replacement, content, flags=re.IGNORECASE)
@@ -96,17 +107,19 @@ source ~/local_tools/MyVenvFolder/bin/activate && cd ~/core_repos/intellian_pkg/
     tmp_gl_yml_file.write_text(content)
 
     # Step 4: LOG the resulting file
-    #LOG(content)
+    # LOG(content)
 
-    ci_local_command = f"cd {tmp_working_folder} && gitlab-ci-local --file {tmp_gl_yml_file.name}" #--cwd {tmp_working_folder}
+    # --cwd {tmp_working_folder}
+    ci_local_command = f"cd {tmp_working_folder} && gitlab-ci-local --file {tmp_gl_yml_file.name}"
     pyperclip.copy(ci_local_command)
     LOG(LINE_SEPARATOR, highlight=True)
     LOG(f"TO BUILD: {ci_local_command}  [✔ copied to clipboard]", highlight=True)
     LOG(LINE_SEPARATOR, highlight=True)
 
     # List available jobs
-    run_shell(f"{ci_local_command} --list") 
+    run_shell(f"{ci_local_command} --list")
     LOG(f"Add `--job <job1> <job2>` to run jobs manually", highlight=True)
+
 
 if __name__ == "__main__":
     main()

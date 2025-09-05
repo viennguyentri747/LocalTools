@@ -2,8 +2,12 @@
 # To get status: 
 # tail -F /var/log/ins_monitor_log | grep -i insStatus
 
-import sys
 import argparse
+from pathlib import Path
+import sys
+from typing import List
+
+from dev_common.tools_utils import ToolTemplate, build_examples_epilog
 
 # INS Status Flags Constants
 INS_STATUS_HDG_ALIGN_COARSE = 0x00000001
@@ -168,14 +172,25 @@ def print_decoded_status(decoded_status: dict, indent: int = 0):
             print(f"{prefix}{key}: {value}")
 
 
-# Main execution block
+def get_tool_templates() -> List[ToolTemplate]:
+    return [
+        ToolTemplate(
+            name="Decode INS Status",
+            description="Decode INS status integer",
+            args={
+                "--ins_status": "0x00031000",
+            }
+        ),
+    ]
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Decode a 32-bit INS status flag.")
     parser.add_argument("-s", "--ins_status", type=str, required=True,
                         help="The 32-bit INS status value (can be hex like 0x00031000 or decimal).")
-
+    # Fill help epilog from templates
+    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
     args = parser.parse_args()
-
     ins_status_arg = args.ins_status
     try:
         # Try to convert from hex (e.g., "0x00031000")

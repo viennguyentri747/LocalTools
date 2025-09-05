@@ -2,6 +2,21 @@
 
 from datetime import datetime, timedelta
 import argparse # Import the argparse module for named command-line arguments
+from pathlib import Path
+from typing import List
+from dev_common.tools_utils import ToolTemplate, build_examples_epilog
+
+def get_tool_templates() -> List[ToolTemplate]:
+    return [
+        ToolTemplate(
+            name="Convert GPS Time",
+            description="Convert GPS week and TOW to UTC",
+            args={
+                "--week": 2373,
+                "--time_of_week_ms": 271835600,
+            }
+        ),
+    ]
 
 def calculate_gps_and_utc_time(week: int, time_of_week_ms: int, leap_seconds: int = 18):
     """
@@ -49,11 +64,8 @@ if __name__ == "__main__":
         description="Calculate GPS and UTC time based on GPS week and time of week milliseconds."
     )
     parser.formatter_class = argparse.RawTextHelpFormatter
-    parser.epilog = """Examples:
-
-# Example 1
-python3 ~/local_tools/other_local_tools/convert_time_gps_tow_to_utc.py --week 2373 --time_of_week_ms 271835600
-"""
+    # Fill help epilog from templates
+    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
     # Add arguments for GPS week and time of week milliseconds
     parser.add_argument(
      "--week",
@@ -82,10 +94,3 @@ python3 ~/local_tools/other_local_tools/convert_time_gps_tow_to_utc.py --week 23
 
     for key, value in results.items():
         print(f"{key}: {value}")
-
-# EXAMPLE:
-# python3 ~/local_tools/other_local_tools/convert_time_gps_tow_to_utc.py --week 2373 --time_of_week_ms 271835600
-# Calculating for GPS Week: 2373, Time of Week MS: 271835600
-
-# GPS Time: 2025-07-02 03:30:35.600000
-# UTC Time: 2025-07-02 03:30:17.600000

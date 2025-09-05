@@ -11,10 +11,14 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 import sys
 from typing import Optional, Tuple
 
 import requests
+
+
+from dev_common.tools_utils import ToolTemplate, build_examples_epilog
 
 
 def clamp_page_size(n: int) -> int:
@@ -89,10 +93,33 @@ def find_version(
                 return None
 
 
+def get_tool_templates() -> List[ToolTemplate]:
+    return [
+        ToolTemplate(
+            name="Basic Search",
+            description="Search for version with default settings",
+            args={
+                "version": "29.9.1.6",
+            }
+        ),
+        ToolTemplate(
+            name="Search with Custom URL",
+            description="Search for version with custom base URL",
+            args={
+                "version": "29.9.1.6",
+                "--base-url": "http://10.1.26.170:8765",
+                "--page-size": 100,
+            }
+        ),
+    ]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Search /version/history for a given version_string."
     )
+    # Fill help epilog from templates
+    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
     parser.add_argument("version", help="Exact version_string to search for")
     parser.add_argument(
         "--base-url",

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3.10
 
 import argparse
+from pathlib import Path
+from dev_common.tools_utils import ToolTemplate, build_examples_epilog
 
 # ------------------------------
 # Hardware Status Bit Definitions
@@ -105,11 +107,25 @@ def decode_hdw_status(status: int):
 
 def main():
     parser = argparse.ArgumentParser(description="Decode a 32-bit Hardware status flag.")
+    # Fill help epilog from templates
+    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
     parser.add_argument("-s", "--status", required=True, type=lambda x: int(x, 0),
                         help="Hardware status value (e.g. \"0x40000001\" or \"1073741825\")")
     args = parser.parse_args()
 
     decode_hdw_status(args.status)
+
+
+def get_tool_templates() -> List[ToolTemplate]:
+    return [
+        ToolTemplate(
+            name="Decode HDW Status",
+            description="Decode hardware status integer",
+            args={
+                "--status": "0x40000001",
+            }
+        ),
+    ]
 
 
 if __name__ == "__main__":

@@ -2,7 +2,10 @@
 
 import argparse
 from enum import Flag
-from typing import Dict
+from pathlib import Path
+from typing import Dict, List
+
+from dev_common.tools_utils import ToolTemplate, build_examples_epilog
 
 # --- Constants, Masks, and Offsets ---
 
@@ -50,6 +53,8 @@ class HdwStatusFlags(Flag):
     ERR_TEMPERATURE = 0x04000000
     SPI_INTERFACE_ENABLED = 0x08000000
     FAULT_SYS_CRITICAL = 0x80000000
+
+# Entry point defined after helpers
 
 # --- Decoding Helper Functions ---
 
@@ -146,11 +151,22 @@ def print_decoded_status(decoded_status: Dict, indent: int = 0) -> None:
         else:
             print(f"{prefix}{key}: {value}")
 
-# --- Entry Point ---
+def get_tool_templates() -> List[ToolTemplate]:
+    return [
+        ToolTemplate(
+            name="Decode HDW Status",
+            description="Decode hardware status integer",
+            args={
+                "--status": "0x2088010",
+            }
+        ),
+    ]
 
 def main() -> None:
     """Parses command-line arguments and initiates decoding."""
     parser = argparse.ArgumentParser(description="Decode a 32-bit hardware (HDW) status integer.")
+    # Fill help epilog from templates
+    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
     parser.add_argument(
         "-s", "--status", 
         required=True, 
@@ -163,6 +179,7 @@ def main() -> None:
     decoded_info = decode_hdw_status(args.status)
     print_decoded_status(decoded_info)
     print("\n" + "=" * 60 + "\n")
+
 
 if __name__ == "__main__":
     main()

@@ -92,6 +92,29 @@ MODE_DESCRIPTIONS = {
     MODE_ALL_FILES: "Include all files (no excludes)"
 }
 
+def get_tool_templates() -> List[ToolTemplate]:
+    return [
+        ToolTemplate(
+            name="Multiple Folder with Common Exclude Patterns",
+            description="Process multiple repos with specific file patterns",
+            args={
+                ARG_MODE_LONG: MODE_ALL_FILES,
+                ARG_EXCLUDE_PATTERN: [".git", ".vscode"],
+                ARG_PATHS_LONG: ["~/core_repos/intellian_pkg/", "~/ow_sw_tools/"],
+            }
+        ),
+        ToolTemplate(
+            name="Multiple Folder with Include + Exclude Patterns",
+            description="Process multiple repos with specific file patterns",
+            args={
+                ARG_MODE_LONG: MODE_ALL_FILES,
+                ARG_EXCLUDE_PATTERN: [".git", ".vscode"],
+                ARG_INCLUDE_PATTERN: ["*.py", "*.md", "*.cpp", "*.c", "*.h"],
+                ARG_PATHS_LONG: ["~/core_repos/intellian_pkg/", "~/ow_sw_tools/"],
+            }
+        ),
+    ]
+
 
 def rotate_context_folders(output_dir: Path, max_folders: int) -> None:
     """
@@ -135,21 +158,9 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawTextHelpFormatter
     )
     parser.formatter_class = argparse.RawTextHelpFormatter
-    parser.epilog = """Examples:
-# Example 1
-# Processes a single repository with default settings, creates timestamped output folder and opens Explorer
-python3 ~/local_tools/other_local_tools/extract_context_from_paths.py -p ~/core_repos/intellian_pkg
-
-# Example 2
-# Extracts only CMakeLists.txt files from multiple folder with custom worker count
-python3 ~/local_tools/other_local_tools/extract_context_from_paths.py -p ~/core_repos/intellian_pkg ~/core_repos/oneweb_project_sw_tools -m cmake --max-workers 5 --no-open-explorer
-
-# Example 3
-# Processes multiple folder with specific file patterns, custom output location
-python3 ~/local_tools/other_local_tools/extract_context_from_paths.py -p ~/core_repos/intellian_pkg/applications ~/core_repos/oneweb_project_sw_tools/tools -m all --include-pattern "*.py" "*.md" "*.cpp" --exclude-pattern "test_*" "docs" -o ~/custom_output_dir
-"""
+    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
     parser.add_argument(ARG_PATHS_SHORT, ARG_PATHS_LONG, nargs='+', required=True,
-               help='A list of file or directory paths to process with gitingest.')
+                        help='A list of file or directory paths to process with gitingest.')
     parser.add_argument(ARG_OUTPUT_DIR_SHORT, ARG_OUTPUT_DIR_LONG, type=Path, default=Path.home() / DEFAULT_OUTPUT_BASE_DIR / DEFAULT_OUTPUT_SUBDIR,
                         help=f'The directory where the output text files will be saved. (default: ~/{DEFAULT_OUTPUT_BASE_DIR}/{DEFAULT_OUTPUT_SUBDIR})')
     parser.add_argument(ARG_MODE_SHORT, ARG_MODE_LONG, choices=AVAILABLE_MODES, default=MODE_ALL_NON_IGNORE_FILES, help=f'''Processing mode:
@@ -316,7 +327,7 @@ def create_log_file(args: argparse.Namespace, output_dir: Path, timestamp: str) 
     Create a log file with context information.
 
     Args:
-        args: Parsed command line arguments
+        args: Parsed command-line arguments
         output_dir: Directory where the log file will be saved
         timestamp: Timestamp string for the log entry
 
@@ -392,7 +403,6 @@ def main() -> None:
         LOG(f"Include patterns: {final_include}")
     if final_exclude:
         LOG(f"Exclude patterns: {final_exclude}")
-    LOG()
 
     successes = []
     failures = []

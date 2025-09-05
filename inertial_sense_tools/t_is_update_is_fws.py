@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from typing import Dict, List, NamedTuple, Optional
 from dev_common import *
+from dev_common.tools_utils import ToolTemplate
 
 # Define the paths and file prefixes
 DOWNLOADS_DIR = Path.home() / "downloads"
@@ -16,7 +17,6 @@ IMX_PREFIX = "IS_IMX-5_v"
 GPX_PREFIX = "IS-firmware_r"
 IMX_SYMLINK = "current_imx_fw.hex"
 GPX_SYMLINK = "current_gpx_fw.fpkg"
-
 
 class FirmwarePair(NamedTuple):
     """A named tuple to hold a pair of firmware files."""
@@ -31,7 +31,7 @@ def find_firmware_pairs(version: str) -> List[FirmwarePair]:
     firmware files for the given version.
 
     Args:
-        version: The firmware version string (e.g., "2.5.0").
+        version: The firmware version string (e.g., '2.5.0').
 
     Returns:
         A list of FirmwarePair objects, sorted from newest to oldest.
@@ -58,7 +58,7 @@ def find_firmware_pairs(version: str) -> List[FirmwarePair]:
     gpx_candidates.sort(key=lambda x: x[0], reverse=True)
 
     # Create pairs by matching the sorted lists
-    pairs = []
+    pairs = []    
     min_len = min(len(imx_candidates), len(gpx_candidates))
 
     for i in range(min_len):
@@ -96,7 +96,7 @@ def select_firmware_pair(pairs: List[FirmwarePair]) -> Optional[FirmwarePair]:
     display_pairs = pairs[:3]
     for i, pair in enumerate(display_pairs):
         print(f"  [{i+1}] IMX: {pair.imx_full_path.name}")
-        print(f"      GPX: {pair.gpx_full_path.name}")
+        print(f"     GPX: {pair.gpx_full_path.name}")
 
     while True:
         try:
@@ -138,7 +138,7 @@ def update_firmware(pair: FirmwarePair, version: str) -> None:
     Path(GPX_SYMLINK).unlink(missing_ok=True)
     Path(GPX_SYMLINK).symlink_to(new_gpx_path)
 
-    print("\n✅ Symlinks updated successfully:")
+    print("\n✅ Seeds updated successfully:")
     os.system(f"ls -l {IMX_SYMLINK} {GPX_SYMLINK}")
 
     # 🔧 Extra cleanup of OLD matching files in kim_ftm_fw
@@ -147,13 +147,12 @@ def update_firmware(pair: FirmwarePair, version: str) -> None:
     extra_files = [
         f for f in DEST_DIR.iterdir()
         if (
-            (f.name.startswith(IMX_PREFIX) or f.name.startswith(GPX_PREFIX))
-            and f.name not in {new_imx_path.name, new_gpx_path.name}
-        )
+            f.name.startswith(IMX_PREFIX) or f.name.startswith(GPX_PREFIX)
+        ) and f.name not in {new_imx_path.name, new_gpx_path.name}
     ]
 
     if extra_files:
-        print("Found extra firmware files:")
+        print("Found extra firmware files:")    
         for f in extra_files:
             print(f"  - {f.name}")
         try:
@@ -166,12 +165,24 @@ def update_firmware(pair: FirmwarePair, version: str) -> None:
                     except Exception as e:
                         print(f"Failed to remove {f.name}: {e}")
         except Exception as e:
-            print(f"Error during extra cleanup: {e}")
+            print(f"Error during extra cleanup: {e}")    
     else:
         print("✅ No extra matching firmware files found.")
 
     print(
         f"\n✅ Firmware update complete! Update change with command below:\ncd {OW_SW_TOOLS_DIR} && git stage {DEST_DIR} && git commit -m 'Firmware update to {version}'")
+
+
+def get_tool_templates() -> List[ToolTemplate]:
+    return [
+        ToolTemplate(
+            name="Update Firmware",
+            description="Update firmware files based on version",
+            args={
+                "--version": "2.5.0",
+            }
+        ),
+    ]
 
 
 def main() -> None:
@@ -180,16 +191,10 @@ def main() -> None:
         description="Update firmware files based on version."
     )
     parser.formatter_class = argparse.RawTextHelpFormatter
-    parser.epilog = """Examples:
-
-# Example 1
-#KIM RELEASE (insense_sdk)
-~/local_tools/inertial_sense_tools/is_update_is_sdk.py -p ~/downloads/inertial-sense-sdk-2.5.1.zip
-#KIM FW (oneweb_project_sw_tools)
-~/local_tools/inertial_sense_tools/is_update_is_fws.py
-"""
+    # Fill help epilog from templates
+    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
     parser.add_argument(
-        "-v", "--version", type=str, required=True, help="The firmware version to find and update (e.g., '2.5.0')."
+        "-v", "--version", type=str, required=True, help="The firmware version to find and update (e.g., '2.5.0')"
     )
     args = parser.parse_args()
 
@@ -198,7 +203,7 @@ def main() -> None:
     selected_pair = select_firmware_pair(firmware_pairs)
 
     if selected_pair:
-        update_firmware(selected_pair, version)
+        update_firmware(selected_pair, version)		   
 
 
 if __name__ == "__main__":

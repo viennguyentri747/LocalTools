@@ -16,6 +16,7 @@ from typing import Dict, List, Optional, Union
 import argparse
 # from dev_common.gitlab_utils import get_latest_successful_pipeline_id, download_job_artifacts, get_gl_project, read_token_from_file
 from dev_common import *
+from dev_common.tools_utils import ToolTemplate
 import yaml
 # ─────────────────────────────  constants  ───────────────────────────── #
 
@@ -46,11 +47,8 @@ MAIN_STEP_LOG_PREFIX = f"{LINE_SEPARATOR}\n[MAIN_STEP]"
 def main() -> None:
     parser = argparse.ArgumentParser(description="OneWeb SW-Tools local build helper.")
     parser.formatter_class = argparse.RawTextHelpFormatter
-    parser.epilog = """Examples:
-
-# Example 1
-source ~/local_tools/MyVenvFolder/bin/activate && python3 ~/local_tools/iesa_tools/t_main_ow_local_build.py --build_type iesa --tisdk_ref manpack_master --manifest_source local --use_current_ow_branch true --overwrite_repos intellian_pkg upgrade submodule_spibeam insensesdk adc_lib --interactive false --force_reset_tmp_build true
-"""
+    # Fill help epilog from templates
+    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
     parser.add_argument("--build_type", choices=[BUILD_TYPE_BINARY, BUILD_TYPE_IESA], type=str, default=BUILD_TYPE_BINARY,
                         help="Build type (binary or iesa). Defaults to binary.")
     parser.add_argument("--manifest_source", choices=[MANIFEST_SOURCE_LOCAL, MANIFEST_SOURCE_REMOTE], default="local",
@@ -557,7 +555,35 @@ def throw_exception(message: str):
     raise Exception(message)
 
 
+def get_tool_templates() -> List[ToolTemplate]:
+    return [
+        ToolTemplate(
+            name="IESA Build Local",
+            description="Build IESA with local manifest and current branch",
+            args={
+                "--build_type": "iesa",
+                "--manifest_source": "local",
+                "--use_current_ow_branch": True,
+                "--tisdk_ref": "manpack_master",
+                "--overwrite_repos": ["intellian_pkg", "upgrade", "submodule_spibeam", "insensesdk", "adc_lib"],
+                "--interactive": False,
+                "--force_reset_tmp_build": True,
+            }
+        ),
+        ToolTemplate(
+            name="Binary Build",
+            description="Build binary with default settings",
+            args={
+                "--build_type": "binary",
+                "--manifest_source": "local",
+                "--use_current_ow_branch": True,
+            }
+        ),
+    ]
+
+
 # ───────────────────────  module entry-point  ────────────────────────── #
+
 if __name__ == "__main__":
     try:
         main()

@@ -2,60 +2,25 @@
 from __future__ import annotations
 
 import argparse
+from time import sleep
+import importlib
 import os
 import re
 import shlex
-import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Optional
-from dev_common.interactive_menu import interactive_select_with_arrows, OptionData
+
+from dev_common.core_utils import LOG
+from dev_common.input_utils import PathSearchConfig, prompt_input_with_paths
+from dev_common.gui_utils import interactive_select_with_arrows, OptionData
+from dev_common.constants import ARG_TOOL_PREFIX, ARG_TOOL_FOLDER_PATTERN, ARG_TOOL_ROOT_PATH
+from dev_common.tools_utils import ToolEntry, ToolTemplate, discover_tools
+from dev_common.python_misc_utils import get_attribute_value
 
 
-@dataclass
-class ToolEntry:
-    folder: str
-    filename: str
-    path: Path
-
-    @property
-    def display(self) -> str:
-        return f"{self.folder}/{self.filename}"
-
-    @property
-    def stem(self) -> str:
-        return Path(self.filename).stem
-
-
-def discover_tool_folders(root: Path, folder_pattern: str) -> List[Path]:
-    pattern = re.compile(folder_pattern)
-    folders: List[Path] = []
-    for p in sorted(root.iterdir()):
-        if p.is_dir() and pattern.match(p.name):
-            folders.append(p)
-    return folders
-
-
-def is_tool_file(path: Path, prefix: str) -> bool:
-    name = path.name
-    if not name.startswith(prefix):
-        return False
-    if path.suffix == ".py":
-        return True
-    # Allow any executable file
-    return os.access(str(path), os.X_OK)
-
-
-def discover_tools(root: Path, folder_pattern: str, prefix: str) -> List[ToolEntry]:
-    tools: List[ToolEntry] = []
-    for folder in discover_tool_folders(root, folder_pattern):
-        for child in sorted(folder.iterdir()):
-            if child.is_file() and is_tool_file(child, prefix):
-                tools.append(ToolEntry(folder=folder.name, filename=child.name, path=child))
-    return tools
-
-
+# Helper functions that don't call other functions in this file
 def _group_by_folder(tools: List[ToolEntry]) -> List[tuple[str, List[ToolEntry]]]:
     groups: dict[str, List[ToolEntry]] = {}
     order: List[str] = []
@@ -67,140 +32,52 @@ def _group_by_folder(tools: List[ToolEntry]) -> List[tuple[str, List[ToolEntry]]
     return [(folder, groups[folder]) for folder in order]
 
 
-def print_tools(tools: List[ToolEntry]) -> None:
-    if not tools:
-        print("No tools found.")
-        return
-    total = len(tools)
-    width = len(str(total))
-    idx = 1
-    for folder, items in _group_by_folder(tools):
-        print(f"\n{folder}:")
-        for t in items:
-            print(f"  [{str(idx).rjust(width)}] {t.filename}")
-            idx += 1
-    print("")
+def build_template_command(tool, template: ToolTemplate):
+    """Build command line for a template"""
+    cmd_parts = [sys.executable, str(tool.path)]
 
-
-def resolve_tool_by_name(tools: List[ToolEntry], query: str) -> Optional[ToolEntry]:
-    # Support queries like "folder/name", "name", or "name.py"
-    q = query.strip()
-    q_folder = None
-    q_name = q
-    if "/" in q:
-        q_folder, q_name = q.split("/", 1)
-    q_stem = Path(q_name).stem
-
-    candidates = []
-    for t in tools:
-        if q_folder and t.folder != q_folder:
-            continue
-        if t.stem == q_stem or t.filename == q_name:
-            candidates.append(t)
-
-    if not candidates:
-        # fallback to contains match on stem
-        for t in tools:
-            if q_folder and t.folder != q_folder:
-                continue
-            if q_stem in t.stem:
-                candidates.append(t)
-
-    if len(candidates) == 1:
-        return candidates[0]
-    elif len(candidates) > 1:
-        print("Multiple matches:", ", ".join(t.display for t in candidates), file=sys.stderr)
-        return None
-    return None
-
-
-def run_tool(tool: ToolEntry, extra_args: List[str]) -> int:
-    # If Python script, run with current interpreter; else execute directly
-    if tool.path.suffix == ".py":
-        cmd = [sys.executable, str(tool.path), *extra_args]
-    else:
-        cmd = [str(tool.path), *extra_args]
-    print(f"Running: {' '.join(shlex.quote(c) for c in cmd)}")
-    try:
-        completed = subprocess.run(cmd)
-        return completed.returncode
-    except FileNotFoundError:
-        print(f"Error: file not found: {tool.path}", file=sys.stderr)
-        return 127
-    except PermissionError:
-        print(f"Error: permission denied: {tool.path}", file=sys.stderr)
-        return 126
-
-
-def get_tool_help_output(tool: ToolEntry) -> Optional[str]:
-    # Prefer running the tool with -h to get accurate argparse help.
-    if tool.path.suffix == ".py":
-        cmd = [sys.executable, str(tool.path), "-h"]
-    else:
-        cmd = [str(tool.path), "-h"]
-    try:
-        res = subprocess.run(cmd, capture_output=True, text=True)
-        out = res.stdout.strip()
-        err = res.stderr.strip()
-        text = out or err
-        if text:
-            return text
-    except Exception:
-        pass
-    # Fallback: try --help
-    try:
-        if tool.path.suffix == ".py":
-            cmd = [sys.executable, str(tool.path), "--help"]
+    for arg, value in template.args.items():
+        if isinstance(value, list):
+            # Add arg once followed by all values: arg val1 val2 val3
+            cmd_parts.append(arg)
+            cmd_parts.extend(str(v) for v in value)
+            # for v in value:
+            #     cmd_parts.extend([arg, str(v)])
         else:
-            cmd = [str(tool.path), "--help"]
-        res = subprocess.run(cmd, capture_output=True, text=True)
-        out = res.stdout.strip()
-        err = res.stderr.strip()
-        text = out or err
-        if text:
-            return text
-    except Exception:
-        pass
-    return None
+            # Add arg and single value: arg value
+            cmd_parts.extend([arg, str(value)])
+
+    return ' '.join(shlex.quote(p) for p in cmd_parts)
 
 
-def extract_top_docstring(path: Path) -> Optional[str]:
-    try:
-        with open(path, "r", encoding="utf-8", errors="ignore") as f:
-            src = f.read()
-    except Exception:
-        return None
-    # Naive extraction of a top-level triple-quoted string
-    for quote in ('"""', "'''"):
-        start = src.find(quote)
-        if start != -1:
-            # Ensure it's near the start (allow shebang and blanks)
-            head = src[:start]
-            stripped_head = "\n".join(line for line in head.splitlines() if line.strip() and not line.startswith("#"))
-            if stripped_head:
-                continue
-            end = src.find(quote, start + 3)
-            if end != -1:
-                return src[start + 3:end].strip()
-    return None
+def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Discover and run local tool scripts")
+
+    p.add_argument(
+        ARG_TOOL_PREFIX,
+        default="t_",
+        help="Filename prefix for tool scripts (default: t_)",
+    )
+
+    p.add_argument(
+        ARG_TOOL_FOLDER_PATTERN,
+        default=r".*_tools$",
+        help=r"Regex to match tool folders at project root (default: .*_tools$)",
+    )
+
+    p.add_argument(
+        "-p", ARG_TOOL_ROOT_PATH,
+        default=Path.home() / "local_tools" / ".common_symlinks",
+        help=f"Root path for fuzzy path search (default: ~/local_tools/.common_symlinks)",
+        type=Path,
+    )
+
+    return p.parse_args(argv)
 
 
-def show_tool_info(root: Path, tool: ToolEntry) -> None:
-    print(f"\n=== Help: {tool.display} ===")
-    help_text = get_tool_help_output(tool)
-    if help_text:
-        print(help_text)
-    else:
-        doc = extract_top_docstring(tool.path)
-        if doc:
-            print(doc)
-        else:
-            print("(No help available)")
-
-
-def interactive_select(tools: List[ToolEntry]) -> Optional[ToolEntry]:
+def interactive_tool_select(message: str, tools: List[ToolEntry]) -> Optional[ToolEntry]:
     if not tools:
-        print("No tools available to select.")
+        LOG("No tools available to select.")
         return None
     groups = _group_by_folder(tools)
     if not groups:
@@ -211,101 +88,63 @@ def interactive_select(tools: List[ToolEntry]) -> Optional[ToolEntry]:
         option_data.append(OptionData(title=f"{folder}:", selectable=False))
         for t in folder_tools:
             option_data.append(OptionData(title=f"  {t.filename}", selectable=True, data=t))
-    selected = interactive_select_with_arrows(option_data, menu_title="Select a tool")
+    selected = interactive_select_with_arrows(option_data, menu_title=message)
     if selected is None or not selected.selectable:
         return None
     return selected.data
 
 
-def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Discover and run local tool scripts")
-    p.add_argument(
-        "--prefix",
-        default="t_",
-        help="Filename prefix for tool scripts (default: t_)",
-    )
-    p.add_argument(
-        "--folder-pattern",
-        default=r".*_tools$",
-        help=r"Regex to match tool folders at project root (default: .*_tools$)",
-    )
-    p.add_argument(
-        "--list",
-        action="store_true",
-        help="List available tools and exit",
-    )
-    p.add_argument(
-        "--run",
-        metavar="NAME",
-        help="Run a specific tool by name (e.g., 'iesa_tools/t_foo' or 't_foo')",
-    )
-    p.add_argument(
-        "--help-of",
-        metavar="NAME",
-        help="Show help/examples for a specific tool and exit",
-    )
-    p.add_argument(
-        "--",
-        dest="sep",
-        nargs=argparse.REMAINDER,
-        help=argparse.SUPPRESS,
-    )
-    return p.parse_args(argv)
-
-
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = parse_args(argv)
     project_root = Path(__file__).resolve().parent
-    tools = discover_tools(project_root, args.folder_pattern, args.prefix)
-
-    if args.list:
-        print_tools(tools)
-        return 0
-
-    if args.help_of:
-        tool = resolve_tool_by_name(tools, args.help_of)
-        if not tool:
-            print("Tool not found or ambiguous. Use --list to see options.", file=sys.stderr)
-            return 2
-        show_tool_info(project_root, tool)
-        return 0
-
-    extra_args = []
-    if args.sep:
-        # drop the leading '--' from extra args if present
-        extra_args = [a for a in args.sep if a != "--"]
-
-    if args.run:
-        tool = resolve_tool_by_name(tools, args.run)
-        if not tool:
-            print("Tool not found or ambiguous. Use --list to see options.", file=sys.stderr)
-            return 2
-        return run_tool(tool, extra_args)
-
-    tool = interactive_select(tools)
+    search_root = get_attribute_value(args, ARG_TOOL_ROOT_PATH)
+    tools = discover_tools(project_root, get_attribute_value(
+        args, ARG_TOOL_FOLDER_PATTERN), get_attribute_value(args, ARG_TOOL_PREFIX))
+    tool = interactive_tool_select(f"Select a tool, search dir: {search_root}", tools)
     if tool is None:
         return 0
-
+    LOG(f"Selected tool: {tool.display} ....")
     # Always show help/info after selection
-    show_tool_info(project_root, tool)
-
-    if not extra_args:
-        # Offer to enter arguments interactively
+    # Only show templates for Python tools
+    if tool.path.suffix == ".py":
+        if str(project_root) not in sys.path:
+            sys.path.insert(0, str(project_root))
         try:
-            line = input("Optional args for tool (leave blank for none): ").strip()
-        except EOFError:
-            line = ""
-        if line:
-            extra_args = shlex.split(line)
-    # Confirm run
-    try:
-        proceed = input("Run this tool now? [y/N]: ").strip().lower()
-    except EOFError:
-        proceed = "n"
-    if proceed not in {"y", "yes"}:
-        return 0
+            module = importlib.import_module(f"{tool.folder}.{tool.stem}")
+            if hasattr(module, 'get_tool_templates'):
+                templates = module.get_tool_templates()
+                if templates:
+                    # Build option data with command previews
+                    option_data = []
+                    # Main code using the helper function
+                    for i, t in enumerate(templates, 1):
+                        # Build command preview for this template
+                        preview_cmd = build_template_command(tool, t)
+                        title = f"[{i}] {t.name}: {t.description}\n    → {preview_cmd}"
+                        option_data.append(OptionData(title=title, selectable=True, data=t))
 
-    return run_tool(tool, extra_args)
+                    selected = interactive_select_with_arrows(option_data, menu_title=f"Choose a template")
+                    if selected and selected.selectable:
+                        selected_template: ToolTemplate = selected.data
+
+                        # Build and run final command
+                        cmd_line = build_template_command(tool, selected_template)
+                        LOG(f"\n=== Template Command ===")
+
+                        final_cmd = prompt_input_with_paths(
+                            prompt_message=f"Enter command",
+                            default_input=f"{cmd_line}",
+                            config=PathSearchConfig(search_root=search_root, resolve_symlinks=True, max_results=10),
+                        )
+
+                        if final_cmd:
+                            LOG(f"\n✅ Final command:\n{final_cmd}")
+                        return 0
+        except ImportError as e:
+            LOG(f"Could not import module for templates: {e}", file=sys.stderr)
+
+    LOG("No templates available for this tool.")
+    return 0
 
 
 if __name__ == "__main__":

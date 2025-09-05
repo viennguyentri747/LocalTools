@@ -1,24 +1,12 @@
-#!/usr/bin/env python3.10
-"""
-Copy flash log files from 192.168.100.254 via one or more jump hosts.
-
-Usage examples:
-  # Single IP, T* logs
-  python3 ~/local_tools/other_local_tools/get_acu_logs.py -t T -i 192.168.100.52
-
-  # Multiple log types, multiple IPs, multiple dates
-  python3 ~/local_tools/other_local_tools/get_acu_logs.py --type P T E --ips 192.168.100.52 192.168.100.53 --date 20250625 20250626
-
-Prerequisites:
-  - Python 3.6+
-  - SSH access (password or key) to jump host(s) and flash logs server
-"""
-import argparse
-import subprocess
-import datetime
-import sys
 import os
+import sys
+import datetime
+import typing
 from typing import List, Tuple
+from pathlib import Path
+import argparse
+
+from dev_common.tools_utils import ToolTemplate, build_examples_epilog
 
 
 def parse_args() -> argparse.Namespace:
@@ -27,11 +15,8 @@ def parse_args() -> argparse.Namespace:
         description='Pull flash log files via SSH jump hosts.'
     )
     parser.formatter_class = argparse.RawTextHelpFormatter
-    parser.epilog = """Examples:
-
-# Example 1
-~/local_tools/other_local_tools/get_acu_logs.py --type P T E --ips 192.168.100.52 192.168.100.53 --date 20250625 20250626
-"""
+    # Fill help epilog from templates
+    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
     parser.add_argument(
         '-t', '--type',
         nargs='+',
@@ -64,11 +49,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def build_scp_command(user: str, jump_ip: str, remote: str, log_type_prefix: str, dest: str, date_filter: str = None) -> List[str]:
-    """
-    Construct the scp command to fetch files matching log_type_prefix* from remote,
-    using jump_ip as ProxyJump, saving into dest directory.
-    If date_filter is provided, only logs starting with that date will be fetched.
-    """
+    """Construct the scp command to fetch files matching log_type_prefix* from remote, using jump_ip as ProxyJump, saving into dest directory. If date_filter is provided, only logs starting with that date will be fetched."""
     if date_filter:
         remote_path = f"{user}@{remote}:/home/{user}/flash_logs/{log_type_prefix}_{date_filter}*"
     else:
@@ -83,12 +64,10 @@ def build_scp_command(user: str, jump_ip: str, remote: str, log_type_prefix: str
 
 
 def fetch_logs_for_ip(user: str, remote: str, log_types: List[str], ip: str, timestamp: str, date_filters: List[str] = None) -> Tuple[bool, str]:
-    """
-    Create destination folder and invoke scp for each log type and date filter. Returns (success, ip).
-    """
+    """Create destination folder and invoke scp for each log type and date filter. Returns (success, ip)."""
     all_ok = True
     subprocess.call("ssh-keygen -R 192.168.100.254", shell=True)
-    dates_to_process = date_filters if date_filters else [None] # Process all dates or no date filter
+    dates_to_process = date_filters if date_filters else [None]  # Process all dates or no date filter
     for log_type_prefix in log_types:
         for date_filter in dates_to_process:
             dest_dir_suffix = f"_{log_type_prefix}"
@@ -108,9 +87,24 @@ def fetch_logs_for_ip(user: str, remote: str, log_types: List[str], ip: str, tim
             try:
                 subprocess.check_call(cmd)
             except subprocess.CalledProcessError as e:
-                print(f"[ERROR] scp failed for {ip} ({log_type_prefix}* logs, date {date_filter}): exit code {e.returncode}", file=sys.stderr)
+                print(
+                    f"[ERROR] scp failed for {ip} ({log_type_prefix}* logs, date {date_filter}): exit code {e.returncode}", file=sys.stderr)
                 all_ok = False
     return all_ok, ip
+
+
+def get_tool_templates() -> List[ToolTemplate]:
+    return [
+        ToolTemplate(
+            name="Get ACU Logs",
+            description="Copy flash log files from remote",
+            args={
+                "--type": ["P", "T", "E"],
+                "--ips": ["192.168.100.52"],
+                "--date": ["20250625"],
+            }
+        ),
+    ]
 
 
 def main() -> None:
@@ -126,7 +120,7 @@ def main() -> None:
             log_types=args.type,
             ip=ip,
             timestamp=now,
-            date_filters=args.date # Pass date_filters
+            date_filters=args.date  # Pass date_filters
         )
         if not ok:
             failures.append(this_ip)

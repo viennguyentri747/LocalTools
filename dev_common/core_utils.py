@@ -43,7 +43,7 @@ def LOG(*values: object, sep: str = " ", end: str = "\n", file=None, highlight: 
         print(f"Total stack frames: {len(tb)}")  # Debug line
         max_frames = 3  # Maximum number of frames to print
         if len(tb) > max_frames:
-            #Keep only the last 10 frames
+            # Keep only the last 10 frames
             filtered_tb = tb[-max_frames:]
         else:
             filtered_tb = tb  # Keep all frames if stack is shallow

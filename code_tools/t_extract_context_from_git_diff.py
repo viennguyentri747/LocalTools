@@ -1,16 +1,13 @@
-#!/usr/bin/env python3.10
-
 import argparse
-import subprocess
-import sys
-import os
 from pathlib import Path
 import shutil
 import tiktoken
 from datetime import datetime
 
 from dev_common import *
+from dev_common.tools_utils import ToolTemplate
 # Import the new centralized git functions
+
 # --- Constants ---
 
 # Default paths
@@ -51,24 +48,60 @@ SUCCESS_EMOJI = "✅"
 FAILURE_EMOJI = "❌"
 CELEBRATION_EMOJI = "🎉"
 
+
+# Helper functions that don't call other functions in this file
+def get_tool_templates() -> List[ToolTemplate]:
+    return [
+        ToolTemplate(
+            name="Basic Diff",
+            description="Extract diff between two refs with default settings",
+            args={
+                ARG_REPO_PATH: "~/core_repos/some_repo",
+                ARG_BASE_REF_LONG: "origin/master",
+                ARG_TARGET_REF_LONG: "origin/feature_branch",
+            }
+        ),
+        ToolTemplate(
+            name="Diff with Custom Output",
+            description="Extract diff with custom output directory",
+            args={
+                ARG_REPO_PATH: "~/core_repos/some_repo",
+                ARG_BASE_REF_LONG: "origin/master",
+                ARG_TARGET_REF_LONG: "origin/feature_branch",
+                ARG_OUTPUT_DIR_LONG: "~/custom_output",
+            }
+        ),
+        ToolTemplate(
+            name="Diff No Explorer",
+            description="Extract diff without opening explorer",
+            args={
+                ARG_REPO_PATH: "~/core_repos/some_repo",
+                ARG_BASE_REF_LONG: "origin/master",
+                ARG_TARGET_REF_LONG: "origin/feature_branch",
+                ARG_NO_OPEN_EXPLORER: True,
+            }
+        ),
+    ]
+
+
 def rotate_context_folders(output_dir: Path, max_folders: int) -> None:
     """
     Rotate context folders by keeping only the most recent n folders.
-    
+
     Args:
         output_dir: Base directory containing context folders.
         max_folders: Maximum number of folders to keep.
     """
     if not output_dir.exists():
         return
-    
+
     context_folders = [d for d in output_dir.iterdir() if d.is_dir() and d.name.startswith(CONTEXT_FOLDER_PREFIX)]
-    
+
     # Sort by creation time (newest first)
     context_folders.sort(key=lambda x: x.stat().st_ctime, reverse=True)
-    
+
     folders_to_remove = context_folders[max_folders:]
-    
+
     if folders_to_remove:
         LOG(f"Rotating folders: keeping {min(len(context_folders), max_folders)} most recent.")
         for folder in folders_to_remove:
@@ -78,21 +111,6 @@ def rotate_context_folders(output_dir: Path, max_folders: int) -> None:
             except Exception as e:
                 LOG(f"Failed to remove folder {folder.name}: {e}")
 
-def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description='Extracts a git diff between two references to create an AI context file.',
-        formatter_class=argparse.RawTextHelpFormatter
-    )
-    parser.add_argument(ARG_REPO_PATH, required=True, type=Path, help='The path to the local git repository.')
-    parser.add_argument(ARG_BASE_REF_LONG, required=True, help='The base git ref. (Ex: origin/master)')
-    parser.add_argument(ARG_TARGET_REF_LONG, required=True, help='The target git ref to compare against the base. Ex: origin/feat_branch)')
-    parser.add_argument(ARG_OUTPUT_DIR_SHORT, ARG_OUTPUT_DIR_LONG, type=Path, default=Path.home() / DEFAULT_OUTPUT_BASE_DIR / DEFAULT_OUTPUT_SUBDIR, help=f'The base directory for output. (default: ~/{DEFAULT_OUTPUT_BASE_DIR}/{DEFAULT_OUTPUT_SUBDIR})')
-    parser.add_argument(ARG_NO_OPEN_EXPLORER, action='store_true',
-                        help='Do not open Windows Explorer to highlight the output file after completion.')
-    parser.add_argument(ARG_MAX_FOLDERS, type=int, default=DEFAULT_MAX_FOLDERS,
-                        help=f'Maximum number of context folders to keep (default: {DEFAULT_MAX_FOLDERS}).')
-    return parser.parse_args()
 
 def open_explorer_to_file(file_path: Path) -> None:
     """Opens Windows Explorer to highlight the specified file (WSL only)."""
@@ -107,6 +125,30 @@ def open_explorer_to_file(file_path: Path) -> None:
     except Exception as e:
         LOG(f"Failed to open Explorer: {e}")
 
+
+# Functions that call other functions
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description='Extracts a git diff between two references to create an AI context file.',
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+    parser.add_argument(ARG_REPO_PATH, required=True, type=Path, help='The path to the local git repository.')
+    parser.add_argument(ARG_BASE_REF_LONG, required=True, help='The base git ref. (Ex: origin/master)')
+    parser.add_argument(ARG_TARGET_REF_LONG, required=True,
+                        help='The target git ref to compare against the base. Ex: origin/feat_branch)')
+    parser.add_argument(ARG_OUTPUT_DIR_SHORT, ARG_OUTPUT_DIR_LONG, type=Path, default=Path.home() / DEFAULT_OUTPUT_BASE_DIR /
+                        DEFAULT_OUTPUT_SUBDIR, help=f'The base directory for output. (default: ~/{DEFAULT_OUTPUT_BASE_DIR}/{DEFAULT_OUTPUT_SUBDIR})')
+    parser.add_argument(ARG_NO_OPEN_EXPLORER, action='store_true',
+                        help='Do not open Windows Explorer to highlight the output file after completion.')
+    parser.add_argument(ARG_MAX_FOLDERS, type=int, default=DEFAULT_MAX_FOLDERS,
+                        help=f'Maximum number of context folders to keep (default: {DEFAULT_MAX_FOLDERS}).')
+    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
+
+    return parser.parse_args()
+
+
+# Main functions
 def main() -> None:
     """Main function to orchestrate context extraction."""
     args = parse_args()
@@ -155,7 +197,7 @@ def main() -> None:
         sanitized_target = sanitize_ref_for_filename(target)
         output_filename = f"diff_{sanitized_base}_vs_{sanitized_target}{TXT_EXTENSION}"
         output_path = final_output_dir / output_filename
-        
+
         try:
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(f"# CONTEXT: Diff between {base} and {target}\n")

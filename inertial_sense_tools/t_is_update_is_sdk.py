@@ -5,9 +5,11 @@ import re
 import shutil
 import subprocess
 import sys
-from typing import Optional
+from typing import Optional, List
 import zipfile
 from pathlib import Path
+
+from dev_common.tools_utils import ToolTemplate, build_examples_epilog
 
 # --- Configuration ---
 # Base directory for the SDK repositories.
@@ -214,6 +216,19 @@ def confirm_action(prompt: str) -> bool:
             print("Invalid input. Please enter 'y' or 'n'.")
 
 
+
+def get_tool_templates() -> List[ToolTemplate]:
+    return [
+        ToolTemplate(
+            name="Update SDK",
+            description="Update Inertial Sense SDK",
+            args={
+                "--sdk_path": "~/downloads/inertial-sense-sdk-2.5.0.zip",
+            }
+        ),
+    ]
+
+
 def main():
     """Main function to orchestrate the SDK update process."""
     parser = argparse.ArgumentParser(
@@ -221,13 +236,8 @@ def main():
         formatter_class=argparse.RawTextHelpFormatter
     )
     parser.formatter_class = argparse.RawTextHelpFormatter
-    parser.epilog = """Examples:
-# Example 1
-#KIM RELEASE (insense_sdk)
-~/local_tools/inertial_sense_tools/is_update_is_sdk.py -p ~/downloads/inertial-sense-sdk-2.5.1.zip
-#KIM FW (oneweb_project_sw_tools)
-~/local_tools/inertial_sense_tools/is_update_is_fws.py
-"""
+    # Fill help epilog from templates
+    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
     parser.add_argument("--sdk_path", "-p", type=Path, required=True,
   help="Path to the new SDK zip file (e.g., ~/downloads/inertial-sense-sdk-2.5.0.zip)")
     args = parser.parse_args()
@@ -266,7 +276,6 @@ def main():
     cleanup_old_sdks(SDK_INSTALL_DIR, new_sdk_dir_name)
 
     print("\n🎉 SDK update process finished successfully!")
-
 
 if __name__ == "__main__":
     main()

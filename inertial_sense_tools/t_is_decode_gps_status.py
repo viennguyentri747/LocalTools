@@ -2,7 +2,9 @@
 
 import argparse
 from enum import IntEnum, Flag, auto
+from pathlib import Path
 from typing import List
+from dev_common.tools_utils import ToolTemplate, build_examples_epilog
 
 # --- Constants and Masks ---
 
@@ -81,17 +83,24 @@ def decode_gps_status(status: int) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Decode GPS status integer")
     parser.formatter_class = argparse.RawTextHelpFormatter
-    parser.epilog = """Examples:
-
-# Example 1
-# Get the status using ins1 message: tail -F /var/log/ins_monitor_log | grep INS1Msg
-#[2025-08-07 19:49:57.172], INS1Msg, TimeOfWeek[417015.167s], LLA[37.1202207, 127.0833099, 41.401], Roll[-179.35], Pitch[-0.08], Yaw[-85.79], Yaw (with offset)[-85.8], insStatus[0x1445026], hdwStatus[0x32080050], Velocity U,V,W[0.08, -0.05, -0.00, NED: 4164.98, -1377.12, 50.65]
-python3 ~/local_tools/inertial_sense_tools/is_decode_gps_status.py --status "0x312"
-"""
+    # Fill help epilog from templates
+    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
     parser.add_argument("-s", "--status", required=True, type=lambda x: int(x, 0), help="GPS status value (e.g. \"0x400312\" or \"785\")")
     args = parser.parse_args()
 
     decode_gps_status(args.status)
+
+def get_tool_templates() -> List[ToolTemplate]:
+    return [
+        ToolTemplate(
+            name="Decode GPS Status",
+            description="Decode GPS status integer",
+            args={
+                "--status": "0x312",
+            }
+        ),
+    ]
+
 
 if __name__ == "__main__":
     main()

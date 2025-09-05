@@ -28,6 +28,38 @@ def show_noti(title="Notification", message="Notification Message", duration=NOT
     return success
 
 
+def test_notification():
+    """Test the notification function"""
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Test notification system')
+    parser.add_argument('--title', default='Test Notification', help='Notification title')
+    parser.add_argument('--message', default='This is a test message from Python!', help='Notification message')
+    parser.add_argument('--duration', default=NOTI_DURATION_LONG,
+                        help='Duration: "short", "long", or number of seconds')
+    args = parser.parse_args()
+
+    # Convert duration using direct string comparison
+    try:
+        # Try to convert to int first for numeric inputs
+        duration_input = int(args.duration)
+    except ValueError:
+        duration_input = args.duration
+
+    success = show_noti(
+        title=args.title,
+        message=args.message,
+        duration=duration_input,
+    )
+
+    if success:
+        LOG("✅ Notification sent successfully!")
+    else:
+        LOG("❌ Failed to send notification")
+
+    return success
+
+
 def is_wsl():
     """Check if running in Windows Subsystem for Linux - improved detection"""
     try:
@@ -145,38 +177,6 @@ def show_native_notification(title, message, duration_seconds, app_name):
     except Exception as e:
         LOG(f"Error showing native notification: {e}")
         return False
-
-
-def test_notification():
-    """Test the notification function"""
-    import argparse
-
-    parser = argparse.ArgumentParser(description='Test notification system')
-    parser.add_argument('--title', default='Test Notification', help='Notification title')
-    parser.add_argument('--message', default='This is a test message from Python!', help='Notification message')
-    parser.add_argument('--duration', default=NOTI_DURATION_LONG,
-                        help='Duration: "short", "long", or number of seconds')
-    args = parser.parse_args()
-
-    # Convert duration using direct string comparison
-    try:
-        # Try to convert to int first for numeric inputs
-        duration_input = int(args.duration)
-    except ValueError:
-        duration_input = args.duration
-
-    success = show_noti(
-        title=args.title,
-        message=args.message,
-        duration=duration_input,
-    )
-
-    if success:
-        LOG("✅ Notification sent successfully!")
-    else:
-        LOG("❌ Failed to send notification")
-
-    return success
 
 
 if __name__ == "__main__":

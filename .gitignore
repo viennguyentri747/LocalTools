@@ -6,3 +6,4 @@ tmp_output/
 
 #Ignore README.md because put it in separate dir in Obsidian Vautl
 README.md
+.common_symlinks

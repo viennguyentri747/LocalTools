@@ -48,15 +48,15 @@ def replace_arg_paths_with_mentions(default_input: str) -> str:
         processed.append(part)
 
         # Check if this part is an argument prefix
-        if part.startswith(ARG_PATH_LONG) or part.startswith(ARG_PATH_SHORT) or part.startswith(ARG_PATHS_LONG):
+        if is_path_arg(part):
             current_arg_index = 0
             # Process all following consecutive paths
             while part_index + 1 < len(parts):
                 part_index += 1
                 next_part = parts[part_index]
 
-                # Stop if we hit another argument or already processed mention
-                if next_part.startswith(ARGUMENT_PREFIX) or next_part.startswith(MENTION_SYMBOL):
+                # Stop if we hit another argument
+                if next_part.startswith(ARGUMENT_PREFIX):
                     break
 
                 # Check if this part is an existing path
@@ -68,6 +68,10 @@ def replace_arg_paths_with_mentions(default_input: str) -> str:
 
         part_index += 1
     return shlex.join(processed)
+
+
+def is_path_arg(part: str) -> bool:
+    return part.startswith(ARG_PATH_LONG) or part.startswith(ARG_PATH_SHORT) or part.startswith(ARG_PATHS_LONG)
 
 
 def prompt_confirmation(message: str) -> bool:
@@ -197,27 +201,36 @@ def prompt_input_with_paths(
         buffer: Buffer = event.current_buffer
         completion = buffer.complete_state.current_completion if buffer.complete_state else None
         if completion is None:
+            word_before_cursor = buffer.document.get_word_before_cursor(WORD=True)
+            if word_before_cursor and word_before_cursor.startswith(MENTION_SYMBOL) and len(word_before_cursor) > 1:
+                potential_path = word_before_cursor[len(MENTION_SYMBOL):]
+                path_is_valid, _ = expand_and_check_path(potential_path)
+
+                # If the manually typed path is valid, add a space to improve workflow.
+                if path_is_valid:
+                    buffer.insert_text(' ')
             return
 
         # Find mention symbol position
         text_before_cursor = buffer.document.text_before_cursor
         at_pos = text_before_cursor.rfind(MENTION_SYMBOL)
         is_fuzzy_completion = at_pos != -1
-
-        if is_fuzzy_completion:
+        potential_path = completion.text[len(MENTION_SYMBOL):]
+        path_is_valid, _ = expand_and_check_path(potential_path)
+        print(f"Accepting completion, fuzzy mode: {is_fuzzy_completion}, at_pos: {at_pos}, potential_path: {potential_path}, path_is_valid: {path_is_valid}")
+        # path_is_valid, _ = expand_and_check_path(potential_path)
+        if path_is_valid and is_fuzzy_completion:
             # Add a space if none exists after cursor
             current_text = buffer.document.text
             cursor_pos = buffer.document.cursor_position
-            if cursor_pos < len(current_text) and current_text[cursor_pos] != ' ':
-                buffer.insert_text(' ')
-            elif cursor_pos == len(current_text):
+            if cursor_pos == len(current_text) or (cursor_pos < len(current_text) and current_text[cursor_pos] != ' '):
                 buffer.insert_text(' ')
 
     @custom_keybindings.add(Keys.Enter, filter=has_completions)
     def _(event):
         accept_completion(event)
 
-    @custom_keybindings.add(" ", filter=has_completions)
+    @custom_keybindings.add(" ", filter=has_completions) # Space key
     def _(event):
         accept_completion(event)
 
@@ -236,23 +249,35 @@ def prompt_input_with_paths(
 
         # --- Improvement: Post-process the input to clean up path mentions ---
         processed_parts = []
-        # Use shlex to correctly split the input, handling quoted paths with spaces
         input_parts = shlex.split(user_input)
+        i = 0
+        while i < len(input_parts):
+            part = input_parts[i]
+            processed_parts.append(part)
+            i += 1  # Move index to the part *after* the argument flag
 
-        for part in input_parts:
-            added: bool = False
-            if part.startswith(MENTION_SYMBOL) and len(part) > 1:
-                potential_path = part[len(MENTION_SYMBOL):]
-                # Expand and check if the path exists
-                exists, _ = expand_and_check_path(potential_path)
-                if exists:
-                    # If it's a valid path, add the clean path string
-                    processed_parts.append(potential_path)
-                    added = True
+            # Check if the one u just add is an argument that takes paths, if yes then try process paths
+            if is_path_arg(part):
+                # Now, process all following parts until we hit another argument
+                while i < len(input_parts):
+                    path_candidate = input_parts[i]
+                    # If we find another argument, stop processing paths for the previous one
+                    if path_candidate.startswith(ARGUMENT_PREFIX):
+                        break  # Exit inner loop; the outer loop will handle this new argument
 
-            if not added:
-                # Add all other parts as they are
-                processed_parts.append(part)
+                    # Check if it's a correctly formatted path mention
+                    replaced = False
+                    if path_candidate.startswith(MENTION_SYMBOL) and len(path_candidate) > 1:
+                        potential_path = path_candidate[len(MENTION_SYMBOL):]
+                        exists, _ = expand_and_check_path(potential_path)
+                        if exists:
+                            # Success: It's a valid path, so add it without the symbol
+                            processed_parts.append(potential_path)
+                            replaced = True
+
+                    if not replaced:
+                        processed_parts.append(path_candidate)
+                    i += 1
 
         # Reconstruct the final string, correctly quoting any parts that contain spaces
         final_input = shlex.join(processed_parts)

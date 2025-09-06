@@ -8,8 +8,16 @@ def expand_and_check_path(path_str: str) -> Tuple[bool, str]:
 
     Returns a tuple of (exists, expanded_path).
     """
-    expanded = os.path.expanduser(os.path.expandvars(path_str))
-    return os.path.exists(expanded), expanded
+    # 1. Clean the input string by removing leading/trailing whitespace and quotes.
+    cleaned_path = path_str.strip().strip("'\"")
+    # 2. Expand user and environment variables (e.g., '~' or '$HOME').
+    expanded_path = os.path.expanduser(os.path.expandvars(cleaned_path))
+    # 3. Convert to an absolute path to ensure the check is not relative to the CWD.
+    absolute_path = os.path.abspath(expanded_path)
+    # 4. Check if the final, absolute path exists.
+    exists = os.path.exists(absolute_path)
+
+    return exists, absolute_path
 
 
 def get_file_md5sum(file_path):

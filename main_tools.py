@@ -67,8 +67,7 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
 
     p.add_argument(
         ARG_PATH_SHORT, ARG_TOOL_ROOT_PATH,
-        # default=Path.home() / "local_tools" / ".common_symlinks",
-        # TODO: Change default to CWD instead
+        default=Path.cwd(),
         help=f"Root path for fuzzy path search (default:CWD)",
         type=Path,
     )

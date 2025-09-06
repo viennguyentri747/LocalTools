@@ -15,7 +15,7 @@ from typing import Iterable, List, Optional
 from dev_common.core_utils import LOG
 from dev_common.input_utils import PathSearchConfig, prompt_input_with_paths
 from dev_common.gui_utils import interactive_select_with_arrows, OptionData
-from dev_common.constants import ARG_TOOL_PREFIX, ARG_TOOL_FOLDER_PATTERN, ARG_TOOL_ROOT_PATH
+from dev_common.constants import ARG_PATH_SHORT, ARG_TOOL_PREFIX, ARG_TOOL_FOLDER_PATTERN, ARG_TOOL_ROOT_PATH, LINE_SEPARATOR, LINE_SEPARATOR_NO_ENDLINE
 from dev_common.tools_utils import ToolEntry, ToolTemplate, discover_tools
 from dev_common.python_misc_utils import get_attribute_value
 
@@ -61,14 +61,15 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
 
     p.add_argument(
         ARG_TOOL_FOLDER_PATTERN,
-        default=r".*_tools$",
-        help=r"Regex to match tool folders at project root (default: .*_tools$)",
+        default=r"^(?!unused_tools$).*_tools$",
+        help=r"Regex to match tool folders at project root, excluding 'ignore_tools' (default: ^(?!ignore_tools$).*_tools$)",
     )
 
     p.add_argument(
-        "-p", ARG_TOOL_ROOT_PATH,
-        default=Path.home() / "local_tools" / ".common_symlinks",
-        help=f"Root path for fuzzy path search (default: ~/local_tools/.common_symlinks)",
+        ARG_PATH_SHORT, ARG_TOOL_ROOT_PATH,
+        # default=Path.home() / "local_tools" / ".common_symlinks",
+        # TODO: Change default to CWD instead
+        help=f"Root path for fuzzy path search (default:CWD)",
         type=Path,
     )
 
@@ -85,9 +86,10 @@ def interactive_tool_select(message: str, tools: List[ToolEntry]) -> Optional[To
     # Build option_data with headers and indented children
     option_data = []
     for folder, folder_tools in groups:
-        option_data.append(OptionData(title=f"{folder}:", selectable=False))
+        option_data.append(OptionData(title=f"{folder.upper()}:", selectable=False))
         for t in folder_tools:
             option_data.append(OptionData(title=f"  {t.filename}", selectable=True, data=t))
+        option_data.append(OptionData(title=f"", selectable=False))
     selected = interactive_select_with_arrows(option_data, menu_title=message)
     if selected is None or not selected.selectable:
         return None
@@ -122,15 +124,13 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                         preview_cmd = build_template_command(tool, t)
                         title = f"[{i}] {t.name}: {t.description}\n    → {preview_cmd}"
                         option_data.append(OptionData(title=title, selectable=True, data=t))
-
+                        option_data.append(OptionData(title="", selectable=False)) # Spacer
                     selected = interactive_select_with_arrows(option_data, menu_title=f"Choose a template")
                     if selected and selected.selectable:
                         selected_template: ToolTemplate = selected.data
 
                         # Build and run final command
                         cmd_line = build_template_command(tool, selected_template)
-                        LOG(f"\n=== Template Command ===")
-
                         final_cmd = prompt_input_with_paths(
                             prompt_message=f"Enter command",
                             default_input=f"{cmd_line}",

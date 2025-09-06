@@ -23,10 +23,6 @@ def change_dir(path: str):
     LOG(f"Changing directory to {path}")
     os.chdir(path)
 
-def get_file_md5sum(file_path):
-    with open(file_path, 'rb') as f:
-        md5 = hashlib.md5(f.read()).hexdigest()
-    return md5
 
 def LOG(*values: object, sep: str = " ", end: str = "\n", file=None, highlight: bool = False, show_time = True, show_traceback: bool = False, flush: bool = True) -> None:
     # Prepare the message

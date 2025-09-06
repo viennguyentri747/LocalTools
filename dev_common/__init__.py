@@ -7,5 +7,6 @@ from .format_utils import *
 from .input_utils import *
 from .algo_utils import *
 from .python_misc_utils import *
+from .file_utils import *
 ##################################
 from .tools_utils import *

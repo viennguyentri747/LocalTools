@@ -29,7 +29,7 @@ def main():
     parser.formatter_class = argparse.RawTextHelpFormatter
     parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
 
-    parser.add_argument("-p", "--gl_yml_file_path", help="Path to the source .gitlab-ci.yml file")
+    parser.add_argument(ARG_PATH_SHORT, "--gl_yml_file_path", help="Path to the source .gitlab-ci.yml file")
     args = parser.parse_args()
 
     orig_gl_yml_file = Path(args.gl_yml_file_path).resolve()

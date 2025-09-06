@@ -33,11 +33,11 @@ def interactive_select_with_arrows(option_data: List[OptionData], menu_title: Op
     help_hint = "(↑/↓ or j/k, Enter to select, q to cancel)"
     if menu_title:
         if "\n" in menu_title:
-            full_title = f"{menu_title}\n{help_hint}"
+            full_title = f"{menu_title}\n{help_hint}\n"
         else:
-            full_title = f"{menu_title} {help_hint}"
+            full_title = f"{menu_title} {help_hint}\n"
     else:
-        full_title = help_hint
+        full_title = f"{help_hint}\n"
     # Fallback if not a terminal
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         return _numeric_fallback(option_data, full_title)

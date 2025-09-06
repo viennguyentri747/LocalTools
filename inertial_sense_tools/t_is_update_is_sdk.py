@@ -9,6 +9,7 @@ from typing import Optional, List
 import zipfile
 from pathlib import Path
 
+from dev_common.constants import ARG_PATH_SHORT
 from dev_common.tools_utils import ToolTemplate, build_examples_epilog
 
 # --- Configuration ---
@@ -238,7 +239,7 @@ def main():
     parser.formatter_class = argparse.RawTextHelpFormatter
     # Fill help epilog from templates
     parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
-    parser.add_argument("--sdk_path", "-p", type=Path, required=True,
+    parser.add_argument("--sdk_path", ARG_PATH_SHORT, type=Path, required=True,
   help="Path to the new SDK zip file (e.g., ~/downloads/inertial-sense-sdk-2.5.0.zip)")
     args = parser.parse_args()
     sdk_zip_path = args.sdk_path.expanduser()

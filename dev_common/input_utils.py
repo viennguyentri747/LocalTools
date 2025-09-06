@@ -1,4 +1,3 @@
-from asyncio import sleep
 import shlex
 from typing import Optional, List, Tuple, Callable
 
@@ -24,10 +23,51 @@ from prompt_toolkit.keys import Keys
 
 
 from dev_common.algo_utils import PathSearchConfig, fuzzy_find_paths
+from dev_common.constants import ARG_PATH_LONG, ARG_PATH_SHORT, ARG_PATHS_LONG, ARGUMENT_PREFIX, LINE_SEPARATOR
+from dev_common.core_utils import LOG
+from dev_common.file_utils import expand_and_check_path
 from dev_common.gui_utils import _get_terminal_size
 from dev_common.tools_utils import ToolTemplate
 
 MENTION_SYMBOL = '@'
+
+
+def replace_arg_paths_with_mentions(default_input: str) -> str:
+    """Replace existing paths in default input with 1 MENTION_SYMBOL (per path arg)."""
+    if not default_input:
+        return default_input
+    try:
+        parts = shlex.split(default_input)
+    except ValueError:
+        return default_input
+
+    processed: List[str] = []
+    part_index = 0
+    while part_index < len(parts):
+        part = parts[part_index]
+        processed.append(part)
+
+        # Check if this part is an argument prefix
+        if part.startswith(ARG_PATH_LONG) or part.startswith(ARG_PATH_SHORT) or part.startswith(ARG_PATHS_LONG):
+            current_arg_index = 0
+            # Process all following consecutive paths
+            while part_index + 1 < len(parts):
+                part_index += 1
+                next_part = parts[part_index]
+
+                # Stop if we hit another argument or already processed mention
+                if next_part.startswith(ARGUMENT_PREFIX) or next_part.startswith(MENTION_SYMBOL):
+                    break
+
+                # Check if this part is an existing path
+                exists, _ = expand_and_check_path(next_part)
+                if exists and current_arg_index == 0:
+                    processed.append(f"{MENTION_SYMBOL}")
+                # Ignore non-existing paths or subsequent paths
+                current_arg_index += 1
+
+        part_index += 1
+    return shlex.join(processed)
 
 
 def prompt_confirmation(message: str) -> bool:
@@ -181,14 +221,13 @@ def prompt_input_with_paths(
     def _(event):
         accept_completion(event)
 
-    # Updated help text to reflect the new behavior.
-    help_text = f"💡 Use '{MENTION_SYMBOL}' for fuzzy path search. Press Enter on a suggestion to select it and continue typing."
-    print(help_text)
-
     try:
+        # Preprocess default input: add mentions to existing paths
+        default_with_mentions = replace_arg_paths_with_mentions(default_input)
+        LOG(LINE_SEPARATOR, show_time=False)
         user_input = prompt(
-            f"{prompt_message} (use {MENTION_SYMBOL} to trigger fuzzy search path, search dir: {config.search_root}): ",
-            default=default_input,
+            message=f"{prompt_message} (use {MENTION_SYMBOL} to trigger fuzzy search path, search dir: {config.search_root}): ",
+            default=default_with_mentions,
             completer=EnhancedPathCompleter(config=config),
             complete_while_typing=True,
             complete_style=CompleteStyle.COLUMN,
@@ -204,9 +243,9 @@ def prompt_input_with_paths(
             added: bool = False
             if part.startswith(MENTION_SYMBOL) and len(part) > 1:
                 potential_path = part[len(MENTION_SYMBOL):]
-                # Expand user home directory (e.g., '~') and check if the path exists
-                expanded_path = os.path.expanduser(potential_path)
-                if os.path.exists(expanded_path):
+                # Expand and check if the path exists
+                exists, _ = expand_and_check_path(potential_path)
+                if exists:
                     # If it's a valid path, add the clean path string
                     processed_parts.append(potential_path)
                     added = True
@@ -218,8 +257,6 @@ def prompt_input_with_paths(
         # Reconstruct the final string, correctly quoting any parts that contain spaces
         final_input = shlex.join(processed_parts)
         return final_input
-
-        return user_input if user_input else None
     except KeyboardInterrupt:
         print("\n❌ Cancelled")
         return None

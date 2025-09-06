@@ -40,8 +40,6 @@ EXCLUDE_PATTERNS_DEFAULT = [
 ]
 
 # Command line arguments
-ARG_PATHS_SHORT = '-p'
-ARG_PATHS_LONG = '--paths'
 ARG_OUTPUT_DIR_SHORT = '-o'
 ARG_OUTPUT_DIR_LONG = '--output-dir'
 ARG_MODE_SHORT = '-m'
@@ -159,7 +157,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.formatter_class = argparse.RawTextHelpFormatter
     parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
-    parser.add_argument(ARG_PATHS_SHORT, ARG_PATHS_LONG, nargs='+', required=True,
+    parser.add_argument(ARG_PATHS_SHORT, ARG_PATH_LONG, nargs='+', required=True,
                         help='A list of file or directory paths to process with gitingest.')
     parser.add_argument(ARG_OUTPUT_DIR_SHORT, ARG_OUTPUT_DIR_LONG, type=Path, default=Path.home() / DEFAULT_OUTPUT_BASE_DIR / DEFAULT_OUTPUT_SUBDIR,
                         help=f'The directory where the output text files will be saved. (default: ~/{DEFAULT_OUTPUT_BASE_DIR}/{DEFAULT_OUTPUT_SUBDIR})')

@@ -69,6 +69,38 @@ login_permanent() {
     sshpass -p $ut_pass ssh-copy-id -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${ip_prefix}.$last_octet
 }
 
+ping_ut() {
+    SECONDS=0  # reset timer
+    local user="${ut_user:-root}"
+    if [ -z "$ut_pass" ]; then
+        echo "Please export ut_pass with the SSH password (e.g., export ut_pass='yourpass')."
+        return 1
+    fi
+
+    read -e -i "192.168.100." -p "Enter gateway IP: " ip
+    local target="192.168.100.254"
+
+    while ! ping -c1 -W1 "$ip" >/dev/null 2>&1; do
+        echo -ne "\r[$SECONDS s] Waiting for $ip to be reachable..."
+        sleep 1
+    done
+    echo -e "\r[$SECONDS s] ✅ $ip is reachable!"
+
+    # 2+3) Wait until SSH works AND ping target from gateway succeeds
+    while ! sshpass -p "$ut_pass" ssh \
+        -o ConnectTimeout=2 \
+        -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        -o LogLevel=ERROR \
+        -o BatchMode=no \
+        "$user@$ip" "ping -c1 -W1 $target >/dev/null 2>&1" 2>/dev/null; do
+        echo -ne "\r[$SECONDS s] Waiting for SSH on $ip and for $target to be reachable..."
+        sleep 1
+    done
+    echo "[$SECONDS s] ✅ $target is reachable from $ip (SSH working)"
+    noti
+}
+
 # Wrapper for scp: run real scp with all args, then echo a completion message
 scp() {
     # Use 'command' to bypass this function and call the real scp binary

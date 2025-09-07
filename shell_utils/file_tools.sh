@@ -51,20 +51,14 @@ rm() {
             
             # Skip backing up the trash directory itself (multiple checks)
             if [ "$file_realpath" = "$trash_realpath" ] || [ "$file" -ef "$trash_dir" ] ||  [[ "$file_realpath" == "$trash_realpath"/* ]]; then
-                echo "Skipping trash directory or its contents: '$file'" >&2
+                echo "Skipping backup of trash directory: '$file'" >&2
                 continue
             fi
             
             # Generate unique name if file already exists in trash
             local basename=$(basename "$file")
             local trash_target="$trash_dir/$basename"
-            # local counter=1
-            
-            # while [ -e "$trash_target" ]; do
-            #     trash_target="$trash_dir/${basename}.${counter}"
-            #     ((counter++))
-            # done
-            
+
             mv "$file" "$trash_target"
             echo "Moved '$file' to trash: '$trash_target'"
         else

@@ -23,7 +23,7 @@ from prompt_toolkit.keys import Keys
 
 
 from dev_common.algo_utils import PathSearchConfig, fuzzy_find_paths
-from dev_common.constants import ARG_PATH_LONG, ARG_PATH_SHORT, ARG_PATHS_LONG, ARGUMENT_PREFIX, LINE_SEPARATOR
+from dev_common.constants import ARG_PATH_LONG, ARG_PATH_SHORT, ARG_PATHS_LONG, ARG_PATHS_SHORT, ARGUMENT_PREFIX, LINE_SEPARATOR
 from dev_common.core_utils import LOG
 from dev_common.file_utils import expand_and_check_path
 from dev_common.gui_utils import _get_terminal_size
@@ -71,7 +71,7 @@ def replace_arg_paths_with_mentions(default_input: str) -> str:
 
 
 def is_path_arg(part: str) -> bool:
-    return part.startswith(ARG_PATH_LONG) or part.startswith(ARG_PATH_SHORT) or part.startswith(ARG_PATHS_LONG)
+    return part.startswith(ARG_PATH_LONG) or part.startswith(ARG_PATHS_LONG) or part.startswith(ARG_PATH_SHORT) or part.startswith(ARG_PATHS_SHORT)
 
 
 def prompt_confirmation(message: str) -> bool:
@@ -196,41 +196,38 @@ def prompt_input_with_paths(
     custom_keybindings = KeyBindings()
 
     def accept_completion(event: KeyPressEvent):
-        """Accept the currently selected completion in the completion menu (for Enter and Space keys).
-        Removes the mention symbol before inserting the completion."""
+        """Accepts a completion or a manually typed path and adds a space if valid."""
         buffer: Buffer = event.current_buffer
         completion = buffer.complete_state.current_completion if buffer.complete_state else None
-        if completion is None:
-            word_before_cursor = buffer.document.get_word_before_cursor(WORD=True)
-            if word_before_cursor and word_before_cursor.startswith(MENTION_SYMBOL) and len(word_before_cursor) > 1:
-                potential_path = word_before_cursor[len(MENTION_SYMBOL):]
-                path_is_valid, _ = expand_and_check_path(potential_path)
 
-                # If the manually typed path is valid, add a space to improve workflow.
-                if path_is_valid:
+        # If a completion is active, use its text. Otherwise, use the word before the cursor.
+        target_txt = ""
+        if completion:
+            target_txt = completion.text
+        else:
+            target_txt = buffer.document.get_word_before_cursor(WORD=True)
+
+        # It must start with the mention symbol to be processed.
+        if target_txt and target_txt.startswith(MENTION_SYMBOL):
+            # Extract the actual path string (remove the '@' symbol).
+            potential_path = target_txt[len(MENTION_SYMBOL):]
+
+            # Validate the path.
+            path_is_valid, _ = expand_and_check_path(potential_path)
+
+            # If the path is valid, add a trailing space for a smoother workflow.
+            if path_is_valid:
+                current_text = buffer.document.text
+                cursor_pos = buffer.document.cursor_position
+                # Only add a space if one isn't already there.
+                if cursor_pos == len(current_text) or current_text[cursor_pos] != ' ':
                     buffer.insert_text(' ')
-            return
-
-        # Find mention symbol position
-        text_before_cursor = buffer.document.text_before_cursor
-        at_pos = text_before_cursor.rfind(MENTION_SYMBOL)
-        is_fuzzy_completion = at_pos != -1
-        potential_path = completion.text[len(MENTION_SYMBOL):]
-        path_is_valid, _ = expand_and_check_path(potential_path)
-        print(f"Accepting completion, fuzzy mode: {is_fuzzy_completion}, at_pos: {at_pos}, potential_path: {potential_path}, path_is_valid: {path_is_valid}")
-        # path_is_valid, _ = expand_and_check_path(potential_path)
-        if path_is_valid and is_fuzzy_completion:
-            # Add a space if none exists after cursor
-            current_text = buffer.document.text
-            cursor_pos = buffer.document.cursor_position
-            if cursor_pos == len(current_text) or (cursor_pos < len(current_text) and current_text[cursor_pos] != ' '):
-                buffer.insert_text(' ')
 
     @custom_keybindings.add(Keys.Enter, filter=has_completions)
     def _(event):
         accept_completion(event)
 
-    @custom_keybindings.add(" ", filter=has_completions) # Space key
+    @custom_keybindings.add(" ", filter=has_completions)  # Space key
     def _(event):
         accept_completion(event)
 

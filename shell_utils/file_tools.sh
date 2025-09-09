@@ -46,21 +46,40 @@ rm() {
     # Move each file/folder to trash directory
     for file in "${files_to_remove[@]}"; do
         if [ -e "$file" ]; then
-            # Get absolute path of the file for comparison
             local file_realpath=$(realpath "$file" 2>/dev/null)
+            local should_backup=false
             
-            # Skip backing up the trash directory itself (multiple checks)
-            if [ "$file_realpath" = "$trash_realpath" ] || [ "$file" -ef "$trash_dir" ] ||  [[ "$file_realpath" == "$trash_realpath"/* ]]; then
-                echo "Skipping backup of trash directory: '$file'" >&2
-                continue
+            if [ "$file_realpath" = "$trash_realpath" ] || [ "$file" -ef "$trash_dir" ] || [[ "$file_realpath" == "$trash_realpath"/* ]]; then
+                should_backup=false
+            else
+                local filesize=0
+                if [ -f "$file" ]; then
+                    filesize=$(stat -c%s "$file")
+                elif [ -d "$file" ]; then
+                    filesize=$(du -sb "$file" | cut -f1)
+                fi
+
+                # --- Confirm backup if file/dir size is over 1GB ---
+                if [ "$filesize" -ge $((1024*1024*1024)) ]; then
+                    read -p "File or folder '$file' is over 1GB ($(numfmt --to=iec "$filesize")). Move to trash? [y/N]: " confirm
+                    case "$confirm" in
+                        [yY][eE][sS]|[yY]) 
+                            should_backup=true
+                            ;;
+                    esac
+                else
+                    should_backup=true
+                fi
+                # --- End confirm over 1GB ---
             fi
             
-            # Generate unique name if file already exists in trash
-            local basename=$(basename "$file")
-            local trash_target="$trash_dir/$basename"
-
-            mv "$file" "$trash_target"
-            echo "Moved '$file' to trash: '$trash_target'"
+            if [ "$should_backup" = true ]; then
+                local basename=$(basename "$file")
+                local trash_target="$trash_dir/$basename"
+                mv "$file" "$trash_target" && echo "Moved '$file' to trash: '$trash_target'"
+            else
+                command rm "${rm_options[@]}" "$file" && echo "Removed '$file' directly (not backed up)"
+            fi
         else
             echo "rm: cannot remove '$file': No such file or directory" >&2
         fi

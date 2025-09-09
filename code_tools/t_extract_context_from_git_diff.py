@@ -1,3 +1,5 @@
+#!/usr/bin/env python3.10
+
 import argparse
 from pathlib import Path
 import shutil
@@ -24,7 +26,6 @@ CMD_WSLPATH = 'wslpath'
 CMD_EXPLORER = 'explorer.exe'
 
 # Command line arguments
-ARG_REPO_PATH = '--repo_path'
 ARG_BASE_REF_LONG = '--base'
 ARG_TARGET_REF_LONG = '--target'
 ARG_OUTPUT_DIR_SHORT = '-o'
@@ -53,32 +54,21 @@ CELEBRATION_EMOJI = "🎉"
 def get_tool_templates() -> List[ToolTemplate]:
     return [
         ToolTemplate(
-            name="Basic Diff",
+            name="Diff between 2 ref",
             description="Extract diff between two refs with default settings",
             args={
-                ARG_REPO_PATH: "~/core_repos/some_repo",
-                ARG_BASE_REF_LONG: "origin/master",
-                ARG_TARGET_REF_LONG: "origin/feature_branch",
+                ARG_PATH_LONG: "~/core_repos/intellian_pkg",
+                ARG_BASE_REF_LONG: "<base-ref>",
+                ARG_TARGET_REF_LONG: "<target-ref>",
             }
         ),
         ToolTemplate(
-            name="Diff with Custom Output",
-            description="Extract diff with custom output directory",
+            name="Diff between 2 branches",
+            description="Extract diff between two refs with default settings",
             args={
-                ARG_REPO_PATH: "~/core_repos/some_repo",
+                ARG_PATH_LONG: "~/core_repos/intellian_pkg",
                 ARG_BASE_REF_LONG: "origin/master",
                 ARG_TARGET_REF_LONG: "origin/feature_branch",
-                ARG_OUTPUT_DIR_LONG: "~/custom_output",
-            }
-        ),
-        ToolTemplate(
-            name="Diff No Explorer",
-            description="Extract diff without opening explorer",
-            args={
-                ARG_REPO_PATH: "~/core_repos/some_repo",
-                ARG_BASE_REF_LONG: "origin/master",
-                ARG_TARGET_REF_LONG: "origin/feature_branch",
-                ARG_NO_OPEN_EXPLORER: True,
             }
         ),
     ]
@@ -133,7 +123,7 @@ def parse_args() -> argparse.Namespace:
         description='Extracts a git diff between two references to create an AI context file.',
         formatter_class=argparse.RawTextHelpFormatter
     )
-    parser.add_argument(ARG_REPO_PATH, required=True, type=Path, help='The path to the local git repository.')
+    parser.add_argument(ARG_PATH_SHORT, ARG_PATH_LONG, required=True, type=Path, help='The path to the local git repository.')
     parser.add_argument(ARG_BASE_REF_LONG, required=True, help='The base git ref. (Ex: origin/master)')
     parser.add_argument(ARG_TARGET_REF_LONG, required=True,
                         help='The target git ref to compare against the base. Ex: origin/feat_branch)')
@@ -154,7 +144,7 @@ def main() -> None:
     args = parse_args()
 
     # Store attributes in variables immediately after parsing args
-    repo_path = getattr(args, ARG_REPO_PATH.lstrip('-').replace('-', '_'))
+    repo_path = getattr(args, ARG_PATH_LONG.lstrip('-').replace('-', '_'))
     base = getattr(args, ARG_BASE_REF_LONG.lstrip('-').replace('-', '_'))
     target = getattr(args, ARG_TARGET_REF_LONG.lstrip('-').replace('-', '_'))
     output_dir = getattr(args, ARG_OUTPUT_DIR_LONG.lstrip('-').replace('-', '_'))

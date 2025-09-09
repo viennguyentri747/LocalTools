@@ -32,7 +32,7 @@ from dev_common.tools_utils import ToolTemplate
 MENTION_SYMBOL = '@'
 
 
-def replace_arg_paths_with_mentions(default_input: str) -> str:
+def replace_arg_paths_with_single_mention(default_input: str) -> str:
     """Replace existing paths in default input with 1 MENTION_SYMBOL (per path arg)."""
     if not default_input:
         return default_input
@@ -46,13 +46,14 @@ def replace_arg_paths_with_mentions(default_input: str) -> str:
     while part_index < len(parts):
         part = parts[part_index]
         processed.append(part)
+        part_index += 1
 
         # Check if this part is an argument prefix
         if is_path_arg(part):
             current_arg_index = 0
+            found_existing_path = False
             # Process all following consecutive paths
-            while part_index + 1 < len(parts):
-                part_index += 1
+            while part_index < len(parts):
                 next_part = parts[part_index]
 
                 # Stop if we hit another argument
@@ -63,10 +64,14 @@ def replace_arg_paths_with_mentions(default_input: str) -> str:
                 exists, _ = expand_and_check_path(next_part)
                 if exists and current_arg_index == 0:
                     processed.append(f"{MENTION_SYMBOL}")
+                    found_existing_path = True
                 # Ignore non-existing paths or subsequent paths
                 current_arg_index += 1
+                part_index += 1
 
-        part_index += 1
+            # Ensure at least one MENTION_SYMBOL if no existing paths were found
+            if not found_existing_path:
+                processed.append(f"{MENTION_SYMBOL}")
     return shlex.join(processed)
 
 
@@ -233,7 +238,7 @@ def prompt_input_with_paths(
 
     try:
         # Preprocess default input: add mentions to existing paths
-        default_with_mentions = replace_arg_paths_with_mentions(default_input)
+        default_with_mentions = replace_arg_paths_with_single_mention(default_input)
         LOG(LINE_SEPARATOR, show_time=False)
         user_input = prompt(
             message=f"{prompt_message} (use {MENTION_SYMBOL} to trigger fuzzy search path, search dir: {config.search_root}): ",

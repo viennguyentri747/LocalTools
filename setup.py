@@ -13,6 +13,8 @@ setup(
         "tiktoken==0.7.0",
         "readable-number==0.1.3",
         "gitingest==0.3.1",
+        "prompt_toolkit==3.0.52",
+        "thefuzz==0.22.1",
     ],
     python_requires=">=3.6",
 )

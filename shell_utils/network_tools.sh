@@ -69,24 +69,33 @@ login_permanent() {
     sshpass -p $ut_pass ssh-copy-id -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${ip_prefix}.$last_octet
 }
 
-ping_ut() {
-    SECONDS=0  # reset timer
+ping_acu() {
+    SECONDS=0 # reset timer
+    local area=$1
+    local last_octet=$2
     local user="${ut_user:-root}"
-    if [ -z "$ut_pass" ]; then
-        echo "Please export ut_pass with the SSH password (e.g., export ut_pass='yourpass')."
+    
+    # Get IP prefix using the same function as ssh_acu
+    local ip_prefix=$(get_ip "$area")
+    [ $? -ne 0 ] && return 1 # Check if get_ip failed
+    
+    if [[ -z "$last_octet" ]]; then
+        echo "Usage: ping_acu <area (nor/lab/roof)> <last-octet-of-IP (70)>."
+        echo "Ex: ping_acu nor 70"
         return 1
     fi
-
-    read -e -i "192.168.100." -p "Enter gateway IP: " ip
+    
+    local ip="${ip_prefix}.${last_octet}"
     local target="192.168.100.254"
-
+    
+    # 1) Wait until the gateway IP is pingable
     while ! ping -c1 -W1 "$ip" >/dev/null 2>&1; do
         echo -ne "\r[$SECONDS s] Waiting for $ip to be reachable..."
         sleep 1
     done
     echo -e "\r[$SECONDS s] ✅ $ip is reachable!"
-
-    # 2+3) Wait until SSH works AND ping target from gateway succeeds
+    
+    # 2) Wait until SSH works AND ping target from gateway succeeds
     while ! sshpass -p "$ut_pass" ssh \
         -o ConnectTimeout=2 \
         -o StrictHostKeyChecking=no \
@@ -94,9 +103,10 @@ ping_ut() {
         -o LogLevel=ERROR \
         -o BatchMode=no \
         "$user@$ip" "ping -c1 -W1 $target >/dev/null 2>&1" 2>/dev/null; do
-        echo -ne "\r[$SECONDS s] Waiting for SSH on $ip and for $target to be reachable..."
+        echo -ne "\r[$SECONDS s] Waiting for ACU $target ($ip) to be reachable..."
         sleep 1
     done
+    
     echo "[$SECONDS s] ✅ $target is reachable from $ip (SSH working)"
     noti
 }

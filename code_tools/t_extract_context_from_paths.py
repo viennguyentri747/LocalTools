@@ -9,6 +9,7 @@ from typing import List, Tuple
 import shutil
 import re
 import tiktoken
+import os
 from dev_common import *
 
 # Constants
@@ -42,8 +43,6 @@ EXCLUDE_PATTERNS_DEFAULT = [
 # Command line arguments
 ARG_OUTPUT_DIR_SHORT = '-o'
 ARG_OUTPUT_DIR_LONG = '--output-dir'
-ARG_MODE_SHORT = '-m'
-ARG_MODE_LONG = '--mode'
 ARG_INCLUDE_PATTERN = '--include-pattern'
 ARG_EXCLUDE_PATTERN = '--exclude-pattern'
 ARG_MAX_WORKERS = '--max-workers'
@@ -93,19 +92,25 @@ MODE_DESCRIPTIONS = {
 def get_tool_templates() -> List[ToolTemplate]:
     return [
         ToolTemplate(
-            name="Multiple Folder with Common Exclude Patterns",
+            name="Multiple folders with Common Exclude Patterns",
             description="Process multiple repos with specific file patterns",
             args={
-                ARG_MODE_LONG: MODE_ALL_FILES,
                 ARG_EXCLUDE_PATTERN: [".git", ".vscode"],
                 ARG_PATHS_LONG: ["~/core_repos/intellian_pkg/", "~/ow_sw_tools/"],
             }
         ),
         ToolTemplate(
-            name="Multiple Folder with Include + Exclude Patterns",
+            name="Multiple folders with CMakeLists.txt Only",
             description="Process multiple repos with specific file patterns",
             args={
-                ARG_MODE_LONG: MODE_ALL_FILES,
+                ARG_INCLUDE_PATTERN: [PATTERN_CMAKELISTS],
+                ARG_PATHS_LONG: ["~/core_repos/intellian_pkg/", "~/ow_sw_tools/"],
+            }
+        ),
+        ToolTemplate(
+            name="Multiple folders with Include + Exclude Patterns",
+            description="Process multiple repos with specific file patterns",
+            args={
                 ARG_EXCLUDE_PATTERN: [".git", ".vscode"],
                 ARG_INCLUDE_PATTERN: ["*.py", "*.md", "*.cpp", "*.c", "*.h"],
                 ARG_PATHS_LONG: ["~/core_repos/intellian_pkg/", "~/ow_sw_tools/"],
@@ -161,44 +166,20 @@ def parse_args() -> argparse.Namespace:
                         help='A list of file or directory paths to process with gitingest.')
     parser.add_argument(ARG_OUTPUT_DIR_SHORT, ARG_OUTPUT_DIR_LONG, type=Path, default=Path.home() / DEFAULT_OUTPUT_BASE_DIR / DEFAULT_OUTPUT_SUBDIR,
                         help=f'The directory where the output text files will be saved. (default: ~/{DEFAULT_OUTPUT_BASE_DIR}/{DEFAULT_OUTPUT_SUBDIR})')
-    parser.add_argument(ARG_MODE_SHORT, ARG_MODE_LONG, choices=AVAILABLE_MODES, default=MODE_ALL_NON_IGNORE_FILES, help=f'''Processing mode:
-  {MODE_ALL_NON_IGNORE_FILES}: {MODE_DESCRIPTIONS[MODE_ALL_NON_IGNORE_FILES]}
-  {MODE_CMAKELISTS}: {MODE_DESCRIPTIONS[MODE_CMAKELISTS]}
-  {MODE_ALL_FILES}: {MODE_DESCRIPTIONS[MODE_ALL_FILES]}''')
-    parser.add_argument(ARG_INCLUDE_PATTERN, nargs='*', default=[],
-                        help='Additional patterns to include (e.g., "*.py" "*.md").')
-    parser.add_argument(ARG_EXCLUDE_PATTERN, nargs='*', default=[],
-                        help='Additional patterns to exclude (e.g., "build" "*.log").')
     parser.add_argument(ARG_MAX_WORKERS, type=int, default=DEFAULT_MAX_WORKERS,
                         help='Maximum number of parallel threads to run.')
     parser.add_argument(ARG_NO_OPEN_EXPLORER, action='store_true',
                         help='Do not open Windows Explorer to highlight the output file(s) after completion.')
     parser.add_argument(ARG_MAX_FOLDERS, type=int, default=DEFAULT_MAX_FOLDERS,
                         help=f'Maximum number of context folders to keep (default: {DEFAULT_MAX_FOLDERS}).')
+    parser.add_argument(ARG_INCLUDE_PATTERN, nargs='*', default=[],
+                        help='Additional patterns to include (e.g., "*.py" "*.md").')
+    parser.add_argument(ARG_EXCLUDE_PATTERN, nargs='*', default=[],
+                        help='Additional patterns to exclude (e.g., "build" "*.log").')
     return parser.parse_args()
 
 
-def get_mode_patterns(mode: str) -> Tuple[List[str], List[str]]:
-    """
-    Get the default include and exclude patterns for a given mode.
-
-    Args:
-        mode: The processing mode
-
-    Returns:
-        A tuple of (include_patterns, exclude_patterns)
-    """
-    if mode == MODE_CMAKELISTS:
-        return [PATTERN_CMAKELISTS], []
-    elif mode == MODE_ALL_FILES:
-        return [], []
-    elif mode == MODE_ALL_NON_IGNORE_FILES:
-        return [], EXCLUDE_PATTERNS_DEFAULT
-    else:
-        return [], []
-
-
-def run_gitingest(input_path: Path, output_dir: Path, include: List[str], exclude: List[str], mode: str) -> Tuple[bool, str, Path]:
+def run_gitingest(input_path: Path, output_dir: Path, include: List[str], exclude: List[str], mode: str = 'default') -> Tuple[bool, str, Path]:
     """
     Constructs and runs a single gitingest command for a given path.
 
@@ -217,10 +198,10 @@ def run_gitingest(input_path: Path, output_dir: Path, include: List[str], exclud
         parent = input_path.parent.name
         folder = input_path.name
         mode_suffix = mode.upper().replace(UNDERSCORE, '')
-        output_filename = f"{parent}{HYPHEN}{folder}{UNDERSCORE}{mode_suffix}{TXT_EXTENSION}"
+        output_filename = f"{FILE_PREFIX}{parent}{HYPHEN}{folder}{UNDERSCORE}{mode_suffix}{TXT_EXTENSION}"
     else:
         mode_suffix = mode.upper().replace(UNDERSCORE, '')
-        output_filename = f"{input_path.stem}{UNDERSCORE}{mode_suffix}{TXT_EXTENSION}"
+        output_filename = f"{FILE_PREFIX}{input_path.stem}{UNDERSCORE}{mode_suffix}{TXT_EXTENSION}"
 
     output_path = output_dir / output_filename
 
@@ -303,7 +284,7 @@ def merge_output_files(output_files: List[Path], output_dir: Path) -> Path:
     LOG(f"Merging files {', '.join(file_names)} into a single file...")
 
     # Create a descriptive filename for the merged file (no timestamp since already in timestamped folder)
-    merged_filename = f"merged_context{TXT_EXTENSION}"
+    merged_filename = f"file_merged_context{TXT_EXTENSION}"
     merged_path = output_dir / merged_filename
 
     # Merge all files
@@ -341,25 +322,11 @@ def create_log_file(args: argparse.Namespace, output_dir: Path, timestamp: str) 
         log_file.write("Arguments:\n")
         log_file.write(f"  Paths: {args.paths}\n")
         log_file.write(f"  Output directory: {args.output_dir}\n")
-        log_file.write(f"  Mode: {args.mode}\n")
         log_file.write(f"  Include patterns: {args.include_pattern}\n")
         log_file.write(f"  Exclude patterns: {args.exclude_pattern}\n")
         log_file.write(f"  Max workers: {args.max_workers}\n")
         log_file.write(f"  Max folders: {args.max_folders}\n")
         log_file.write(f"  No open explorer: {args.no_open_explorer}\n")
-
-        # Get mode-specific patterns
-        mode_include, mode_exclude = get_mode_patterns(args.mode)
-        log_file.write(f"\nMode-specific patterns:\n")
-        log_file.write(f"  Include: {mode_include}\n")
-        log_file.write(f"  Exclude: {mode_exclude}\n")
-
-        # Combined patterns
-        final_include = mode_include + args.include_pattern
-        final_exclude = mode_exclude + args.exclude_pattern
-        log_file.write(f"\nFinal patterns:\n")
-        log_file.write(f"  Include: {final_include}\n")
-        log_file.write(f"  Exclude: {final_exclude}\n")
 
     return log_path
 
@@ -388,19 +355,12 @@ def main() -> None:
     log_path = create_log_file(args, final_output_dir, timestamp)
     LOG(f"Log file created at: {log_path}")
 
-    # Get mode-specific patterns
-    mode_include, mode_exclude = get_mode_patterns(args.mode)
-
     # Combine mode patterns with user-specified patterns
-    final_include = mode_include + args.include_pattern
-    final_exclude = mode_exclude + args.exclude_pattern
+    final_include = args.include_pattern
+    final_exclude = args.exclude_pattern
 
-    LOG(f"Running in '{args.mode}' mode")
+    LOG(f"Running in default mode")
     LOG(f"Output directory: {final_output_dir}")
-    if final_include:
-        LOG(f"Include patterns: {final_include}")
-    if final_exclude:
-        LOG(f"Exclude patterns: {final_exclude}")
 
     successes = []
     failures = []
@@ -409,7 +369,7 @@ def main() -> None:
     with ThreadPoolExecutor(max_workers=args.max_workers) as executor:
         # Submit all jobs to the thread pool
         future_to_path = {
-            executor.submit(run_gitingest, Path(p), final_output_dir, final_include, final_exclude, args.mode): p
+            executor.submit(run_gitingest, Path(p), final_output_dir, final_include, final_exclude, 'default'): p
             for p in args.paths
         }
 
@@ -431,7 +391,7 @@ def main() -> None:
     # LOG a final summary of results
     LOG(f"\n{SUMMARY_SEPARATOR}")
     if successes:
-        LOG(f"{SUCCESS_EMOJI} Successfully processed {len(successes)} paths in '{args.mode}' mode.")
+        LOG(f"{SUCCESS_EMOJI} Successfully processed {len(successes)} paths.")
     if failures:
         LOG(f"{FAILURE_EMOJI} Failed to process {len(failures)} paths:", file=sys.stderr)
         for f in failures:
@@ -440,24 +400,21 @@ def main() -> None:
 
     if len(output_files) == 1:
         output_file_path = output_files[0]
-    else:
+    elif len(output_files) > 1:
         output_file_path = merge_output_files(output_files, final_output_dir)
-    with open(output_file_path, "r", encoding="utf-8") as f:
-        file_contents = f.read()
 
-        encoding = tiktoken.get_encoding("cl100k_base")
-        token_count = len(encoding.encode(file_contents))
-        filename = os.path.basename(output_file_path)
-        LOG(f"{LINE_SEPARATOR}")
-        LOG(f"Estimated token count for {filename}: {beautify_number(token_count)}")
+    if output_file_path:
+        with open(output_file_path, "r", encoding="utf-8") as f:
+            file_contents = f.read()
 
-    # Open explorer if requested
-    if not args.no_open_explorer and output_file_path:
-        if len(output_files) == 1:
-            # Single file - open it directly
-            open_explorer_to_file(output_file_path)
-        else:
-            # Multiple files - merge them first, then open the merged file
+            encoding = tiktoken.get_encoding("cl100k_base")
+            token_count = len(encoding.encode(file_contents))
+            filename = os.path.basename(output_file_path)
+            LOG(f"{LINE_SEPARATOR}")
+            LOG(f"Estimated token count for {filename}: {beautify_number(token_count)}")
+
+        # Open explorer if requested
+        if not args.no_open_explorer:
             open_explorer_to_file(output_file_path)
 
     if failures:

@@ -66,3 +66,27 @@ def md5sum(file_path):
     with open(file_path, 'rb') as f:
         md5 = hashlib.md5(f.read()).hexdigest()
     return md5
+
+def read_value_from_credential_file(credentials_file_path: str, key_to_read: str) -> Union[str, None]:
+    """
+    Reads a specific key's value from a credentials file.
+    Returns the value if found, otherwise None.
+    """
+    if os.path.exists(credentials_file_path):
+        try:
+            with open(credentials_file_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#'):
+                        try:
+                            key, value = line.split('=', 1)
+                            if key == key_to_read:
+                                return value
+                        except ValueError:
+                            # Handle lines that don't contain '='
+                            print(f"Warning: Skipping malformed line in {credentials_file_path}: {line}")
+                            continue
+        except Exception as e:
+            print(f"Error reading credentials file {credentials_file_path}: {e}")
+            sys.exit(1)
+    return None

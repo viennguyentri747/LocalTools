@@ -17,17 +17,14 @@ from dev_common import *
 import yaml
 # ─────────────────────────────  constants  ───────────────────────────── #
 
-CORE_REPOS_FOLDER_PATH = Path.home() / "workspace" / "intellian_core_repos/"
 ################################################
-OW_SW_PATH = Path.home() / "ow_sw_tools/"
 OUTPUT_IESA_PATH = OW_SW_PATH / "install_iesa_tarball.iesa"
 # OW_SW_PATH = CORE_REPOS_PATH / "ow_sw_tools"
 BUILD_FOLDER_PATH = OW_SW_PATH / "tmp_build/"
 BUILD_OUTPUT_FOLDER_PATH = BUILD_FOLDER_PATH / "out"
 BUILD_BINARY_OUTPUT_PATH = BUILD_OUTPUT_FOLDER_PATH / "bin"
 ################################################
-SCRIPT_FOLDER_PATH = Path.home() / "local_tools/"
-CREDENTIAL_FILE_PATH = SCRIPT_FOLDER_PATH / ".gitlab_credentials"
+CREDENTIAL_FILE_PATH = REPO_PATH / ".gitlab_credentials"
 GITLAB_CI_YML_PATH = OW_SW_PATH / ".gitlab-ci.yml"
 MANIFEST_FILE_NAME = "iesa_manifest_gitlab.xml"
 MANIFEST_RELATIVE_PATH = f"tools/manifests/{MANIFEST_FILE_NAME}"
@@ -141,6 +138,10 @@ def main() -> None:
     else:
         LOG(f"{MAIN_STEP_LOG_PREFIX} Binary build finished.")
         LOG(f"Find output binary files in '{BUILD_BINARY_OUTPUT_PATH}'")
+        LOG(f"{LINE_SEPARATOR}")
+        LOG("Copy command (replace <bin> with your binary name):")
+        LOG(f'sudo chmod -R 755 {BUILD_BINARY_OUTPUT_PATH} && read -e -p "Enter target IP (192.168.10): " -i "192.168.10" TARGET_IP && read -e -p "Enter binary path: " -i "{BUILD_BINARY_OUTPUT_PATH}/" BIN_PATH && scp -rJ root@$TARGET_IP $BIN_PATH root@192.168.100.254:/home/root/download/', show_time=False)
+        # LOG(f'sudo chmod -R 755 {BUILD_BINARY_OUTPUT_PATH} && read -e -p "Enter target IP: " -i "192.168.10" TARGET_IP && scp -rJ root@$TARGET_IP {BUILD_BINARY_OUTPUT_PATH}/<bin> root@192.168.100.254:/home/root/download/', show_time=False)        
 
 # ───────────────────────────  helpers / actions  ─────────────────────── #
 def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: str, input_tisdk_ref: str, overwrite_repos: List[str], use_current_ow_branch: bool, current_branch: str):
@@ -498,7 +499,7 @@ def get_manifest_repo_url(manifest_source: str) -> Optional[str]:
 def prepare_iesa_bsp(tisdk_ref: str):
     LOG(f"{MAIN_STEP_LOG_PREFIX} Preparing IESA BSP for release, TISDK ref: {tisdk_ref}...")
     # Logic to read token from file if not in env
-    private_token = read_token_from_file(CREDENTIAL_FILE_PATH, GL_TISDK_TOKEN_KEY_NAME)
+    private_token = read_value_from_credential_file(CREDENTIAL_FILE_PATH, GL_TISDK_TOKEN_KEY_NAME)
     if not private_token:
         LOG("Error: GitLab private token not found in credentials file.")
         sys.exit(1)
@@ -562,9 +563,9 @@ def get_tool_templates() -> List[ToolTemplate]:
                 "--manifest_source": "local",
                 "--use_current_ow_branch": True,
                 "--tisdk_ref": "manpack_master",
-                "--overwrite_repos": ["intellian_pkg", "upgrade", "submodule_spibeam", "insensesdk", "adc_lib"],
                 "--interactive": False,
                 "--force_reset_tmp_build": True,
+                "--overwrite_repos": ["intellian_pkg", "upgrade", "submodule_spibeam", "insensesdk", "adc_lib"],
             }
         ),
         ToolTemplate(
@@ -574,6 +575,9 @@ def get_tool_templates() -> List[ToolTemplate]:
                 "--build_type": "binary",
                 "--manifest_source": "local",
                 "--use_current_ow_branch": True,
+                "--interactive": False,
+                "--force_reset_tmp_build": False,
+                "--overwrite_repos": ["intellian_pkg", "upgrade", "submodule_spibeam", "insensesdk", "adc_lib"],
             }
         ),
     ]

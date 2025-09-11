@@ -52,10 +52,10 @@ def test_notification():
         duration=duration_input,
     )
 
-    if success:
-        LOG("✅ Notification sent successfully!")
-    else:
-        LOG("❌ Failed to send notification")
+    # if success:
+    #     LOG("✅ Notification sent successfully!")
+    # else:
+    #     LOG("❌ Failed to send notification")
 
     return success
 

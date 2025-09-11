@@ -5,6 +5,9 @@ from pathlib import Path
 import shutil
 import tiktoken
 from datetime import datetime
+import subprocess
+import sys
+import os
 
 from dev_common import *
 from dev_common.tools_utils import ToolTemplate
@@ -116,6 +119,75 @@ def open_explorer_to_file(file_path: Path) -> None:
         LOG(f"Failed to open Explorer: {e}")
 
 
+def save_base_ref_files(repo_path: Path, base: str, target: str, output_dir: Path) -> bool:
+    """
+    Saves the content of changed files from the base ref to a subdirectory,
+    prefixing each filename with 'file_'.
+
+    Args:
+        repo_path: The path to the local git repository.
+        base: The base git ref.
+        target: The target git ref to compare against the base.
+        output_dir: The directory to save the files.
+
+    Returns:
+        True if successful, False otherwise.
+    """
+    try:
+        # Get the list of changed files
+        diff_files_cmd = [CMD_GIT, '-C', str(repo_path), 'diff', '--name-only', base, target]
+        result = subprocess.run(diff_files_cmd, capture_output=True, text=True, check=True, encoding='utf-8')
+        changed_files = result.stdout.strip().split('\n')
+
+        if not any(f.strip() for f in changed_files):
+            LOG("No changed files found to save from base ref.")
+            return True
+
+        # The subdirectory for the files remains the same
+        files_dir = output_dir / "base_ref_files"
+        LOG(f"Saving base versions of changed files to '{files_dir}'...")
+
+        for file_path_str in changed_files:
+            file_path_str = file_path_str.strip()
+            if not file_path_str:
+                continue
+            
+            # Convert the string path to a Path object for easier manipulation
+            original_path = Path(file_path_str)
+
+            try:
+                # Get the content of the file at the base ref
+                show_cmd = [CMD_GIT, '-C', str(repo_path), 'show', f'{base}:{file_path_str}']
+                content_result = subprocess.run(show_cmd, capture_output=True, text=True, check=True, encoding='utf-8')
+                file_content = content_result.stdout
+
+                # Create the new filename with the prefix
+                prefixed_filename = f"{FILE_PREFIX}{original_path.name}"
+                
+                # Construct the full output path, preserving the parent directory structure
+                output_file_path = files_dir / original_path.parent / prefixed_filename
+
+                # Create the parent directories if they don't exist
+                output_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+                with open(output_file_path, 'w', encoding='utf-8') as f:
+                    f.write(file_content)
+                LOG(f"  - Saved: {output_file_path}")
+
+            except subprocess.CalledProcessError:
+                # This often happens for new files (not in base) or deleted files.
+                LOG(f"  - Skipping '{file_path_str}': could not retrieve from base ref (likely a new or binary file).")
+            except Exception as e:
+                LOG(f"  - An error occurred while processing '{file_path_str}': {e}", file=sys.stderr)
+        
+        return True
+    except subprocess.CalledProcessError as e:
+        LOG(f"Failed to get list of changed files: {e.stderr.strip()}", file=sys.stderr)
+        return False
+    except Exception as e:
+        LOG(f"An unexpected error occurred in save_base_ref_files: {e}", file=sys.stderr)
+        return False
+
 # Functions that call other functions
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
@@ -196,6 +268,12 @@ def main() -> None:
                 f.write(f"{'='*60}\n\n")
                 f.write(diff_content)
             LOG(f"Diff content saved to '{output_path}'.")
+
+            # --- Step 3: Save the base version of changed files ---
+            LOG() # Add a newline for readability
+            save_base_ref_files(repo_path, base, target, final_output_dir)
+            # --------------------------------------------------------
+
         except IOError as e:
             LOG(f"Failed to write to output file '{output_path}': {e}", file=sys.stderr)
             is_success = False

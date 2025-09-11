@@ -1,11 +1,29 @@
+from pathlib import Path
+
+
 LINE_SEPARATOR = f"\n{'=' * 60}\n"
 LINE_SEPARATOR_NO_ENDLINE = f"{'=' * 60}"
+
+# PATHS
+CORE_REPOS_FOLDER_PATH = Path.home() / "workspace" / "intellian_core_repos/"
+OW_SW_PATH = Path.home() / "ow_sw_tools/"
+REPO_PATH = Path.home() / "local_tools/"
+CREDENTIALS_FILE_PATH = REPO_PATH / ".my_credentials.env"
+
+# TOKEN KEYS
 GL_TISDK_TOKEN_KEY_NAME = "GITLAB_TISDK_TOKEN"
+GL_OW_SW_TOOLS_TOKEN_KEY_NAME = "GITLAB_OW_SW_TOOLS_TOKEN"
+JIRA_API_TOKEN_KEY_NAME = "JIRA_API_TOKEN"
+JIRA_COMPANY_URL_KEY_NAME = "JIRA_COMPANY_URL"
+JIRA_USERNAME_KEY_NAME = "JIRA_USERNAME"
 
 MANIFEST_SOURCE_LOCAL = "local"
 MANIFEST_SOURCE_REMOTE = "remote"
 BUILD_TYPE_IESA = "iesa"
 BUILD_TYPE_BINARY = "binary"
+
+# MISC
+FILE_PREFIX = 'file_'
 
 # Argument name constants
 ARGUMENT_PREFIX = "--"
@@ -16,4 +34,3 @@ ARG_PATH_LONG = f"{ARGUMENT_PREFIX}path"
 ARG_PATHS_LONG = f"{ARGUMENT_PREFIX}paths"
 ARG_PATH_SHORT = '-p'
 ARG_PATHS_SHORT = '-p'
-

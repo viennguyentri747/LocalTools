@@ -7,14 +7,15 @@ from gitlab.v4.objects import *
 from gitlab import *
 from typing import Union
 from dev_common.constants import *
+from dev_common.core_utils import read_value_from_credential_file
 
 
 def main():
     # --- Configuration ---
-    credentials_file = os.path.join(os.path.dirname(__file__), '.gitlab_credentials')
+    credentials_file = CREDENTIALS_FILE_PATH
 
     # Logic to read token from file if not in env
-    private_token = read_token_from_file(credentials_file, GL_TISDK_TOKEN_KEY_NAME)
+    private_token = read_value_from_credential_file(credentials_file, GL_TISDK_TOKEN_KEY_NAME)
     if not private_token:
         print("Error: GitLab private token not found in credentials file.")
         sys.exit(1)
@@ -150,31 +151,6 @@ def download_job_artifacts(gl_project: Project, artifacts_dir_path: str, pipelin
         print(f"An unexpected error occurred during artifact download or extraction: {e}")
         sys.exit(1)
         return False  # Added return False for error case
-
-
-def read_token_from_file(credentials_file_path: str, key_to_read: str) -> Union[str, None]:
-    """
-    Reads a specific key's value from a credentials file.
-    Returns the value if found, otherwise None.
-    """
-    if os.path.exists(credentials_file_path):
-        try:
-            with open(credentials_file_path, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith('#'):
-                        try:
-                            key, value = line.split('=', 1)
-                            if key == key_to_read:
-                                return value
-                        except ValueError:
-                            # Handle lines that don't contain '='
-                            print(f"Warning: Skipping malformed line in {credentials_file_path}: {line}")
-                            continue
-        except Exception as e:
-            print(f"Error reading credentials file {credentials_file_path}: {e}")
-            sys.exit(1)
-    return None
 
 
 if __name__ == "__main__":

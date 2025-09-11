@@ -1,4 +1,4 @@
-.gitlab_credentials
+.my_credentials*
 MyVenvFolder/
 __pycache__/
 bsp_artifacts/

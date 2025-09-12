@@ -1,6 +1,7 @@
 import re
 from readable_number import ReadableNumber
 
+
 def beautify_number(n, precision=2, use_shortform=True):
     """
     Converts a number to a human-readable abbreviated format.
@@ -19,9 +20,16 @@ def beautify_number(n, precision=2, use_shortform=True):
     """
     return str(ReadableNumber(n, precision=precision, use_shortform=use_shortform))
 
+
 def str_to_slug(s: str):
     s = s.lower().strip()
     s = re.sub(r'[^\w\s-]', '', s)
     s = re.sub(r'[\s_-]+', '-', s)
     s = re.sub(r'^-+|-+$', '', s)
     return s
+
+
+def get_path_no_suffix(path: str, suffix: str) -> str:
+    if path.endswith(suffix):
+        path = path[:-len(suffix)]
+    return path

@@ -9,30 +9,19 @@ import shutil
 import subprocess
 import sys
 import textwrap
-import xml.etree.ElementTree as ET
 from typing import Dict, List, Optional, Union
 import argparse
-# from dev_common.gitlab_utils import get_latest_successful_pipeline_id, download_job_artifacts, get_gl_project, read_token_from_file
 from dev_common import *
 import yaml
-# ─────────────────────────────  constants  ───────────────────────────── #
-
-################################################
 
 
-################################################
 CREDENTIAL_FILE_PATH = REPO_PATH / ".gitlab_credentials"
 GITLAB_CI_YML_PATH = OW_SW_PATH / ".gitlab-ci.yml"
-MANIFEST_FILE_NAME = "iesa_manifest_gitlab.xml"
-MANIFEST_RELATIVE_PATH = f"tools/manifests/{MANIFEST_FILE_NAME}"
-MANIFEST_FILE_PATH = OW_SW_PATH / MANIFEST_RELATIVE_PATH
-# OW_LOCAL_BUILD_OUTPUT_DIR = SCRIPT_FOLDER_PATH / "local_build_output"
 # Need to put this here because we will go into docker environment from OW_SW_PATH
 BSP_ARTIFACT_FOLDER_PATH = OW_SW_PATH / "custom_artifacts_bsp/"
 BSP_ARTIFACT_PREFIX = "bsp-iesa-"
 BSP_SYMLINK_PATH_FOR_BUILD = OW_SW_PATH / "packaging" / "bsp_current" / "bsp_current.tar.xz"
 MAIN_STEP_LOG_PREFIX = f"{LINE_SEPARATOR}\n[MAIN_STEP]"
-# ─────────────────────────────  top-level  ───────────────────────────── #
 
 
 def main() -> None:
@@ -46,8 +35,6 @@ def main() -> None:
                         help=F"Source for the manifest repository URL ({MANIFEST_SOURCE_LOCAL} or {MANIFEST_SOURCE_REMOTE}). Defaults to {MANIFEST_SOURCE_LOCAL}. Note that although it is local manifest, the source of sync is still remote so will need to push branch of dependent local repos specified in local manifest (not ow_sw_tools).")
     parser.add_argument("-b", "--ow_manifest_branch", type=Optional[str], default=None,
                         help="Branch of oneweb_project_sw_tools for manifest (either local or remote branch, depend on --manifest_source). Ex: 'manpack_master'")
-    # parser.add_argument("--check_manifest_branch", type=lambda x: x.lower() == 'true', default=True,
-    #                     help="Check if OW_SW_PATH branch matches manifest branch (true or false). Defaults to true.")  # Only set this to FALSE if you know what you're doing
     parser.add_argument("--tisdk_ref", type=str, default=None,
                         help="TISDK Ref for BSP (for creating .iesa). Ex: 'manpack_master'")
     parser.add_argument("--overwrite_repos", nargs='*', default=[],
@@ -81,7 +68,7 @@ def main() -> None:
     use_current_ow_branch: bool = args.use_current_ow_branch
     make_clean: bool = args.make_clean
     # Update overwrite repos no git suffix
-    overwrite_repos = [get_path_no_git_suffix(r) for r in overwrite_repos]
+    overwrite_repos = [get_path_no_suffix(r, GIT_SUFFIX) for r in overwrite_repos]
     LOG(f"Parsed args: {args}")
 
     # LOG(f"CD to {OW_SW_PATH}")
@@ -133,7 +120,8 @@ def main() -> None:
                 f'&& echo "original_md5=\\"$original_md5\\"; actual_md5=\\$(md5sum /home/root/download/{new_iesa_name} | cut -d\\\" \\\" -f1); echo \\\"original md5sum: \\$original_md5\\\"; echo \\\"actual md5sum: \\$actual_md5\\\"; if [ \\\"\\$original_md5\\\" = \\\"\\$actual_md5\\\" ]; then echo \\\"MD5 match! Install? y/n\\\"; read -r confirm; [ \\\"\\$confirm\\\" = \\\"y\\\" -o \\\"\\$confirm\\\" = \\\"Y\\\" ] && iesa_umcmd install pkg {new_iesa_name} && tail -F /var/log/upgrade_log; else echo \\\"MD5 MISMATCH! Not installing.\\\"; fi"', show_time=False
             )
         else:
-            LOG(f"ERROR: Expected IESA artifact not found at '{OW_OUTPUT_IESA_PATH}' or it's not a file.", file=sys.stderr)
+            LOG(
+                f"ERROR: Expected IESA artifact not found at '{OW_OUTPUT_IESA_PATH}' or it's not a file.", file=sys.stderr)
             sys.exit(1)
     else:
         LOG(f"{MAIN_STEP_LOG_PREFIX} Binary build finished.")
@@ -157,9 +145,10 @@ def main() -> None:
             f'}} || {{ echo "SCP copy failed"; }}',
             show_time=False)
 
-        # LOG(f'sudo chmod -R 755 {BUILD_BINARY_OUTPUT_PATH} && read -e -p "Enter target IP: " -i "192.168.10" TARGET_IP && scp -rJ root@$TARGET_IP {BUILD_BINARY_OUTPUT_PATH}/<bin> root@192.168.100.254:/home/root/download/', show_time=False)        
+        # LOG(f'sudo chmod -R 755 {BUILD_BINARY_OUTPUT_PATH} && read -e -p "Enter target IP: " -i "192.168.10" TARGET_IP && scp -rJ root@$TARGET_IP {BUILD_BINARY_OUTPUT_PATH}/<bin> root@192.168.100.254:/home/root/download/', show_time=False)
 
 # ───────────────────────────  helpers / actions  ─────────────────────── #
+
 
 def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: str, input_tisdk_ref: str, overwrite_repos: List[str], use_current_ow_branch: bool, current_branch: str):
     ow_sw_path_str = str(OW_SW_PATH)
@@ -205,11 +194,11 @@ def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: st
 
     # Verify overwrite_repos
     if overwrite_repos:
-        path_mapping: Dict[str, str] = parse_local_manifest()  # Mapping example: {"ow_sw_tools": "tools/ow_sw_tools"}
+        manifest: IesaManifest = parse_local_iesa_manifest()
         for repo_name in overwrite_repos:
-            if repo_name not in path_mapping:
+            if repo_name not in manifest.get_all_repo_names():
                 LOG(
-                    f"ERROR: Invalid overwrite repo name: {repo_name}\nAvailable repo names in manifest: {list(path_mapping.keys())}")
+                    f"ERROR: Invalid overwrite repo name: {repo_name}\nAvailable repo names in manifest: {manifest.get_all_repo_names()}")
                 sys.exit(1)
 
 
@@ -232,8 +221,6 @@ def is_ancestor(ancestor_ref: str, descentdant_ref: str, cwd: Union[str, Path]) 
 
 def pre_build_setup(build_type: str, manifest_source: str, ow_manifest_branch: str, tisdk_ref: str, overwrite_repos: List[str], force_reset_tmp_build: bool, sync: bool) -> None:
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build setup...")
-    # setup_executable_files(OW_SW_PATH)  # It will use LOCAL OW_SW to run build (docker run -it ...)
-
     if sync:
         reset_or_create_tmp_build(force_reset_tmp_build)
         manifest_repo_url = get_manifest_repo_url(manifest_source)
@@ -243,19 +230,20 @@ def pre_build_setup(build_type: str, manifest_source: str, ow_manifest_branch: s
         LOG("Skipping tmp_build reset and repo sync due to --sync false flag.")
 
     # {repo → relative path from build folder}, use local as they should be the same
-    path_mapping: Dict[str, str] = parse_local_manifest()  # Mapping example: {"ow_sw_tools": "tools/ow_sw_tools"}
+    manifest: IesaManifest = parse_local_iesa_manifest()
 
     if overwrite_repos:
         # Copy local code to overwrite code from remote before build
-        repo_names = [get_path_no_git_suffix(r) for r in overwrite_repos]
+        repo_names = [get_path_no_suffix(r, GIT_SUFFIX) for r in overwrite_repos]
         for repo_name in repo_names:
-            if repo_name not in path_mapping:
+            repo_rel_path_vs_tmp_build = manifest.get_repo_relative_path_vs_tmp_build(repo_name)
+            if repo_name not in manifest.get_all_repo_names():
                 LOG(f"ERROR: Specified repo \"{repo_name}\" not found in manifest.", file=sys.stderr)
                 sys.exit(1)
-            repo_rel_path_vs_tmp_build = path_mapping[repo_name]
             sync_local_code(repo_name, repo_rel_path_vs_tmp_build)
 
-        any_changed: bool = any(show_changes(r, path_mapping[r]) for r in repo_names if r in path_mapping)
+        any_changed: bool = any(show_changes(r, manifest.get_repo_relative_path_vs_tmp_build(r))
+                                for r in repo_names if r in manifest.get_all_repo_names())
         if not any_changed:
             LOG("WARNING: No files changed in selected repos.")
 
@@ -300,7 +288,7 @@ def run_build(build_type: str, interactive: bool, make_clean: bool = True) -> No
         LOG(f"Exiting interactive mode...")
     else:
         LOG("Running dos2unix on script files and build command...")
-        
+
         # Build the command sequence based on make_clean flag
         if make_clean:
             combined_cmd = f"{make_clean_cmd} && {dos2unix_cmd} && {chmod_cmd} && make {make_target}"
@@ -311,6 +299,7 @@ def run_build(build_type: str, interactive: bool, make_clean: bool = True) -> No
         elapsed_time = (datetime.now() - time_start).total_seconds()
         LOG(f"Build finished in {elapsed_time} seconds", show_time=True)
         show_noti(title="Build finished", message=f"Build finished in {elapsed_time} seconds")
+
 
 def reset_or_create_tmp_build(force_reset_tmp_build: bool) -> None:
     repo_dir = OW_BUILD_FOLDER_PATH / '.repo'
@@ -372,11 +361,11 @@ def get_tisdk_ref_from_ci_yml(file_path: str) -> Optional[str]:
 
 def init_and_sync_from_remote(manifest_repo_url: str, manifest_repo_branch: str) -> None:
     LOG(f"{MAIN_STEP_LOG_PREFIX} Init and Sync repo at {OW_BUILD_FOLDER_PATH}...")
-    run_shell(f"repo init {manifest_repo_url} -b {manifest_repo_branch} -m {MANIFEST_RELATIVE_PATH}",
+    run_shell(f"repo init {manifest_repo_url} -b {manifest_repo_branch} -m {IESA_MANIFEST_RELATIVE_PATH}",
               cwd=OW_BUILD_FOLDER_PATH,)
 
     # Construct the full path to the manifest file
-    manifest_full_path = os.path.join(OW_BUILD_FOLDER_PATH, ".repo", "manifests", MANIFEST_RELATIVE_PATH)
+    manifest_full_path = os.path.join(OW_BUILD_FOLDER_PATH, ".repo", "manifests", IESA_MANIFEST_RELATIVE_PATH)
     # Check if the manifest file exists before trying to read it
     LOG("\n--------------------- MANIFEST ---------------------")
     if os.path.exists(manifest_full_path):
@@ -386,43 +375,14 @@ def init_and_sync_from_remote(manifest_repo_url: str, manifest_repo_branch: str)
         LOG("--- End Manifest Content ---")
     else:
         throw_exception(
-            f"Manifest file not found at: {manifest_full_path}. This might happen if {MANIFEST_FILE_NAME} was not found in the manifest repository.")
-
+            f"Manifest file not found at: {manifest_full_path}")
     run_shell("repo sync", cwd=OW_BUILD_FOLDER_PATH)
 
 
-def parse_local_manifest(manifest_file: Path = MANIFEST_FILE_PATH) -> Dict[str, str]:
-    """Return {project-name → path} from the manifest XML."""
-    if not manifest_file.is_file():
-        LOG(f"ERROR: manifest not found at {manifest_file}", file=sys.stderr)
-        sys.exit(1)
-
-    tree = ET.parse(manifest_file)
-    mapping: Dict[str, str] = {}
-    for proj in tree.getroot().iterfind("project"):
-        name = proj.attrib.get("name")
-        name = get_path_no_git_suffix(name)
-        path = proj.attrib.get("path")
-        if name and path:
-            if name in mapping:
-                LOG(f"ERROR: duplicate project name \"{name}\" in manifest", file=sys.stderr)
-                sys.exit(1)
-
-            mapping[name] = path
-    return mapping
-
-
-def get_path_no_git_suffix(path: str) -> str:
-    suffix = ".git"
-    if path.endswith(suffix):
-        path = path[:-len(suffix)]
-    return path
-
-
-def choose_repos(mapping: Dict[str, str]) -> List[str]:
+def choose_repos(manifest: IesaManifest) -> List[str]:
     LOG("\nAvailable repositories from manifest (<repo name> -> <relative path>):")
-    for name, path in sorted(mapping.items()):
-        LOG(f"  {name:<20} → {path}")
+    for name in sorted(manifest.get_all_repo_names()):
+        LOG(f"  {name:<20} → {manifest.get_repo_relative_path_vs_tmp_build(name)}")
 
     picked: List[str] = []
     while True:
@@ -430,7 +390,7 @@ def choose_repos(mapping: Dict[str, str]) -> List[str]:
             f"[Optional] Repo name to copy from local in {CORE_REPOS_FOLDER_PATH} (enter blank to stop): ").strip()
         if not repo_name:
             break
-        if repo_name not in mapping:
+        if repo_name not in manifest.get_all_repo_names():
             LOG(f"Repo \"{repo_name}\" not listed in manifest. Try again.")
             continue
         LOG(f"Selected: \"{repo_name}\"")
@@ -587,7 +547,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 "--interactive": False,
                 "--make_clean": True,
                 "--force_reset_tmp_build": True,
-                "--overwrite_repos": ["intellian_pkg", "insensesdk", "adc_lib"], #"upgrade", "submodule_spibeam"
+                "--overwrite_repos": ["intellian_pkg", "insensesdk", "adc_lib"],  # "upgrade", "submodule_spibeam"
             }
         ),
         ToolTemplate(
@@ -600,7 +560,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 "--interactive": False,
                 "--force_reset_tmp_build": False,
                 "--make_clean": False,
-                "--overwrite_repos": ["intellian_pkg", "insensesdk", "adc_lib"], #"upgrade", "submodule_spibeam",
+                "--overwrite_repos": ["intellian_pkg", "insensesdk", "adc_lib"],  # "upgrade", "submodule_spibeam",
             }
         ),
     ]

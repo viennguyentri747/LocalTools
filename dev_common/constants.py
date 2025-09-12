@@ -4,17 +4,20 @@ from pathlib import Path
 LINE_SEPARATOR = f"\n{'=' * 60}\n"
 LINE_SEPARATOR_NO_ENDLINE = f"{'=' * 60}"
 
-# PATHS
 REPO_PATH = Path.home() / "local_tools/"
 CREDENTIALS_FILE_PATH = REPO_PATH / ".my_credentials.env"
 
-CORE_REPOS_FOLDER_PATH = Path.home() / "workspace" / "intellian_core_repos/"
+# IESA
 OW_SW_PATH = Path.home() / "ow_sw_tools"
+CORE_REPOS_FOLDER_PATH = Path.home() / "workspace" / "intellian_core_repos/"
 # OW_SW_PATH = CORE_REPOS_FOLDER_PATH / "oneweb_project_sw_tools/"
 OW_OUTPUT_IESA_PATH = OW_SW_PATH / "install_iesa_tarball.iesa"
 OW_BUILD_FOLDER_PATH = OW_SW_PATH / "tmp_build/"
 OW_BUILD_OUTPUT_FOLDER_PATH = OW_BUILD_FOLDER_PATH / "out"
 OW_BUILD_BINARY_OUTPUT_PATH = OW_BUILD_OUTPUT_FOLDER_PATH / "bin"
+IESA_MANIFEST_RELATIVE_PATH = f"tools/manifests/iesa_manifest_gitlab.xml"
+IESA_MANIFEST_FILE_PATH = OW_SW_PATH / IESA_MANIFEST_RELATIVE_PATH
+OW_MAIN_BRANCHES = ["manpack_master", "master"]
 
 
 # TOKEN KEYS
@@ -31,6 +34,7 @@ BUILD_TYPE_BINARY = "binary"
 
 # MISC
 FILE_PREFIX = 'file_'
+GIT_SUFFIX = ".git"
 
 # Argument name constants
 ARGUMENT_PREFIX = "--"

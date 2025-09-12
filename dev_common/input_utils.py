@@ -91,6 +91,50 @@ def prompt_confirmation(message: str) -> bool:
             print("Please enter 'y' or 'n'.")
 
 
+class SimpleCompleter(Completer):
+    """A simple completer for a given list of options."""
+
+    def __init__(self, options: List[str]):
+        self.options = sorted(options)
+
+    def get_completions(self, document: Document, complete_event):
+        """Yields completions for the current word before the cursor."""
+        word_before_cursor = document.get_word_before_cursor(WORD=True)
+        if word_before_cursor:
+            for option in self.options:
+                if option.lower().startswith(word_before_cursor.lower()):
+                    yield Completion(
+                        option,
+                        start_position=-len(word_before_cursor),
+                        display=option,
+                    )
+
+
+def prompt_input_with_options(
+    prompt_message: str,
+    options: List[str],
+    default_input: str = "",
+) -> Optional[str]:
+    """
+    Prompts the user with a list of options for completion.
+    """
+    try:
+        LOG(LINE_SEPARATOR, show_time=False)
+        user_input = prompt(
+            message=f"{prompt_message}, options [{', '.join(options)}]: ",
+            default=default_input,
+            completer=SimpleCompleter(options),
+            complete_while_typing=True,
+            complete_style=CompleteStyle.COLUMN,
+        ).strip()
+        return user_input
+    except KeyboardInterrupt:
+        print("\n❌ Cancelled")
+        return None
+    except EOFError:
+        return None
+
+
 class EnhancedPathCompleter(Completer):
     """Enhanced completer that handles both MENTION_SYMBOL triggers and regular path completion."""
 
@@ -228,9 +272,11 @@ def prompt_input_with_paths(
                 if cursor_pos == len(current_text) or current_text[cursor_pos] != ' ':
                     buffer.insert_text(' ')
 
+
     @custom_keybindings.add(Keys.Enter, filter=has_completions)
     def _(event):
         accept_completion(event)
+
 
     @custom_keybindings.add(" ", filter=has_completions)  # Space key
     def _(event):

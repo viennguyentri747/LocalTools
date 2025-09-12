@@ -61,7 +61,7 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
 
     p.add_argument(
         ARG_TOOL_FOLDER_PATTERN,
-        default=r"^(?!unused_tools$).*_tools$",
+        default=r"^(?!misc_tools$).*_tools$",
         help=r"Regex to match tool folders at project root, excluding 'ignore_tools' (default: ^(?!ignore_tools$).*_tools$)",
     )
 

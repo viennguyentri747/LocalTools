@@ -111,7 +111,7 @@ ping_acu() {
     noti
 }
 
-# Wrapper for scp: run real scp with all args, then echo a completion message
+# Wrapper for scp: run real scp with all args, then echo a completion message. Note: if use sshpass -p $ut_pass scp ... it does work but will not show progress -> Avoid for now
 scp() {
     # Use 'command' to bypass this function and call the real scp binary
     command scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$@"

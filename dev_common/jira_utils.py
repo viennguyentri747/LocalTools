@@ -65,24 +65,24 @@ def parse_jira_description(description: dict) -> str:
     return "".join(text_parts).strip().replace('\n\n\n', '\n\n')
 
 
-class JiraIssue:
-    """A wrapper class for JIRA issue data"""
+class JiraTicket:
+    """A wrapper class for JIRA ticket data"""
 
-    def __init__(self, jira_url: str, issue_data: Dict[str, Any]):
+    def __init__(self, jira_url: str, ticket_data: Dict[str, Any]):
         """
-        Initialize Issue from JIRA API response data
+        Initialize Ticket from JIRA API response data
 
         Args:
-            issue_data: Raw issue data from JIRA API
+            ticket_data: Raw ticket data from JIRA API
         """
-        self.raw_data = issue_data
-        self.key = issue_data.get("key", "")
-        self.fields = issue_data.get("fields", {})
-        self.id = issue_data.get("id", "")
+        self.raw_data = ticket_data
+        self.key = ticket_data.get("key", "")
+        self.fields = ticket_data.get("fields", {})
+        self.id = ticket_data.get("id", "")
 
         # Core properties
-        self.issue_url = f"{jira_url.rstrip('/')}/browse/{self.key}"
-        self.summary = self.fields.get("summary", "")
+        self.ticket_url = f"{jira_url.rstrip('/')}/browse/{self.key}"
+        self.title = self.fields.get("summary", "")
 
         # Project information
         project_data = self.fields.get("project", {})
@@ -103,10 +103,10 @@ class JiraIssue:
         self.priority_name = priority_data.get("name", "")
         self.priority_id = priority_data.get("id", "")
 
-        # Issue type
-        issuetype_data = self.fields.get("issuetype", {})
-        self.issue_type_name = issuetype_data.get("name", "")
-        self.issue_type_id = issuetype_data.get("id", "")
+        # Ticket type
+        tickettype_data = self.fields.get("issuetype", {})
+        self.ticket_type_name = tickettype_data.get("name", "")
+        self.ticket_type_id = tickettype_data.get("id", "")
 
         # Assignee and reporter
         assignee_data = self.fields.get("assignee")
@@ -183,17 +183,17 @@ class JiraIssue:
 
     @property
     def is_resolved(self) -> bool:
-        """Check if the issue is resolved"""
+        """Check if the ticket is resolved"""
         return self.resolution_name is not None
 
     @property
     def is_unresolved(self) -> bool:
-        """Check if the issue is unresolved"""
+        """Check if the ticket is unresolved"""
         return self.resolution_name is None
 
     @property
     def url(self) -> str:
-        """Get the JIRA URL for this issue (requires base URL to be set externally)"""
+        """Get the JIRA URL for this ticket (requires base URL to be set externally)"""
         # This would need the base JIRA URL to construct the full URL
         return f"/browse/{self.key}"
 
@@ -210,28 +210,28 @@ class JiraIssue:
         return self.fields.get(field_name)
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert issue to a simple dictionary for easy display"""
+        """Convert ticket to a simple dictionary for easy display"""
         return {
             "Key": self.key,
-            "Summary": self.summary,
+            "Summary": self.title,
             "Project": self.project_name,
             "Status": self.status_name,
             "Priority": self.priority_name,
             "Resolution": self.resolution_name or "Unresolved",
             "Assignee": self.assignee_name,
             "Reporter": self.reporter_name,
-            "Issue Type": self.issue_type_name,
+            "Ticket Type": self.ticket_type_name,
             "Created": self.created,
             "Updated": self.updated,
         }
 
     def __str__(self) -> str:
-        """String representation of the issue"""
-        return f"{self.key}: {self.summary} [{self.status_name}]"
+        """String representation of the ticket"""
+        return f"{self.key}: {self.title} [{self.status_name}]"
 
     def __repr__(self) -> str:
-        """Developer representation of the issue"""
-        return f"Issue(key='{self.key}', summary='{self.summary[:30]}...', status='{self.status_name}')"
+        """Developer representation of the ticket"""
+        return f"Ticket(key='{self.key}', summary='{self.title[:30]}...', status='{self.status_name}')"
 
 
 class JiraClient:
@@ -283,15 +283,15 @@ class JiraClient:
             print(f"DEBUG: Connection test failed: {e}")
             return None
 
-    def get_issue_count(self, jql_query: str) -> int:
+    def get_ticket_count(self, jql_query: str) -> int:
         """
-        Get count of issues for a JQL query
+        Get count of tickets for a JQL query
 
         Args:
             jql_query: The JQL query string
 
         Returns:
-            Number of issues matching the query, -1 on error
+            Number of tickets matching the query, -1 on error
         """
         url = f"{self.jira_url}/rest/api/3/search/jql"
         payload = {
@@ -312,10 +312,10 @@ class JiraClient:
             print(f"DEBUG: Query exception: {e}")
             return -1
 
-    def get_issues(self, jql_query: str, max_results: int = 50,
-                   fields: List[str] = None) -> List[JiraIssue]:
+    def get_tickets(self, jql_query: str, max_results: int = 50,
+                    fields: List[str] = None) -> List[JiraTicket]:
         """
-        Search for issues using JQL
+        Search for tickets using JQL
 
         Args:
             jql_query: The JQL query string
@@ -323,7 +323,7 @@ class JiraClient:
             fields: List of fields to include in the response
 
         Returns:
-            List of Issue objects
+            List of Ticket objects
         """
         if fields is None:
             fields = [
@@ -356,79 +356,79 @@ class JiraClient:
             # Debug: Print the response structure
             print(f"DEBUG: Response keys: {list(data.keys())}")
 
-            # Get issues from response and convert to Issue objects
-            issues_data = data.get("issues", [])
-            issues = [JiraIssue(self.jira_url, issue_data) for issue_data in issues_data]
+            # Get tickets from response and convert to Ticket objects
+            tickets_data = data.get("issues", [])
+            tickets = [JiraTicket(self.jira_url, ticket_data) for ticket_data in tickets_data]
 
-            print(f"DEBUG: Number of issues in response: {len(issues)}")
+            print(f"DEBUG: Number of tickets in response: {len(tickets)}")
 
             # Check if there's a total field and print it
             if "total" in data:
-                print(f"DEBUG: Total issues available: {data['total']}")
+                print(f"DEBUG: Total tickets available: {data['total']}")
             else:
                 print("DEBUG: No 'total' field in response")
 
-            # Print first few issue keys for verification
-            if issues:
-                print("DEBUG: First few issues:")
-                for i, issue in enumerate(issues[:3]):
-                    print(f"  {i+1}. {issue.key}: {issue.summary[:60]}...")
+            # Print first few ticket keys for verification
+            if tickets:
+                print("DEBUG: First few tickets:")
+                for i, ticket in enumerate(tickets[:3]):
+                    print(f"  {i+1}. {ticket.key}: {ticket.title[:60]}...")
 
-            return issues
+            return tickets
 
         except Exception as e:
             print(f"DEBUG: Exception occurred: {e}")
             raise
 
-    def get_all_assigned_issues(self, max_results: int = 50) -> List[JiraIssue]:
+    def get_all_assigned_tickets(self, max_results: int = 50) -> List[JiraTicket]:
         """
-        Get all issues assigned to current user (no filters)
+        Get all tickets assigned to current user (no filters)
 
         Args:
             max_results: Maximum number of results to return
 
         Returns:
-            List of Issue objects
+            List of Ticket objects
         """
-        print("\n=== Getting All Assigned Issues ===")
+        print("\n=== Getting All Assigned Tickets ===")
 
         jql_query = "assignee=currentUser()"  # Simplest query
 
         print(f"DEBUG: Simplified JQL: {jql_query}")
 
-        issues = self.get_issues(jql_query, max_results)
+        tickets = self.get_tickets(jql_query, max_results)
 
-        # Print details about each issue using the Issue class
-        for i, issue in enumerate(issues[:5]):  # Show first 5
-            print(f"DEBUG: Issue {i+1}: {issue.key} - {issue.summary[:50]}...")
-            print(f"       Project: {issue.project_name}")
-            print(f"       Status: {issue.status_name}")
-            print(f"       Resolution: {issue.resolution_name or 'Unresolved'}")
+        # Print details about each ticket using the Ticket class
+        for i, ticket in enumerate(tickets[:5]):  # Show first 5
+            print(f"DEBUG: Ticket {i+1}: {ticket.key} - {ticket.title[:50]}...")
+            print(f"       Project: {ticket.project_name}")
+            print(f"       Status: {ticket.status_name}")
+            print(f"       Resolution: {ticket.resolution_name or 'Unresolved'}")
             print()
 
-        return issues
+        return tickets
 
-    def group_issues_by_project(self, issues: List[JiraIssue]) -> Dict[str, List[JiraIssue]]:
+    def group_tickets_by_project(self, tickets: List[JiraTicket]) -> Dict[str, List[JiraTicket]]:
         """
-        Group issues by project
+        Group tickets by project
 
         Args:
-            issues: List of Issue objects
+            tickets: List of Ticket objects
 
         Returns:
-            Dictionary with project names as keys and lists of Issue objects as values
+            Dictionary with project names as keys and lists of Ticket objects as values
         """
         projects = defaultdict(list)
-        for issue in issues:
-            projects[issue.project_name].append(issue)
+        for ticket in tickets:
+            projects[ticket.project_name].append(ticket)
         return dict(projects)
 
-    def analyze_assigned_issues(self, issues: List[JiraIssue]) -> Dict[str, int]:
+    def analyze_assigned_tickets(self, tickets: List[JiraTicket]) -> Dict[str, int]:
         """
-        Analyze assigned issues to get resolution statistics
+        Analyze assigned tickets to get resolution statistics
 
         Args:
-            issues: List of Issue objects
+            tickets: List of Ticket objects
 
         Returns:
             Dictionary with 'resolved' and 'unresolved' counts
@@ -436,8 +436,8 @@ class JiraClient:
         resolved_count = 0
         unresolved_count = 0
 
-        for issue in issues:
-            if issue.is_resolved:
+        for ticket in tickets:
+            if ticket.is_resolved:
                 resolved_count += 1
             else:
                 unresolved_count += 1
@@ -447,28 +447,28 @@ class JiraClient:
             "unresolved": unresolved_count
         }
 
-    def get_issue_by_key(self, issue_key: str) -> Optional[JiraIssue]:
+    def get_ticket_by_key(self, ticket_key: str) -> Optional[JiraTicket]:
         """
-        Get a single issue by its key
+        Get a single ticket by its key
 
         Args:
-            issue_key: The JIRA issue key (e.g., 'PROJ-123')
+            ticket_key: The JIRA ticket key (e.g., 'PROJ-123')
 
         Returns:
-            Issue object if found, None otherwise
+            Ticket object if found, None otherwise
         """
-        url = f"{self.jira_url}/rest/api/3/issue/{issue_key}"
+        url = f"{self.jira_url}/rest/api/3/issue/{ticket_key}"
 
         try:
             response = requests.get(url, headers=self.headers, auth=self.auth)
             if response.status_code == 200:
-                issue_data = response.json()
-                return JiraIssue(self.jira_url, issue_data)
+                ticket_data = response.json()
+                return JiraTicket(self.jira_url, ticket_data)
             else:
-                print(f"DEBUG: Failed to get issue {issue_key}: {response.text}")
+                print(f"DEBUG: Failed to get ticket {ticket_key}: {response.text}")
                 return None
         except Exception as e:
-            print(f"DEBUG: Exception getting issue {issue_key}: {e}")
+            print(f"DEBUG: Exception getting ticket {ticket_key}: {e}")
             return None
 
 
@@ -483,27 +483,27 @@ if __name__ == "__main__":
         print("Failed to connect to JIRA")
         exit(1)
 
-    # Get all assigned issues
-    issues = client.get_all_assigned_issues(max_results=10)
+    # Get all assigned tickets
+    tickets = client.get_all_assigned_tickets(max_results=10)
 
-    # Now you can access issue properties directly:
-    for issue in issues:
-        print(f"Key: {issue.key}")
-        print(f"Summary: {issue.summary}")
-        print(f"Status: {issue.status_name}")
-        print(f"Is Resolved: {issue.is_resolved}")
-        print(f"Project: {issue.project_name}")
+    # Now you can access ticket properties directly:
+    for ticket in tickets:
+        print(f"Key: {ticket.key}")
+        print(f"Summary: {ticket.title}")
+        print(f"Status: {ticket.status_name}")
+        print(f"Is Resolved: {ticket.is_resolved}")
+        print(f"Project: {ticket.project_name}")
         print("-" * 50)
 
     # Group by project
-    grouped = client.group_issues_by_project(issues)
-    for project_name, project_issues in grouped.items():
+    grouped = client.group_tickets_by_project(tickets)
+    for project_name, project_tickets in grouped.items():
         print(f"\nProject: {project_name}")
-        for issue in project_issues:
-            print(f"  - {issue}")
+        for ticket in project_tickets:
+            print(f"  - {ticket}")
 
     # Get statistics
-    stats = client.analyze_assigned_issues(issues)
+    stats = client.analyze_assigned_tickets(tickets)
     print(f"\nStatistics:")
     print(f"Resolved: {stats['resolved']}")
     print(f"Unresolved: {stats['unresolved']}")

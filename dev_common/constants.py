@@ -5,10 +5,17 @@ LINE_SEPARATOR = f"\n{'=' * 60}\n"
 LINE_SEPARATOR_NO_ENDLINE = f"{'=' * 60}"
 
 # PATHS
-CORE_REPOS_FOLDER_PATH = Path.home() / "workspace" / "intellian_core_repos/"
-OW_SW_PATH = Path.home() / "ow_sw_tools/"
 REPO_PATH = Path.home() / "local_tools/"
 CREDENTIALS_FILE_PATH = REPO_PATH / ".my_credentials.env"
+
+CORE_REPOS_FOLDER_PATH = Path.home() / "workspace" / "intellian_core_repos/"
+OW_SW_PATH = Path.home() / "ow_sw_tools"
+# OW_SW_PATH = CORE_REPOS_FOLDER_PATH / "oneweb_project_sw_tools/"
+OW_OUTPUT_IESA_PATH = OW_SW_PATH / "install_iesa_tarball.iesa"
+OW_BUILD_FOLDER_PATH = OW_SW_PATH / "tmp_build/"
+OW_BUILD_OUTPUT_FOLDER_PATH = OW_BUILD_FOLDER_PATH / "out"
+OW_BUILD_BINARY_OUTPUT_PATH = OW_BUILD_OUTPUT_FOLDER_PATH / "bin"
+
 
 # TOKEN KEYS
 GL_TISDK_TOKEN_KEY_NAME = "GITLAB_TISDK_TOKEN"

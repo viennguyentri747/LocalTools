@@ -18,11 +18,8 @@ import yaml
 # ─────────────────────────────  constants  ───────────────────────────── #
 
 ################################################
-OUTPUT_IESA_PATH = OW_SW_PATH / "install_iesa_tarball.iesa"
-# OW_SW_PATH = CORE_REPOS_PATH / "ow_sw_tools"
-BUILD_FOLDER_PATH = OW_SW_PATH / "tmp_build/"
-BUILD_OUTPUT_FOLDER_PATH = BUILD_FOLDER_PATH / "out"
-BUILD_BINARY_OUTPUT_PATH = BUILD_OUTPUT_FOLDER_PATH / "bin"
+
+
 ################################################
 CREDENTIAL_FILE_PATH = REPO_PATH / ".gitlab_credentials"
 GITLAB_CI_YML_PATH = OW_SW_PATH / ".gitlab-ci.yml"
@@ -63,6 +60,8 @@ def main() -> None:
                         help="If true, perform tmp_build reset (true or false) and repo sync. Defaults to true.")
     parser.add_argument("--use_current_ow_branch", type=lambda x: x.lower() == 'true', default=True,
                         help="Use the current branch of ow_sw_tools repo. Defaults to false.")
+    parser.add_argument("--make_clean", type=lambda x: x.lower() == 'true', default=True,
+                        help="Run make clean before building (true or false). Defaults to true.")
     args = parser.parse_args()
     LOG(
         textwrap.dedent(
@@ -80,6 +79,7 @@ def main() -> None:
     force_reset_tmp_build: bool = args.force_reset_tmp_build
     sync: bool = args.sync
     use_current_ow_branch: bool = args.use_current_ow_branch
+    make_clean: bool = args.make_clean
     # Update overwrite repos no git suffix
     overwrite_repos = [get_path_no_git_suffix(r) for r in overwrite_repos]
     LOG(f"Parsed args: {args}")
@@ -108,17 +108,17 @@ def main() -> None:
                    overwrite_repos, use_current_ow_branch, current_branch)
     pre_build_setup(build_type, manifest_source, manifest_branch,
                     tisdk_ref, overwrite_repos, force_reset_tmp_build, sync)
-    run_build(build_type, args.interactive)
+    run_build(build_type, args.interactive, make_clean)
 
     if build_type == BUILD_TYPE_IESA:
         LOG(f"{MAIN_STEP_LOG_PREFIX} IESA build finished. Renaming artifact...")
-        if OUTPUT_IESA_PATH.is_file():
+        if OW_OUTPUT_IESA_PATH.is_file():
             new_iesa_name = f"v_{manifest_branch}.iesa"
-            new_iesa_path = OUTPUT_IESA_PATH.parent / new_iesa_name
+            new_iesa_path = OW_OUTPUT_IESA_PATH.parent / new_iesa_name
             # In linux, rename will overwrite.
-            OUTPUT_IESA_PATH.rename(new_iesa_path)
+            OW_OUTPUT_IESA_PATH.rename(new_iesa_path)
             new_iesa_output_abs_path = new_iesa_path.resolve()
-            LOG(f"Renamed '{OUTPUT_IESA_PATH.name}' to '{new_iesa_path.name}'")
+            LOG(f"Renamed '{OW_OUTPUT_IESA_PATH.name}' to '{new_iesa_path.name}'")
             LOG(f"Find output IESA here (WSL path): {new_iesa_output_abs_path}")
             LOG(f"{LINE_SEPARATOR}")
             # run_shell(f"sudo chmod 644 {new_iesa_output_abs_path}")
@@ -133,17 +133,34 @@ def main() -> None:
                 f'&& echo "original_md5=\\"$original_md5\\"; actual_md5=\\$(md5sum /home/root/download/{new_iesa_name} | cut -d\\\" \\\" -f1); echo \\\"original md5sum: \\$original_md5\\\"; echo \\\"actual md5sum: \\$actual_md5\\\"; if [ \\\"\\$original_md5\\\" = \\\"\\$actual_md5\\\" ]; then echo \\\"MD5 match! Install? y/n\\\"; read -r confirm; [ \\\"\\$confirm\\\" = \\\"y\\\" -o \\\"\\$confirm\\\" = \\\"Y\\\" ] && iesa_umcmd install pkg {new_iesa_name} && tail -F /var/log/upgrade_log; else echo \\\"MD5 MISMATCH! Not installing.\\\"; fi"', show_time=False
             )
         else:
-            LOG(f"ERROR: Expected IESA artifact not found at '{OUTPUT_IESA_PATH}' or it's not a file.", file=sys.stderr)
+            LOG(f"ERROR: Expected IESA artifact not found at '{OW_OUTPUT_IESA_PATH}' or it's not a file.", file=sys.stderr)
             sys.exit(1)
     else:
         LOG(f"{MAIN_STEP_LOG_PREFIX} Binary build finished.")
-        LOG(f"Find output binary files in '{BUILD_BINARY_OUTPUT_PATH}'")
+        LOG(f"Find output binary files in '{OW_BUILD_BINARY_OUTPUT_PATH}'")
         LOG(f"{LINE_SEPARATOR}")
-        LOG("Copy command (replace <bin> with your binary name):")
-        LOG(f'sudo chmod -R 755 {BUILD_BINARY_OUTPUT_PATH} && read -e -p "Enter target IP (192.168.10): " -i "192.168.10" TARGET_IP && read -e -p "Enter binary path: " -i "{BUILD_BINARY_OUTPUT_PATH}/" BIN_PATH && scp -rJ root@$TARGET_IP $BIN_PATH root@192.168.100.254:/home/root/download/', show_time=False)
+        LOG("Use this below command to copy to target IP:")
+        # LOG(f'sudo chmod -R 755 {OW_BUILD_BINARY_OUTPUT_PATH} && read -e -p "Enter target IP (192.168.10): " -i "192.168.10" TARGET_IP && read -e -p "Enter binary path: " -i "{OW_BUILD_BINARY_OUTPUT_PATH}/" BIN_PATH && scp -rJ root@$TARGET_IP $BIN_PATH root@192.168.100.254:/home/root/download/', show_time=False)
+        LOG(f'sudo chmod -R 755 {OW_BUILD_BINARY_OUTPUT_PATH} && '
+            f'while true; do '
+            f'read -e -p "Enter binary path: " -i "{OW_BUILD_BINARY_OUTPUT_PATH}/" BIN_PATH && '
+            f'if [ -f "$BIN_PATH" ]; then break; else echo "Error: File $BIN_PATH does not exist. Please try again."; fi; '
+            f'done && '
+            f'BIN_NAME=$(basename "$BIN_PATH") && '
+            f'read -e -p "Enter destination name: " -i "$BIN_NAME" DEST_NAME && '
+            f'original_md5=$(md5sum "$BIN_PATH" | cut -d" " -f1) && '
+            f'read -e -p "Enter target IP: " -i "192.168.10" TARGET_IP && '
+            f'scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -rJ root@$TARGET_IP "$BIN_PATH" root@192.168.100.254:/home/root/download/"$DEST_NAME" && '
+            f'{{ echo "SCP copy completed successfully"; '
+            f'echo -e "Binary copied completed. Setup symlink on target UT $TARGET_IP with this below command:\\n"; '
+            f'echo "actual_md5=\\$(md5sum /home/root/download/$DEST_NAME | cut -d\\\" \\\" -f1) && if [ \\\"$original_md5\\\" = \\\"\\$actual_md5\\\" ]; then echo \\\"MD5 match! Proceeding...\\\" && cp /opt/bin/$BIN_NAME /home/root/download/backup_$BIN_NAME && ln -sf /home/root/download/$DEST_NAME /opt/bin/$BIN_NAME && echo \\\"Backup created and symlink updated: /opt/bin/$BIN_NAME -> /home/root/download/$DEST_NAME\\\"; else echo \\\"MD5 MISMATCH! Aborting.\\\"; fi"; '
+            f'}} || {{ echo "SCP copy failed"; }}',
+            show_time=False)
+
         # LOG(f'sudo chmod -R 755 {BUILD_BINARY_OUTPUT_PATH} && read -e -p "Enter target IP: " -i "192.168.10" TARGET_IP && scp -rJ root@$TARGET_IP {BUILD_BINARY_OUTPUT_PATH}/<bin> root@192.168.100.254:/home/root/download/', show_time=False)        
 
 # ───────────────────────────  helpers / actions  ─────────────────────── #
+
 def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: str, input_tisdk_ref: str, overwrite_repos: List[str], use_current_ow_branch: bool, current_branch: str):
     ow_sw_path_str = str(OW_SW_PATH)
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build check...")
@@ -246,7 +263,7 @@ def pre_build_setup(build_type: str, manifest_source: str, ow_manifest_branch: s
         prepare_iesa_bsp(tisdk_ref)
 
 
-def run_build(build_type: str, interactive: bool = False) -> None:
+def run_build(build_type: str, interactive: bool, make_clean: bool = True) -> None:
     if build_type == BUILD_TYPE_BINARY:
         make_target = "arm"
     elif build_type == BUILD_TYPE_IESA:
@@ -258,64 +275,68 @@ def run_build(build_type: str, interactive: bool = False) -> None:
         f"docker run -it --rm -v {OW_SW_PATH}:{OW_SW_PATH} -w {OW_SW_PATH} oneweb_sw "
     )
 
-    # Command to find and convert script files to Unix format (similar to setup_executable_files logic)
-    # This targets the same file types that setup_executable_files processes
-    make_clean_cmd = f"make clean"
+    # Command to find and convert script files to Unix format
     dos2unix_cmd = (
-        f"apt-get install -y dos2unix && find {OW_SW_PATH.absolute()}/packaging \\( -name tmp_build -o -name .git -o -name __pycache__ \\) -prune -o -type f \\( -name '*.py' -o -name '*.sh' \\) "
-        "-exec dos2unix {} +"
+        f"apt-get install -y dos2unix && "
+        f"find {OW_SW_PATH.absolute()}/packaging \\( -name tmp_build -o -name .git -o -name __pycache__ \\) "
+        "-prune -o -type f \\( -name '*.py' -o -name '*.sh' \\) -exec dos2unix {} +"
     )
 
-    chmod_cmd = (
-        f"chmod -R +x {OW_SW_PATH.absolute()}/"
-    )
+    chmod_cmd = f"chmod -R +x {OW_SW_PATH.absolute()}/"
 
     time_start = datetime.now()
+    make_clean_cmd = "make clean"
     if interactive:
         show_noti(title="Interactive Mode", message="Starting interactive mode...")
         LOG(f"{LINE_SEPARATOR}Entering interactive mode.")
 
-        # Create a bash function for convenience and enter interactive mode
-        bash_setup = f"""/bin/bash -c "echo 'Cleaning build'; {make_clean_cmd} && echo 'Running dos2unix on script files...'; {dos2unix_cmd} && echo 'Granting execute permissions to script files...'; {chmod_cmd} && echo -e '\\nRun make {make_target} to start {build_type} building.\\n\\nType exit or press Ctrl+D to leave interactive mode.' && exec bash" """
+        # Build the command sequence based on make_clean flag
+        if make_clean:
+            bash_setup = f"""/bin/bash -c "echo 'Cleaning build' && {make_clean_cmd} && echo 'Running dos2unix on script files...' && {dos2unix_cmd} && echo 'Granting execute permissions to script files...' && {chmod_cmd} && echo -e '\\nRun make {make_target} to start {build_type} building.\\n\\nType exit or press Ctrl+D to leave interactive mode.' && exec bash" """
+        else:
+            bash_setup = f"""/bin/bash -c "echo 'Running dos2unix on script files...' && {dos2unix_cmd} && echo 'Granting execute permissions to script files...' && {chmod_cmd} && echo -e '\\nRun make {make_target} to start {build_type} building.\\n\\nType exit or press Ctrl+D to leave interactive mode.' && exec bash" """
 
         run_shell(docker_cmd_base + bash_setup, check_throw_exception_on_exit_code=False)
         LOG(f"Exiting interactive mode...")
     else:
         LOG("Running dos2unix on script files and build command...")
-        # Chain dos2unix and make commands
-        combined_cmd = f"{make_clean_cmd} && {dos2unix_cmd} && {chmod_cmd} && make {make_target}"
+        
+        # Build the command sequence based on make_clean flag
+        if make_clean:
+            combined_cmd = f"{make_clean_cmd} && {dos2unix_cmd} && {chmod_cmd} && make {make_target}"
+        else:
+            combined_cmd = f"{dos2unix_cmd} && {chmod_cmd} && make {make_target}"
 
         run_shell(docker_cmd_base + f"bash -c '{combined_cmd}'")
         elapsed_time = (datetime.now() - time_start).total_seconds()
         LOG(f"Build finished in {elapsed_time} seconds", show_time=True)
         show_noti(title="Build finished", message=f"Build finished in {elapsed_time} seconds")
 
-
 def reset_or_create_tmp_build(force_reset_tmp_build: bool) -> None:
-    repo_dir = BUILD_FOLDER_PATH / '.repo'
+    repo_dir = OW_BUILD_FOLDER_PATH / '.repo'
     manifest_file = repo_dir / 'manifest.xml'
     manifests_git_head = repo_dir / 'manifests' / '.git' / 'HEAD'
 
     def should_reset_instead_clearing(force_reset: bool) -> bool:
         return not force_reset and repo_dir.is_dir() and manifest_file.is_file() and manifests_git_head.is_file()
 
-    if BUILD_FOLDER_PATH.exists():
+    if OW_BUILD_FOLDER_PATH.exists():
         should_reset: bool = False
         if should_reset_instead_clearing(force_reset_tmp_build):
-            LOG(f"Resetting existing repo in {BUILD_FOLDER_PATH}...")
+            LOG(f"Resetting existing repo in {OW_BUILD_FOLDER_PATH}...")
             try:
-                run_shell("repo forall -c 'git reset --hard' && repo forall -c 'git clean -fdx'", cwd=BUILD_FOLDER_PATH)
+                run_shell("repo forall -c 'git reset --hard' && repo forall -c 'git clean -fdx'", cwd=OW_BUILD_FOLDER_PATH)
             except subprocess.CalledProcessError:
-                LOG(f"Warning: 'repo forall' failed in {BUILD_FOLDER_PATH}. Assuming broken repo and clearing...")
+                LOG(f"Warning: 'repo forall' failed in {OW_BUILD_FOLDER_PATH}. Assuming broken repo and clearing...")
                 should_reset = True
         else:
-            LOG(f"Force clearing tmp_build folder at {BUILD_FOLDER_PATH}...")
+            LOG(f"Force clearing tmp_build folder at {OW_BUILD_FOLDER_PATH}...")
             should_reset = True
         if should_reset:
-            run_shell("sudo rm -rf " + str(BUILD_FOLDER_PATH))
-            BUILD_FOLDER_PATH.mkdir(parents=True)
+            run_shell("sudo rm -rf " + str(OW_BUILD_FOLDER_PATH))
+            OW_BUILD_FOLDER_PATH.mkdir(parents=True)
     else:
-        BUILD_FOLDER_PATH.mkdir(parents=True)
+        OW_BUILD_FOLDER_PATH.mkdir(parents=True)
 
 
 def get_tisdk_ref_from_ci_yml(file_path: str) -> Optional[str]:
@@ -350,12 +371,12 @@ def get_tisdk_ref_from_ci_yml(file_path: str) -> Optional[str]:
 
 
 def init_and_sync_from_remote(manifest_repo_url: str, manifest_repo_branch: str) -> None:
-    LOG(f"{MAIN_STEP_LOG_PREFIX} Init and Sync repo at {BUILD_FOLDER_PATH}...")
+    LOG(f"{MAIN_STEP_LOG_PREFIX} Init and Sync repo at {OW_BUILD_FOLDER_PATH}...")
     run_shell(f"repo init {manifest_repo_url} -b {manifest_repo_branch} -m {MANIFEST_RELATIVE_PATH}",
-              cwd=BUILD_FOLDER_PATH,)
+              cwd=OW_BUILD_FOLDER_PATH,)
 
     # Construct the full path to the manifest file
-    manifest_full_path = os.path.join(BUILD_FOLDER_PATH, ".repo", "manifests", MANIFEST_RELATIVE_PATH)
+    manifest_full_path = os.path.join(OW_BUILD_FOLDER_PATH, ".repo", "manifests", MANIFEST_RELATIVE_PATH)
     # Check if the manifest file exists before trying to read it
     LOG("\n--------------------- MANIFEST ---------------------")
     if os.path.exists(manifest_full_path):
@@ -367,7 +388,7 @@ def init_and_sync_from_remote(manifest_repo_url: str, manifest_repo_branch: str)
         throw_exception(
             f"Manifest file not found at: {manifest_full_path}. This might happen if {MANIFEST_FILE_NAME} was not found in the manifest repository.")
 
-    run_shell("repo sync", cwd=BUILD_FOLDER_PATH)
+    run_shell("repo sync", cwd=OW_BUILD_FOLDER_PATH)
 
 
 def parse_local_manifest(manifest_file: Path = MANIFEST_FILE_PATH) -> Dict[str, str]:
@@ -420,7 +441,7 @@ def choose_repos(mapping: Dict[str, str]) -> List[str]:
 
 def sync_local_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
     src_path = CORE_REPOS_FOLDER_PATH / repo_name
-    dest_root_path = BUILD_FOLDER_PATH / repo_rel_path_vs_tmp_build
+    dest_root_path = OW_BUILD_FOLDER_PATH / repo_rel_path_vs_tmp_build
 
     if not src_path.is_dir() or not dest_root_path.is_dir():
         LOG(f"ERROR: Source or destination not found at {src_path} or {dest_root_path}", file=sys.stderr)
@@ -461,7 +482,7 @@ def sync_local_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
 
 
 def show_changes(repo_name: str, rel_path: str) -> bool:
-    repo_path = BUILD_FOLDER_PATH / rel_path
+    repo_path = OW_BUILD_FOLDER_PATH / rel_path
     exclude_pattern = ":(exclude)tmp_local_gitlab_ci/"
     res = subprocess.run(
         # Need . to apply pathspecs (with exclude) to current directory
@@ -564,8 +585,9 @@ def get_tool_templates() -> List[ToolTemplate]:
                 "--use_current_ow_branch": True,
                 "--tisdk_ref": "manpack_master",
                 "--interactive": False,
+                "--make_clean": True,
                 "--force_reset_tmp_build": True,
-                "--overwrite_repos": ["intellian_pkg", "upgrade", "submodule_spibeam", "insensesdk", "adc_lib"],
+                "--overwrite_repos": ["intellian_pkg", "insensesdk", "adc_lib"], #"upgrade", "submodule_spibeam"
             }
         ),
         ToolTemplate(
@@ -577,7 +599,8 @@ def get_tool_templates() -> List[ToolTemplate]:
                 "--use_current_ow_branch": True,
                 "--interactive": False,
                 "--force_reset_tmp_build": False,
-                "--overwrite_repos": ["intellian_pkg", "upgrade", "submodule_spibeam", "insensesdk", "adc_lib"],
+                "--make_clean": False,
+                "--overwrite_repos": ["intellian_pkg", "insensesdk", "adc_lib"], #"upgrade", "submodule_spibeam",
             }
         ),
     ]

@@ -1,3 +1,4 @@
+import re
 from readable_number import ReadableNumber
 
 def beautify_number(n, precision=2, use_shortform=True):
@@ -17,3 +18,10 @@ def beautify_number(n, precision=2, use_shortform=True):
         str: Human-readable string of the number.
     """
     return str(ReadableNumber(n, precision=precision, use_shortform=use_shortform))
+
+def str_to_slug(s: str):
+    s = s.lower().strip()
+    s = re.sub(r'[^\w\s-]', '', s)
+    s = re.sub(r'[\s_-]+', '-', s)
+    s = re.sub(r'^-+|-+$', '', s)
+    return s

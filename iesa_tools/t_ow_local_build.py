@@ -33,7 +33,7 @@ def main() -> None:
                         help="Build type (binary or iesa). Defaults to binary.")
     parser.add_argument("--manifest_source", choices=[MANIFEST_SOURCE_LOCAL, MANIFEST_SOURCE_REMOTE], default="local",
                         help=F"Source for the manifest repository URL ({MANIFEST_SOURCE_LOCAL} or {MANIFEST_SOURCE_REMOTE}). Defaults to {MANIFEST_SOURCE_LOCAL}. Note that although it is local manifest, the source of sync is still remote so will need to push branch of dependent local repos specified in local manifest (not ow_sw_tools).")
-    parser.add_argument("-b", "--ow_manifest_branch", type=Optional[str], default=None,
+    parser.add_argument(ARG_OW_BRANCH_SHORT, ARG_OW_BRANCH_LONG, type=Optional[str], default=None,
                         help="Branch of oneweb_project_sw_tools for manifest (either local or remote branch, depend on --manifest_source). Ex: 'manpack_master'")
     parser.add_argument("--tisdk_ref", type=str, default=None,
                         help="TISDK Ref for BSP (for creating .iesa). Ex: 'manpack_master'")

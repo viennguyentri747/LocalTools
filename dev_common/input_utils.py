@@ -23,7 +23,7 @@ from prompt_toolkit.keys import Keys
 
 
 from dev_common.algo_utils import PathSearchConfig, fuzzy_find_paths
-from dev_common.constants import ARG_PATH_LONG, ARG_PATH_SHORT, ARG_PATHS_LONG, ARG_PATHS_SHORT, ARGUMENT_PREFIX, LINE_SEPARATOR
+from dev_common.constants import ARG_PATH_LONG, ARG_PATH_SHORT, ARG_PATHS_LONG, ARG_PATHS_SHORT, ARGUMENT_LONG_PREFIX, LINE_SEPARATOR
 from dev_common.core_utils import LOG
 from dev_common.file_utils import expand_and_check_path
 from dev_common.gui_utils import _get_terminal_size
@@ -57,7 +57,7 @@ def replace_arg_paths_with_single_mention(default_input: str) -> str:
                 next_part = parts[part_index]
 
                 # Stop if we hit another argument
-                if next_part.startswith(ARGUMENT_PREFIX):
+                if next_part.startswith(ARGUMENT_LONG_PREFIX):
                     break
 
                 # Check if this part is an existing path
@@ -310,7 +310,7 @@ def prompt_input_with_paths(
                 while i < len(input_parts):
                     path_candidate = input_parts[i]
                     # If we find another argument, stop processing paths for the previous one
-                    if path_candidate.startswith(ARGUMENT_PREFIX):
+                    if path_candidate.startswith(ARGUMENT_LONG_PREFIX):
                         break  # Exit inner loop; the outer loop will handle this new argument
 
                     # Check if it's a correctly formatted path mention

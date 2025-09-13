@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 import re
+import argparse
 from typing import Optional
 from dev_common.iesa_utils import IesaManifest, parse_local_iesa_manifest
 from dev_common.jira_utils import JIRA_COMPANY_URL, JiraTicket, create_new_jira_client
 from dev_common.format_utils import str_to_slug
 from dev_common.input_utils import prompt_input_with_options
-from dev_common.constants import OW_MAIN_BRANCHES, CORE_REPOS_FOLDER_PATH
+from dev_common.constants import ARG_OW_BRANCH_LONG, ARG_TICKET_URL_LONG, OW_MAIN_BRANCHES, CORE_REPOS_FOLDER_PATH
+from dev_common.python_misc_utils import get_attribute_value
 
 
 def extract_key_from_jira_url(url: str) -> Optional[str]:
@@ -16,48 +18,75 @@ def extract_key_from_jira_url(url: str) -> Optional[str]:
     return None
 
 
+def gen_checkout_command(ticket: JiraTicket, main_branch: str) -> str:
+    """Generate the checkout command for a given Jira ticket and main branch."""
+    feature_branch = f"feature/{ticket.key.lower()}-{str_to_slug(ticket.title)}"
+    manifest: IesaManifest = parse_local_iesa_manifest()
+
+    # Create a mapping from repo name to repo path, revision, and remote
+    repo_map = {}
+    for repo in manifest.get_all_repo_names():
+        repo_path = CORE_REPOS_FOLDER_PATH / repo
+        if repo_path.is_dir():
+            repo_map[repo] = {
+                'path': str(repo_path),
+                'revision': manifest.get_repo_revision(repo),
+                'remote': manifest.get_repo_remote(repo)
+            }
+
+    # Create a command that allows the user to select a repo by name
+    repo_options = " ".join([f'"{name}"' for name in repo_map.keys()])
+
+    # Build the case statement for repo info resolution
+    case_statement = "case $repo_name in "
+    for name, info in repo_map.items():
+        revision = info['revision'] or 'HEAD'  # Default to HEAD if no revision
+        remote = info['remote'] or 'origin'    # Default to origin if no remote
+        case_statement += f'"{name}") repo_path="{info["path"]}"; repo_revision="{revision}"; repo_remote="{remote}";; '
+    case_statement += "*) repo_path=\"\"; repo_revision=\"\"; repo_remote=\"\" ;; esac"
+
+    # Command with revision-based checkout (no fallback)
+    command = (
+        f"PS3='Please enter your choice (enter the number): '; "
+        f"select repo_name in {repo_options}; "
+        "do "
+        "    if [[ -n \"$repo_name\" ]]; then "
+        f"        {case_statement}; "
+        "        if [[ -n \"$repo_path\" && -d \"$repo_path\" ]]; then "
+        "            echo \"Fetching updates for $repo_name...\"; "
+        "            git -C \"$repo_path\" fetch --all; "
+        "            echo \"Checking if revision $repo_revision exists as a branch of $repo_name...\"; "
+        "            if git -C \"$repo_path\" show-ref --verify --quiet refs/heads/$repo_revision; then "
+        "                echo \"Branch $repo_revision found.\"; "
+        "                base_ref=$repo_revision; "
+        "                echo \"Checking if feature branch already exists...\"; "
+        f"                if git -C \"$repo_path\" show-ref --verify --quiet refs/heads/{feature_branch}; then "
+        f"                    echo \"Feature branch {feature_branch} already exists. Switching to it.\"; "
+        f"                    echo -e \"Command to run:\\\\ngit -C \\\"$repo_path\\\" checkout {feature_branch}\"; "
+        "                else "
+        "                    echo \"Creating new feature branch from base: $base_ref\"; "
+        f"                   echo -e \"Command to run:\\\\ngit -C \\\"$repo_path\\\" checkout $base_ref && git -C \\\"$repo_path\\\" checkout -b {feature_branch}\"; "
+        "                fi; "
+        "            else "
+        "                echo \"Error: Revision $repo_revision does not exist as a branch of $repo_name.\"; "
+        "                break; "
+        "            fi; "
+        "        else "
+        "            echo \"ERROR: Repository path issue for $repo_name\"; "
+        "        fi; "
+        "        break; "
+        "    else "
+        "        echo \"Invalid selection. Please enter a number from the list above.\"; "
+        "    fi; "
+        "done"
+    )
+    return command
+
+
 def gen_coding_task_markdown(ticket: JiraTicket, main_branch: str) -> str:
     """Generate the code task markdown content from Jira ticket data."""
-    feature_branch = f"feature/{ticket.key.lower()}-{str_to_slug(ticket.title)}"
-
     manifest: IesaManifest = parse_local_iesa_manifest()
     repos = manifest.get_all_repo_names()
-
-    repo_paths = [str(CORE_REPOS_FOLDER_PATH / repo) for repo in repos if (CORE_REPOS_FOLDER_PATH / repo).is_dir()]
-
-    # Create a bash script for interactive repo selection
-    script_lines = [
-        "#!/bin/bash",
-        "# This script allows you to select a repository and create a new feature branch in it.",
-        "",
-        "# Define the list of repositories",
-        "REPOS=("
-    ]
-    script_lines.extend([f'    "{path}"' for path in repo_paths])
-    script_lines.extend([
-        ")",
-        "",
-        "# Display the menu and get user's choice",
-        "PS3='Please enter your choice: '",
-        "select repo_path in \"${REPOS[@]}\"",
-        "do",
-        "    if [[ -n \"$repo_path\" ]]; then",
-        "        echo \"You chose $repo_path\"",
-        "        break",
-        "    else",
-        "        echo \"Invalid selection. Please try again.\"",
-        "    fi",
-        "done",
-        "",
-        "# Generate and display the git commands",
-        "echo 'Run the following commands to create the branch:'",
-        "echo \"cd $repo_path\"",
-        f"echo \"git checkout {main_branch}\"",
-        "echo \"git pull\"",
-        f"echo \"git checkout -b {feature_branch}\"",
-    ])
-
-    checkout_script = "\n".join(script_lines)
 
     # 1. Generate the list of repos as a string first
     repo_list_str = "".join([f"- [ ] {repo}\n" for repo in repos if (CORE_REPOS_FOLDER_PATH / repo).is_dir()])
@@ -73,7 +102,7 @@ def gen_coding_task_markdown(ticket: JiraTicket, main_branch: str) -> str:
         f"{repo_list_str}\n\n"
         f"# Create branch command:\n"
         f"```bash\n"
-        f"{checkout_script}\n"
+        f"{gen_checkout_command(ticket, main_branch)}\n"
         f"```"
     )
 
@@ -81,8 +110,18 @@ def gen_coding_task_markdown(ticket: JiraTicket, main_branch: str) -> str:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Generate coding task markdown from a Jira ticket.")
+    parser.add_argument(ARG_TICKET_URL_LONG, type=str, required=False, help="The full URL of the Jira ticket.")
+    parser.add_argument(ARG_OW_BRANCH_LONG,
+                        type=str,
+                        required=False,
+                        help="The manifest branch to use for generating checkout commands.")
+    args = parser.parse_args()
+
+    jira_url = get_attribute_value(args, ARG_TICKET_URL_LONG)
     # Request user input for Jira URL
-    jira_url = input(f"Input jira url (Ex: \"{JIRA_COMPANY_URL}/browse/FPA-3\"): ").strip()
+    if not jira_url:
+        jira_url = input(f"Input jira url (Ex: \"{JIRA_COMPANY_URL}/browse/FPA-3\"): ").strip()
 
     # Validate and extract ticket key
     ticket_key = extract_key_from_jira_url(jira_url)
@@ -99,7 +138,11 @@ if __name__ == "__main__":
         print(f"Summary: {ticket.title}")
         print(f"Description: {ticket.description}")
 
-        main_branch = prompt_input_with_options("\nSelect the main branch for ow_sw_tools", OW_MAIN_BRANCHES)
+        main_branch = get_attribute_value(args, ARG_OW_BRANCH_LONG)
+        if not main_branch:
+            main_branch = prompt_input_with_options("\nSelect the main branch for ow_sw_tools",
+                                                    OW_MAIN_BRANCHES,
+                                                    default_option=OW_MAIN_BRANCHES[0])
 
         # Generate and print the markdown content
         markdown_content = gen_coding_task_markdown(ticket, main_branch)

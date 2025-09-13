@@ -2,9 +2,9 @@
 
 import subprocess
 import re
+import sys
 from pathlib import Path
 from typing import Optional
-
 # Assuming LOG and message prefixes are imported from dev_common
 from dev_common import *
 
@@ -45,6 +45,45 @@ def git_fetch(repo_path: Path) -> bool:
         return False
 
 
+def get_git_remotes(repo_path: Path) -> List[str]:
+    """
+    Get a list of remote names for a git repository.
+
+    Args:
+        repo_path: The local path to the git repository.
+
+    Returns:
+        A list of remote names.
+    """
+    if not repo_path.is_dir() or not (repo_path / '.git').exists():
+        LOG(f"The path '{repo_path}' is not a valid git repository.")
+        return []
+
+    command = [CMD_GIT, 'remote']
+    try:
+        process = run_shell(
+            command,
+            cwd=repo_path,
+            check_throw_exception_on_exit_code=True,
+            capture_output=True,
+            text=True,
+            encoding='utf-8'
+        )
+        remotes = process.stdout.strip().split('\n')
+        return [remote for remote in remotes if remote]  # Filter out empty strings
+    except subprocess.CalledProcessError as e:
+        error_msg = (
+            f"'git remote' failed for '{repo_path}' with exit code {e.returncode}.\n"
+            f"  Command: {' '.join(command)}\n"
+            f"  Stderr: {e.stderr.strip()}"
+        )
+        LOG(error_msg, file=sys.stderr)
+        return []
+    except Exception as e:
+        LOG(f"An unexpected error occurred while getting remotes: {e}", file=sys.stderr)
+        return []
+
+
 def extract_git_diff(repo_path: Path, base_ref: str, target_ref: str) -> Optional[str]:
     """
     Extracts a git diff between two references using --patch-with-stat.
@@ -74,14 +113,6 @@ def extract_git_diff(repo_path: Path, base_ref: str, target_ref: str) -> Optiona
             encoding='utf-8'
         )
         return process.stdout
-    except subprocess.CalledProcessError as e:
-        error_msg = (
-            f"'git diff' failed for '{repo_path}' with exit code {e.returncode}.\n"
-            f"  Command: {' '.join(command)}\n"
-            f"  Stderr: {e.stderr.strip()}"
-        )
-        LOG(error_msg, file=sys.stderr)
-        return None
     except Exception as e:
         LOG(f"An unexpected error occurred while extracting diff: {e}", file=sys.stderr)
         return None

@@ -12,12 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Optional
 
-from dev_common.core_utils import LOG
-from dev_common.input_utils import PathSearchConfig, prompt_input_with_paths
-from dev_common.gui_utils import interactive_select_with_arrows, OptionData
-from dev_common.constants import ARG_PATH_SHORT, ARG_TOOL_PREFIX, ARG_TOOL_FOLDER_PATTERN, ARG_TOOL_ROOT_PATH, LINE_SEPARATOR, LINE_SEPARATOR_NO_ENDLINE
-from dev_common.tools_utils import ToolEntry, ToolTemplate, discover_tools
-from dev_common.python_misc_utils import get_attribute_value
+from dev_common import *
 
 
 # Helper functions that don't call other functions in this file
@@ -38,16 +33,20 @@ def build_template_command(tool, template: ToolTemplate):
 
     for arg, value in template.args.items():
         if isinstance(value, list):
-            # Add arg once followed by all values: arg val1 val2 val3
             cmd_parts.append(arg)
             cmd_parts.extend(str(v) for v in value)
-            # for v in value:
-            #     cmd_parts.extend([arg, str(v)])
         else:
-            # Add arg and single value: arg value
             cmd_parts.extend([arg, str(value)])
 
-    return ' '.join(shlex.quote(p) for p in cmd_parts)
+    quoted_parts = []
+    for part in cmd_parts:
+        # Only quote parts that actually need quoting (contain spaces or special chars that need escaping)
+        if ' ' in part and not (part.startswith('"') and part.endswith('"')):
+            quoted_parts.append(shlex.quote(part))
+        else:
+            quoted_parts.append(part)
+    
+    return ' '.join(quoted_parts)
 
 
 def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
@@ -65,12 +64,12 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         help=r"Regex to match tool folders at project root, excluding 'ignore_tools' (default: ^(?!ignore_tools$).*_tools$)",
     )
 
-    p.add_argument(
-        ARG_PATH_SHORT, ARG_TOOL_ROOT_PATH,
-        default=Path.cwd(),
-        help=f"Root path for fuzzy path search (default:CWD)",
-        type=Path,
-    )
+    # p.add_argument(
+    #     ARG_PATH_SHORT, ARG_TOOL_ROOT_PATH,
+    #     default=Path.cwd(),
+    #     help=f"Root path for fuzzy path search (default:CWD)",
+    #     type=Path,
+    # )
 
     return p.parse_args(argv)
 
@@ -98,10 +97,10 @@ def interactive_tool_select(message: str, tools: List[ToolEntry]) -> Optional[To
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = parse_args(argv)
     project_root = Path(__file__).resolve().parent
-    search_root = get_attribute_value(args, ARG_TOOL_ROOT_PATH)
-    tools = discover_tools(project_root, get_attribute_value(
-        args, ARG_TOOL_FOLDER_PATTERN), get_attribute_value(args, ARG_TOOL_PREFIX))
-    tool = interactive_tool_select(f"Select a tool, search dir: {search_root}", tools)
+    # search_root = get_attribute_value(args, ARG_TOOL_ROOT_PATH)
+    tools = discover_tools(project_root, get_arg_value(
+        args, ARG_TOOL_FOLDER_PATTERN), get_arg_value(args, ARG_TOOL_PREFIX))
+    tool = interactive_tool_select(f"Select a tool", tools)
     if tool is None:
         return 0
     LOG(f"Selected tool: {tool.display} ....")
@@ -130,11 +129,15 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
 
                         # Build and run final command
                         cmd_line = build_template_command(tool, selected_template)
-                        final_cmd = prompt_input_with_paths(
-                            prompt_message=f"Enter command",
-                            default_input=f"{cmd_line}",
-                            config=PathSearchConfig(search_root=search_root, resolve_symlinks=True, max_results=10),
-                        )
+                        if selected_template.no_need_live_edit:
+                            final_cmd = cmd_line
+                        else: 
+                            search_root = selected_template.search_root if selected_template.search_root else Path.cwd() #Default to CWD
+                            final_cmd = prompt_input_with_paths(
+                                prompt_message=f"Enter command",
+                                default_input=f"{cmd_line}",
+                                config=PathSearchConfig(search_root=search_root, resolve_symlinks=True, max_results=10),
+                            )
 
                         if final_cmd:
                             LOG(f"\n✅ Final command:\n{final_cmd}")

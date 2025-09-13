@@ -2,6 +2,7 @@ import hashlib
 import os
 from pathlib import Path
 import subprocess
+import sys
 from typing import List, Literal, Optional, Union
 from datetime import datetime
 import traceback
@@ -13,11 +14,11 @@ try:
 except ImportError:
     PLYER_AVAILABLE = False
 
-def run_shell(cmd: Union[str, List[str]], cwd: Optional[Path] = None, check_throw_exception_on_exit_code: bool = True, stdout=None, stderr=None, text=None, capture_output: bool = False) -> subprocess.CompletedProcess:
+def run_shell(cmd: Union[str, List[str]], cwd: Optional[Path] = None, check_throw_exception_on_exit_code: bool = True, stdout=None, stderr=None, text=None, capture_output: bool = False, encoding: str = 'utf-8') -> subprocess.CompletedProcess:
     """Echo + run a shell command"""
-    LOG(f"\n>>> {cmd} (cwd={cwd or Path.cwd()})")
+    LOG(f">>> {cmd} (cwd={cwd or Path.cwd()})")
     is_shell = isinstance(cmd, str)
-    return subprocess.run(cmd, shell=is_shell, cwd=cwd, check=check_throw_exception_on_exit_code, stdout=stdout, stderr=stderr, text=text, capture_output=capture_output)
+    return subprocess.run(cmd, shell=is_shell, cwd=cwd, check=check_throw_exception_on_exit_code, stdout=stdout, stderr=stderr, text=text, capture_output=capture_output, encoding=encoding)
 
 def change_dir(path: str):
     LOG(f"Changing directory to {path}")
@@ -37,7 +38,7 @@ def LOG(*values: object, sep: str = " ", end: str = "\n", file=None, highlight: 
     if show_traceback:
         tb = traceback.format_stack()
         print(f"Total stack frames: {len(tb)}")  # Debug line
-        max_frames = 3  # Maximum number of frames to print
+        max_frames = 5  # Maximum number of frames to print
         if len(tb) > max_frames:
             # Keep only the last 10 frames
             filtered_tb = tb[-max_frames:]
@@ -89,4 +90,6 @@ def read_value_from_credential_file(credentials_file_path: str, key_to_read: str
         except Exception as e:
             print(f"Error reading credentials file {credentials_file_path}: {e}")
             sys.exit(1)
+    else:
+        print(f"Credentials file {credentials_file_path} not found.")
     return None

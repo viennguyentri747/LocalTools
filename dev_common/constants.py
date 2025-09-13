@@ -4,15 +4,18 @@ from pathlib import Path
 LINE_SEPARATOR = f"\n{'=' * 60}\n"
 LINE_SEPARATOR_NO_ENDLINE = f"{'=' * 60}"
 
+
+# PATHS
+DOWNLOAD_FOLDER_PATH = Path.home() / "downloads"
 REPO_PATH = Path.home() / "local_tools/"
 CREDENTIALS_FILE_PATH = REPO_PATH / ".my_credentials.env"
-
-# IESA
 OW_SW_PATH = Path.home() / "ow_sw_tools"
 CORE_REPOS_FOLDER_PATH = Path.home() / "workspace" / "intellian_core_repos/"
 # OW_SW_PATH = CORE_REPOS_FOLDER_PATH / "oneweb_project_sw_tools/"
 OW_OUTPUT_IESA_PATH = OW_SW_PATH / "install_iesa_tarball.iesa"
 OW_BUILD_FOLDER_PATH = OW_SW_PATH / "tmp_build/"
+OW_KIM_FTM_FW_PATH = OW_SW_PATH / "packaging/opt_etc/kim_ftm_fw/"
+OW_KIM_RCVR_VERSION_FILE_PATH = OW_KIM_FTM_FW_PATH / "kim_rcvr_version.txt"
 OW_BUILD_OUTPUT_FOLDER_PATH = OW_BUILD_FOLDER_PATH / "out"
 OW_BUILD_BINARY_OUTPUT_PATH = OW_BUILD_OUTPUT_FOLDER_PATH / "bin"
 IESA_MANIFEST_RELATIVE_PATH = f"tools/manifests/iesa_manifest_gitlab.xml"
@@ -39,11 +42,12 @@ GIT_SUFFIX = ".git"
 # Argument name constants
 ARGUMENT_LONG_PREFIX = "--"
 ARGUMENT_SHORT_PREFIX = "-"
+ARG_VERSION_OR_FW_PATH = f"{ARGUMENT_LONG_PREFIX}version_or_fw_path"
 ARG_OW_BRANCH_LONG = f"{ARGUMENT_LONG_PREFIX}ow_manifest_branch"
 ARG_OW_BRANCH_SHORT = f"{ARGUMENT_SHORT_PREFIX}b"
 ARG_TOOL_PREFIX = f"{ARGUMENT_LONG_PREFIX}prefix"
 ARG_TOOL_FOLDER_PATTERN = f"{ARGUMENT_LONG_PREFIX}folder_pattern"
-ARG_TOOL_ROOT_PATH = f"{ARGUMENT_LONG_PREFIX}root_path"
+# ARG_TOOL_ROOT_PATH = f"{ARGUMENT_LONG_PREFIX}root_path"
 ARG_PATH_LONG = f"{ARGUMENT_LONG_PREFIX}path"
 ARG_PATHS_LONG = f"{ARGUMENT_LONG_PREFIX}paths"
 ARG_PATH_SHORT = f"{ARGUMENT_SHORT_PREFIX}p"

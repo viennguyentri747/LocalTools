@@ -15,7 +15,6 @@ from dev_common import *
 import yaml
 
 
-CREDENTIAL_FILE_PATH = REPO_PATH / ".gitlab_credentials"
 GITLAB_CI_YML_PATH = OW_SW_PATH / ".gitlab-ci.yml"
 # Need to put this here because we will go into docker environment from OW_SW_PATH
 BSP_ARTIFACT_FOLDER_PATH = OW_SW_PATH / "custom_artifacts_bsp/"
@@ -117,7 +116,7 @@ def main() -> None:
                 # '&& rmh '
                 '&& sudo chmod 644 "$output_path" '
                 '&& scp -rJ root@$source_ip "$output_path" root@192.168.100.254:/home/root/download/ && { original_md5=$(md5sum "$output_path" | cut -d" " -f1); noti "SCP copy completed successfully"; echo -e "IESA copied completed. Install on target UT $source_ip with this below command:\\n"; } || { noti "SCP copy failed"; exit 1; } '
-                f'&& echo "original_md5=\\"$original_md5\\"; actual_md5=\\$(md5sum /home/root/download/{new_iesa_name} | cut -d\\\" \\\" -f1); echo \\\"original md5sum: \\$original_md5\\\"; echo \\\"actual md5sum: \\$actual_md5\\\"; if [ \\\"\\$original_md5\\\" = \\\"\\$actual_md5\\\" ]; then echo \\\"MD5 match! Install? y/n\\\"; read -r confirm; [ \\\"\\$confirm\\\" = \\\"y\\\" -o \\\"\\$confirm\\\" = \\\"Y\\\" ] && iesa_umcmd install pkg {new_iesa_name} && tail -F /var/log/upgrade_log; else echo \\\"MD5 MISMATCH! Not installing.\\\"; fi"', show_time=False
+                f'&& echo "original_md5=\\"$original_md5\\"; actual_md5=\\$(md5sum /home/root/download/{new_iesa_name} | cut -d\\\" \\\" -f1); echo \\\"original md5sum: \\$original_md5\\\"; echo \\\"actual md5sum: \\$actual_md5\\\"; if [ \\\"\\$original_md5\\\" = \\\"\\$actual_md5\\\" ]; then read -r -p \\\"MD5 match! Install (y/n)?: \\\" confirm; [ \\\"\\$confirm\\\" = \\\"y\\\" -o \\\"\\$confirm\\\" = \\\"Y\\\" ] && iesa_umcmd install pkg {new_iesa_name} && tail -F /var/log/upgrade_log; else echo \\\"MD5 MISMATCH! Not installing.\\\"; fi"', show_time=False
             )
         else:
             LOG(
@@ -480,7 +479,7 @@ def get_manifest_repo_url(manifest_source: str) -> Optional[str]:
 def prepare_iesa_bsp(tisdk_ref: str):
     LOG(f"{MAIN_STEP_LOG_PREFIX} Preparing IESA BSP for release, TISDK ref: {tisdk_ref}...")
     # Logic to read token from file if not in env
-    private_token = read_value_from_credential_file(CREDENTIAL_FILE_PATH, GL_TISDK_TOKEN_KEY_NAME)
+    private_token = read_value_from_credential_file(CREDENTIALS_FILE_PATH, GL_TISDK_TOKEN_KEY_NAME)
     if not private_token:
         LOG("Error: GitLab private token not found in credentials file.")
         sys.exit(1)

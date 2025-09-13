@@ -2,13 +2,7 @@
 import re
 import argparse
 from typing import Optional
-from dev_common.iesa_utils import IesaManifest, parse_local_iesa_manifest
-from dev_common.jira_utils import JIRA_COMPANY_URL, JiraTicket, create_new_jira_client
-from dev_common.format_utils import str_to_slug
-from dev_common.input_utils import prompt_input_with_options
-from dev_common.constants import ARG_OW_BRANCH_LONG, ARG_TICKET_URL_LONG, OW_MAIN_BRANCHES, CORE_REPOS_FOLDER_PATH
-from dev_common.python_misc_utils import get_attribute_value
-
+from dev_common import *
 
 def extract_key_from_jira_url(url: str) -> Optional[str]:
     """Extracts a Jira ticket key from a full Jira URL. Ex: https://<company>.atlassian.net/browse/FPA-3 -> FPA-3"""
@@ -18,9 +12,20 @@ def extract_key_from_jira_url(url: str) -> Optional[str]:
     return None
 
 
-def gen_checkout_command(ticket: JiraTicket, main_branch: str) -> str:
+def gen_checkout_command(ticket: JiraTicket, main_manifest_branch: str) -> str:
     """Generate the checkout command for a given Jira ticket and main branch."""
-    feature_branch = f"feature/{ticket.key.lower()}-{str_to_slug(ticket.title)}"
+    #Checkout main branch
+    feature_branch = f"feat/{ticket.key.lower()}-{str_to_slug(ticket.title)}"
+    checkout_main_branch = f"git checkout {main_manifest_branch}"
+    run_shell(checkout_main_branch)
+    #TODO pull from remote
+    remotes = get_git_remotes(OW_SW_PATH)
+    if(len(remotes) == 1):
+        remote = remotes[0]
+    else:
+        remote = prompt_input_with_options(f"Select remote", remotes)
+    run_shell(f"git pull {remote} {main_manifest_branch}")
+
     manifest: IesaManifest = parse_local_iesa_manifest()
 
     # Create a mapping from repo name to repo path, revision, and remote
@@ -65,7 +70,24 @@ def gen_checkout_command(ticket: JiraTicket, main_branch: str) -> str:
         f"                    echo -e \"Command to run:\\\\ngit -C \\\"$repo_path\\\" checkout {feature_branch}\"; "
         "                else "
         "                    echo \"Creating new feature branch from base: $base_ref\"; "
-        f"                   echo -e \"Command to run:\\\\ngit -C \\\"$repo_path\\\" checkout $base_ref && git -C \\\"$repo_path\\\" checkout -b {feature_branch}\"; "
+        "                    remotes=$(git -C \"$repo_path\" remote); "
+        "                    num_remotes=$(echo \"$remotes\" | wc -w); "
+        "                    if [ \"$num_remotes\" -eq 1 ]; then "
+        "                        remote_to_pull=$remotes; "
+        "                    elif [ \"$num_remotes\" -gt 1 ]; then "
+        "                        echo \"Multiple remotes found. Please select one to pull from:\"; "
+        "                        select remote_to_pull in $remotes; do "
+        "                            if [[ -n \"$remote_to_pull\" ]]; then "
+        "                                break; "
+        "                            else "
+        "                                echo \"Invalid selection.\"; "
+        "                            fi; "
+        "                        done; "
+        "                    else "
+        "                        echo \"Error: No remotes found for this repository.\"; "
+        "                        break; "
+        "                    fi; "
+        f"                   echo -e \"Command to run:\\\\ngit -C \\\"$repo_path\\\" checkout $base_ref && git pull $remote_to_pull $base_ref && git -C \\\"$repo_path\\\" checkout -b {feature_branch}\"; "
         "                fi; "
         "            else "
         "                echo \"Error: Revision $repo_revision does not exist as a branch of $repo_name.\"; "
@@ -118,7 +140,7 @@ if __name__ == "__main__":
                         help="The manifest branch to use for generating checkout commands.")
     args = parser.parse_args()
 
-    jira_url = get_attribute_value(args, ARG_TICKET_URL_LONG)
+    jira_url = get_arg_value(args, ARG_TICKET_URL_LONG)
     # Request user input for Jira URL
     if not jira_url:
         jira_url = input(f"Input jira url (Ex: \"{JIRA_COMPANY_URL}/browse/FPA-3\"): ").strip()
@@ -129,28 +151,25 @@ if __name__ == "__main__":
         print("Error: Invalid Jira URL format. Please provide a valid Jira URL.")
         exit(1)
 
-    try:
-        # Get Jira ticket data
-        client = create_new_jira_client()
-        ticket: JiraTicket = client.get_ticket_by_key(ticket_key)
+    # Get Jira ticket data
+    client = create_new_jira_client()
+    ticket: JiraTicket = client.get_ticket_by_key(ticket_key)
 
-        print(f"\nTicket info for {ticket_key}:")
-        print(f"Summary: {ticket.title}")
-        print(f"Description: {ticket.description}")
+    print(f"\nTicket info for {ticket_key}:")
+    print(f"Summary: {ticket.title}")
+    print(f"Description: {ticket.description}")
 
-        main_branch = get_attribute_value(args, ARG_OW_BRANCH_LONG)
-        if not main_branch:
-            main_branch = prompt_input_with_options("\nSelect the main branch for ow_sw_tools",
-                                                    OW_MAIN_BRANCHES,
-                                                    default_option=OW_MAIN_BRANCHES[0])
+    main_branch = get_arg_value(args, ARG_OW_BRANCH_LONG)
+    if not main_branch:
+        main_branch = prompt_input_with_options("\nSelect the main branch for ow_sw_tools",
+                                                OW_MAIN_BRANCHES,
+                                                default_option=OW_MAIN_BRANCHES[0])
 
-        # Generate and print the markdown content
-        markdown_content = gen_coding_task_markdown(ticket, main_branch)
-        print("\n" + "="*50)
-        print("GENERATED CODE TASK MARKDOWN:")
-        print("="*50)
-        print(markdown_content)
+    # Generate and print the markdown content
+    markdown_content = gen_coding_task_markdown(ticket, main_branch)
+    print("\n" + "="*50)
+    print("GENERATED CODE TASK MARKDOWN:")
+    print("="*50)
+    print(markdown_content)
 
-    except Exception as e:
-        print(f"Error retrieving Jira ticket: {e}")
-        exit(1)
+

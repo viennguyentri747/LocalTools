@@ -45,6 +45,29 @@ def git_fetch(repo_path: Path) -> bool:
         return False
 
 
+def git_pull(repo_path: Path, remote_name: str, branch_name: str) -> bool:
+    """
+    Runs 'git pull' in the specified repository.
+
+    Args:
+        repo_path: The local path to the git repository.
+        remote_name: The name of the remote to pull from.
+        branch_name: The name of the branch to pull.
+
+    Returns:
+        A tuple containing a success boolean and a message.
+    """
+    command = [CMD_GIT, 'pull', remote_name, branch_name]
+    try:
+        LOG(f"Pulling latest changes from '{remote_name}' in '{repo_path.name}'...")
+        run_shell(command, cwd=repo_path, check=True, capture_output=True, text=True, encoding='utf-8')
+        LOG("Pull completed successfully.")
+        return True
+    except Exception as e:
+        LOG(f"'git pull' failed for '{repo_path}' with error: {e}", file=sys.stderr)
+        return False
+
+
 def get_git_remotes(repo_path: Path) -> List[str]:
     """
     Get a list of remote names for a git repository.

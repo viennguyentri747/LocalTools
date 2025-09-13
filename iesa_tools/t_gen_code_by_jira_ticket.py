@@ -134,7 +134,7 @@ def gen_coding_task_markdown(ticket: JiraTicket, main_branch: str) -> str:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate coding task markdown from a Jira ticket.")
     parser.add_argument(ARG_TICKET_URL_LONG, type=str, required=False, help="The full URL of the Jira ticket.")
-    parser.add_argument(ARG_OW_BRANCH_LONG,
+    parser.add_argument(ARG_OW_MANIFEST_BRANCH_LONG,
                         type=str,
                         required=False,
                         help="The manifest branch to use for generating checkout commands.")
@@ -159,7 +159,7 @@ if __name__ == "__main__":
     print(f"Summary: {ticket.title}")
     print(f"Description: {ticket.description}")
 
-    main_branch = get_arg_value(args, ARG_OW_BRANCH_LONG)
+    main_branch = get_arg_value(args, ARG_OW_MANIFEST_BRANCH_LONG)
     if not main_branch:
         main_branch = prompt_input_with_options("\nSelect the main branch for ow_sw_tools",
                                                 OW_MAIN_BRANCHES,

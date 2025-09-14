@@ -4,6 +4,6 @@ __pycache__/
 bsp_artifacts/
 tmp_output/
 
-#Ignore README.md because put it in separate dir in Obsidian Vautl
+#Ignore README.md because put it in separate dir in Obsidian Vault
 README.md
 .common_symlinks

@@ -11,6 +11,7 @@ import re
 import tiktoken
 import os
 from dev_common import *
+from dev_common.python_misc_utils import get_arg_value
 
 # Constants
 # Processing modes
@@ -92,7 +93,7 @@ MODE_DESCRIPTIONS = {
 def get_tool_templates() -> List[ToolTemplate]:
     return [
         ToolTemplate(
-            name="Multiple folders with Common Exclude Patterns",
+            name="Multiple folders with Common Exclude Patterns. Note: .gitignore files is included by gitingest!",
             description="Process multiple repos with specific file patterns",
             args={
                 ARG_EXCLUDE_PATTERN: [".git", ".vscode"],
@@ -320,13 +321,13 @@ def create_log_file(args: argparse.Namespace, output_dir: Path, timestamp: str) 
         log_file.write(f"{'='*50}\n\n")
 
         log_file.write("Arguments:\n")
-        log_file.write(f"  Paths: {args.paths}\n")
-        log_file.write(f"  Output directory: {args.output_dir}\n")
-        log_file.write(f"  Include patterns: {args.include_pattern}\n")
-        log_file.write(f"  Exclude patterns: {args.exclude_pattern}\n")
-        log_file.write(f"  Max workers: {args.max_workers}\n")
-        log_file.write(f"  Max folders: {args.max_folders}\n")
-        log_file.write(f"  No open explorer: {args.no_open_explorer}\n")
+        log_file.write(f"  Paths: {get_arg_value(args, ARG_PATHS_LONG)}\n")
+        log_file.write(f"  Output directory: {get_arg_value(args, ARG_OUTPUT_DIR_LONG)}\n")
+        log_file.write(f"  Include patterns: {get_arg_value(args, ARG_INCLUDE_PATTERN)}\n")
+        log_file.write(f"  Exclude patterns: {get_arg_value(args, ARG_EXCLUDE_PATTERN)}\n")
+        log_file.write(f"  Max workers: {get_arg_value(args, ARG_MAX_WORKERS)}\n")
+        log_file.write(f"  Max folders: {get_arg_value(args, ARG_MAX_FOLDERS)}\n")
+        log_file.write(f"  No open explorer: {get_arg_value(args, ARG_NO_OPEN_EXPLORER)}\n")
 
     return log_path
 
@@ -343,12 +344,20 @@ def main() -> None:
     # Create timestamp for this run
     timestamp = subprocess.run(['date', '+%Y%m%d_%H%M%S'], capture_output=True, text=True).stdout.strip()
 
+    paths = get_arg_value(args, ARG_PATHS_LONG)
+    output_dir = get_arg_value(args, ARG_OUTPUT_DIR_LONG)
+    max_folders = get_arg_value(args, ARG_MAX_FOLDERS)
+    max_workers = get_arg_value(args, ARG_MAX_WORKERS)
+    include_pattern = get_arg_value(args, ARG_INCLUDE_PATTERN)
+    exclude_pattern = get_arg_value(args, ARG_EXCLUDE_PATTERN)
+    no_open_explorer = get_arg_value(args, ARG_NO_OPEN_EXPLORER)
+
     # Rotate existing context folders before creating a new one
-    rotate_context_folders(args.output_dir, args.max_folders - 1)  # Minus 1 because we will create a new one
+    rotate_context_folders(output_dir, max_folders - 1)  # Minus 1 because we will create a new one
 
     # Create timestamped output directory
     final_output_dir_name = f"{CONTEXT_FOLDER_PREFIX}{timestamp}"
-    final_output_dir = args.output_dir / final_output_dir_name
+    final_output_dir = output_dir / final_output_dir_name
     final_output_dir.mkdir(parents=True, exist_ok=True)
 
     # Create log file
@@ -356,8 +365,8 @@ def main() -> None:
     LOG(f"Log file created at: {log_path}")
 
     # Combine mode patterns with user-specified patterns
-    final_include = args.include_pattern
-    final_exclude = args.exclude_pattern
+    final_include = include_pattern
+    final_exclude = exclude_pattern
 
     LOG(f"Running in default mode")
     LOG(f"Output directory: {final_output_dir}")
@@ -366,11 +375,11 @@ def main() -> None:
     failures = []
     output_files = []
 
-    with ThreadPoolExecutor(max_workers=args.max_workers) as executor:
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all jobs to the thread pool
         future_to_path = {
             executor.submit(run_gitingest, Path(p), final_output_dir, final_include, final_exclude, 'default'): p
-            for p in args.paths
+            for p in paths
         }
 
         # Process results as they are completed
@@ -414,7 +423,7 @@ def main() -> None:
             LOG(f"Estimated token count for {filename}: {beautify_number(token_count)}")
 
         # Open explorer if requested
-        if not args.no_open_explorer:
+        if not no_open_explorer:
             open_explorer_to_file(output_file_path)
 
     if failures:

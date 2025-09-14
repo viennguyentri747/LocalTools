@@ -7,13 +7,6 @@ from typing import List, Literal, Optional, Union
 from datetime import datetime
 import traceback
 
-# Import plyer for notifications
-try:
-    from plyer import notification
-    PLYER_AVAILABLE = True
-except ImportError:
-    PLYER_AVAILABLE = False
-
 def run_shell(cmd: Union[str, List[str]], cwd: Optional[Path] = None, check_throw_exception_on_exit_code: bool = True, stdout=None, stderr=None, text=None, capture_output: bool = False, encoding: str = 'utf-8') -> subprocess.CompletedProcess:
     """Echo + run a shell command"""
     LOG(f">>> {cmd} (cwd={cwd or Path.cwd()})")

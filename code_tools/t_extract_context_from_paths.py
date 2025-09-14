@@ -35,15 +35,15 @@ CMD_EXPLORER = 'explorer.exe'
 
 # File patterns
 PATTERN_CMAKELISTS = 'CMakeLists.txt'
-EXCLUDE_PATTERNS_DEFAULT = [
-    '.*', 'cmake*', 'build', 'Build', 'BUILD', '*.cmake',
-    'node_modules', '__pycache__', '*.pyc', '*.pyo',
-    '.git', '.svn', '.hg', '*.log', '*.tmp', "MyVenvFolder", "tmp_output"
-]
+# EXCLUDE_PATTERNS_DEFAULT = [
+#     '.*', 'cmake*', 'build', 'Build', 'BUILD', '*.cmake',
+#     'node_modules', '__pycache__', '*.pyc', '*.pyo',
+#     '.git', '.svn', '.hg', '*.log', '*.tmp', "MyVenvFolder", "tmp_output"
+# ]
 
 # Command line arguments
 ARG_OUTPUT_DIR_SHORT = '-o'
-ARG_OUTPUT_DIR_LONG = '--output-dir'
+ARG_OUTPUT_DIR_LONG = '--output_dir'
 ARG_INCLUDE_PATTERN = '--include-pattern'
 ARG_EXCLUDE_PATTERN = '--exclude-pattern'
 ARG_MAX_WORKERS = '--max-workers'
@@ -343,7 +343,6 @@ def main() -> None:
 
     # Create timestamp for this run
     timestamp = subprocess.run(['date', '+%Y%m%d_%H%M%S'], capture_output=True, text=True).stdout.strip()
-
     paths = get_arg_value(args, ARG_PATHS_LONG)
     output_dir = get_arg_value(args, ARG_OUTPUT_DIR_LONG)
     max_folders = get_arg_value(args, ARG_MAX_FOLDERS)
@@ -428,8 +427,6 @@ def main() -> None:
 
     if failures:
         sys.exit(1)
-    else:
-        LOG(f"{CELEBRATION_EMOJI} {MSG_ALL_PROCESSED_SUCCESS}")
 
 
 if __name__ == '__main__':

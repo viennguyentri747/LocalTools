@@ -3,6 +3,9 @@ MyVenvFolder/
 __pycache__/
 bsp_artifacts/
 tmp_output/
+.aider*
+digest.txt
+compile_commands.json
 
 #Ignore README.md because put it in separate dir in Obsidian Vault
 README.md

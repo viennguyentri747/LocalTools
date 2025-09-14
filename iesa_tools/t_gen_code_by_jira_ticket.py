@@ -4,6 +4,7 @@ import argparse
 from typing import Optional
 from dev_common import *
 
+
 def extract_key_from_jira_url(url: str) -> Optional[str]:
     """Extracts a Jira ticket key from a full Jira URL. Ex: https://<company>.atlassian.net/browse/FPA-3 -> FPA-3"""
     match = re.search(r'/browse/([A-Z0-9]+-[0-9]+)', url, re.IGNORECASE)
@@ -14,18 +15,17 @@ def extract_key_from_jira_url(url: str) -> Optional[str]:
 
 def gen_checkout_command(ticket: JiraTicket, main_manifest_branch: str) -> str:
     """Generate the checkout command for a given Jira ticket and main branch."""
-    #Checkout main branch
+    # Checkout main branch
     feature_branch = f"feat/{ticket.key.lower()}-{str_to_slug(ticket.title)}"
     checkout_main_branch = f"git checkout {main_manifest_branch}"
     run_shell(checkout_main_branch)
-    #TODO pull from remote
+    # TODO pull from remote
     remotes = get_git_remotes(OW_SW_PATH)
-    if(len(remotes) == 1):
+    if (len(remotes) == 1):
         remote = remotes[0]
     else:
         remote = prompt_input_with_options(f"Select remote", remotes)
     run_shell(f"git pull {remote} {main_manifest_branch}")
-
     manifest: IesaManifest = parse_local_iesa_manifest()
 
     # Create a mapping from repo name to repo path, revision, and remote
@@ -52,54 +52,26 @@ def gen_checkout_command(ticket: JiraTicket, main_manifest_branch: str) -> str:
 
     # Command with revision-based checkout (no fallback)
     command = (
-        f"PS3='Please enter your choice (enter the number): '; "
+        f"PS3='Enter your choice (number): '; "
         f"select repo_name in {repo_options}; "
-        "do "
-        "    if [[ -n \"$repo_name\" ]]; then "
         f"        {case_statement}; "
         "        if [[ -n \"$repo_path\" && -d \"$repo_path\" ]]; then "
         "            echo \"Fetching updates for $repo_name...\"; "
         "            git -C \"$repo_path\" fetch --all; "
-        "            echo \"Checking if revision $repo_revision exists as a branch of $repo_name...\"; "
         "            if git -C \"$repo_path\" show-ref --verify --quiet refs/heads/$repo_revision; then "
-        "                echo \"Branch $repo_revision found.\"; "
+        "                echo \"Branch $repo_revision found in $repo_name.\"; "
         "                base_ref=$repo_revision; "
-        "                echo \"Checking if feature branch already exists...\"; "
-        f"                if git -C \"$repo_path\" show-ref --verify --quiet refs/heads/{feature_branch}; then "
-        f"                    echo \"Feature branch {feature_branch} already exists. Switching to it.\"; "
-        f"                    echo -e \"Command to run:\\\\ngit -C \\\"$repo_path\\\" checkout {feature_branch}\"; "
+        f"               if git -C \"$repo_path\" show-ref --verify --quiet refs/heads/{feature_branch}; then "
+        f"                   echo -e \"Feature branch {feature_branch} already exists. Command to run:\\\\ngit -C \\\"$repo_path\\\" checkout {feature_branch}\"; "
         "                else "
-        "                    echo \"Creating new feature branch from base: $base_ref\"; "
-        "                    remotes=$(git -C \"$repo_path\" remote); "
-        "                    num_remotes=$(echo \"$remotes\" | wc -w); "
-        "                    if [ \"$num_remotes\" -eq 1 ]; then "
-        "                        remote_to_pull=$remotes; "
-        "                    elif [ \"$num_remotes\" -gt 1 ]; then "
-        "                        echo \"Multiple remotes found. Please select one to pull from:\"; "
-        "                        select remote_to_pull in $remotes; do "
-        "                            if [[ -n \"$remote_to_pull\" ]]; then "
-        "                                break; "
-        "                            else "
-        "                                echo \"Invalid selection.\"; "
-        "                            fi; "
-        "                        done; "
-        "                    else "
-        "                        echo \"Error: No remotes found for this repository.\"; "
-        "                        break; "
-        "                    fi; "
-        f"                   echo -e \"Command to run:\\\\ngit -C \\\"$repo_path\\\" checkout $base_ref && git pull $remote_to_pull $base_ref && git -C \\\"$repo_path\\\" checkout -b {feature_branch}\"; "
+        f"                   echo -e \"Command to run:\\\\ngit -C \\\"$repo_path\\\" checkout $base_ref && git pull origin $base_ref && git -C \\\"$repo_path\\\" checkout -b {feature_branch}\"; "
         "                fi; "
         "            else "
         "                echo \"Error: Revision $repo_revision does not exist as a branch of $repo_name.\"; "
-        "                break; "
         "            fi; "
         "        else "
         "            echo \"ERROR: Repository path issue for $repo_name\"; "
         "        fi; "
-        "        break; "
-        "    else "
-        "        echo \"Invalid selection. Please enter a number from the list above.\"; "
-        "    fi; "
         "done"
     )
     return command
@@ -134,10 +106,7 @@ def gen_coding_task_markdown(ticket: JiraTicket, main_branch: str) -> str:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate coding task markdown from a Jira ticket.")
     parser.add_argument(ARG_TICKET_URL_LONG, type=str, required=False, help="The full URL of the Jira ticket.")
-    parser.add_argument(ARG_OW_MANIFEST_BRANCH_LONG,
-                        type=str,
-                        required=False,
-                        help="The manifest branch to use for generating checkout commands.")
+    parser.add_argument(ARG_OW_MANIFEST_BRANCH_LONG, type=str, required=False, help="The manifest branch to use for generating checkout commands.")
     args = parser.parse_args()
 
     jira_url = get_arg_value(args, ARG_TICKET_URL_LONG)
@@ -161,9 +130,8 @@ if __name__ == "__main__":
 
     main_branch = get_arg_value(args, ARG_OW_MANIFEST_BRANCH_LONG)
     if not main_branch:
-        main_branch = prompt_input_with_options("\nSelect the main branch for ow_sw_tools",
-                                                OW_MAIN_BRANCHES,
-                                                default_option=OW_MAIN_BRANCHES[0])
+        main_branch = prompt_input_with_options(
+            "\nSelect the main branch for ow_sw_tools", OW_MAIN_BRANCHES, default_option=OW_MAIN_BRANCHES[0])
 
     # Generate and print the markdown content
     markdown_content = gen_coding_task_markdown(ticket, main_branch)
@@ -171,5 +139,3 @@ if __name__ == "__main__":
     print("GENERATED CODE TASK MARKDOWN:")
     print("="*50)
     print(markdown_content)
-
-

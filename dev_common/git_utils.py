@@ -4,9 +4,9 @@ import subprocess
 import re
 import sys
 from pathlib import Path
-from typing import Optional
-# Assuming LOG and message prefixes are imported from dev_common
-from dev_common import *
+from typing import List, Optional
+
+from dev_common.core_utils import *
 
 # --- Constants ---
 CMD_GIT = 'git'

@@ -24,6 +24,7 @@ class FirmwarePair(NamedTuple):
     imx_full_path: Path
     gpx_full_path: Path
     timestamp: str
+    version: str  # Add version to the tuple for easier access
 
 
 def find_firmware_pairs(version_or_fw_path: str) -> List[FirmwarePair]:
@@ -47,14 +48,14 @@ def find_firmware_pairs(version_or_fw_path: str) -> List[FirmwarePair]:
             # Input == File path
             search_dir = input_path.parent.expanduser()
             file_name = input_path.name
-        elif version_or_fw_path.startswith(f'{IMX_PREFIX}') or version_or_fw_path.startswith(f'{GPX_PREFIX}'): 
+        elif version_or_fw_path.startswith(f'{IMX_PREFIX}') or version_or_fw_path.startswith(f'{GPX_PREFIX}'):
             # Input == File name
             file_name = version_or_fw_path
         if file_name:
             file_version_pattern = r"(\d+\.\d+\.\d+[^+]*)"  # Captures version until +
             version_match = re.search(file_version_pattern, version_or_fw_path)
             if version_match:
-                final_version_pattern = re.escape(version_match.group(1)) #Pattern = version
+                final_version_pattern = re.escape(version_match.group(1))  # Pattern = version
 
     else:
         # Input = version
@@ -65,8 +66,10 @@ def find_firmware_pairs(version_or_fw_path: str) -> List[FirmwarePair]:
 
     LOG(f"🔎 Using version pattern: {final_version_pattern}, search dir {search_dir}")
     # Create patterns to capture both version and timestamp
-    imx_pattern = re.compile(rf"{re.escape(IMX_PREFIX)}(?P<version>{final_version_pattern})\+(?P<ts>[\d-]+)\{IMX_EXTENSION}")
-    gpx_pattern = re.compile(rf"{re.escape(GPX_PREFIX)}(?P<version>{final_version_pattern})\+(?P<ts>[\d-]+)\{GPX_EXTENSION}")
+    imx_pattern = re.compile(
+        rf"{re.escape(IMX_PREFIX)}(?P<version>{final_version_pattern})\+(?P<ts>[\d-]+)\{IMX_EXTENSION}")
+    gpx_pattern = re.compile(
+        rf"{re.escape(GPX_PREFIX)}(?P<version>{final_version_pattern})\+(?P<ts>[\d-]+)\{GPX_EXTENSION}")
 
     imx_candidates: List[tuple[str, str, Path]] = []  # (version, timestamp, path)
     gpx_candidates: List[tuple[str, str, Path]] = []
@@ -96,7 +99,12 @@ def find_firmware_pairs(version_or_fw_path: str) -> List[FirmwarePair]:
         # Find a GPX file with the same version
         for gpx_version, gpx_timestamp, gpx_path in gpx_candidates:
             if imx_version == gpx_version and gpx_path not in matched_gpx:
-                pairs.append(FirmwarePair(imx_full_path=imx_path, gpx_full_path=gpx_path, timestamp=imx_timestamp))
+                pairs.append(FirmwarePair(
+                    imx_full_path=imx_path,
+                    gpx_full_path=gpx_path,
+                    timestamp=imx_timestamp,
+                    version=imx_version  # Store the version in the tuple
+                ))
                 matched_gpx.add(gpx_path)
                 break
     return pairs
@@ -207,8 +215,26 @@ def update_firmware(pair: FirmwarePair) -> None:
     else:
         LOG("✅ No extra matching firmware files found.")
 
-    LOG(f"\n✅ Firmware update complete!\n")
+    LOG(f"\n✅ Firmware update complete!")
     LOG("\n✅ Dashboard updated successfully!")
+
+    # Log git commands for manual execution
+    LOG(LINE_SEPARATOR)
+    LOG(f"Change receiver version with below command:")
+    LOG(f'"', show_time=False)
+    LOG(LINE_SEPARATOR, show_time=False)
+    LOG("Stage and commit changes with below command:")
+    LOG(
+        f'read -e -i "$(cat {OW_KIM_RCVR_VERSION_FILE_PATH})" -p "Edit or Enter to use current RCVR version: " version && '
+        f'if [ "$version" != "$(cat {OW_KIM_RCVR_VERSION_FILE_PATH})" ]; then '
+        f'echo "$version" > {OW_KIM_RCVR_VERSION_FILE_PATH} && '
+        f'echo "Version updated to $version!"; '
+        f'fi && '
+        f'cd {OW_SW_PATH} && git stage {OW_KIM_FTM_FW_PATH} && '
+        f'git commit -m "Update firmware to version {pair.version}"',
+        show_time=False
+    )
+
 
 
 def get_tool_templates() -> List[ToolTemplate]:

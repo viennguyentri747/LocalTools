@@ -16,9 +16,6 @@ def main():
 
     # Logic to read token from file if not in env
     private_token = read_value_from_credential_file(credentials_file, GL_TISDK_TOKEN_KEY_NAME)
-    if not private_token:
-        print("Error: GitLab private token not found in credentials file.")
-        sys.exit(1)
 
     # Details of the target project and job
     target_project_path = "intellian_adc/tisdk_tools"

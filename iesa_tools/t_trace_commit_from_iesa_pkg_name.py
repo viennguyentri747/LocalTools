@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.10
+#!/home/vien/local_tools/MyVenvFolder/bin/python
 """
 trace_commit_from_iesa_pkg_name.py – Locate a record in /version/history by its `version_string`.
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.10
+#!/home/vien/local_tools/MyVenvFolder/bin/python
 import argparse
 import os
 import re

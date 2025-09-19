@@ -15,7 +15,8 @@ setup(
         "gitingest==0.3.1",
         "prompt_toolkit==3.0.52",
         "thefuzz==0.22.1",
-        "tabulate-0.9.0"
+        "tabulate==0.9.0",
+        "PyYAML==6.0.2"
     ],
     python_requires=">=3.6",
 )

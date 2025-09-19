@@ -1,7 +1,8 @@
-#!/usr/bin/env python3
+#!/home/vien/local_tools/MyVenvFolder/bin/python
 import os
 import subprocess
 import re
+import time
 from dev_common.core_utils import LOG
 
 # Constants for duration string matching
@@ -24,38 +25,6 @@ def show_noti(title="Notification", message="Notification Message", duration=NOT
     if success and not silence_on_success:
         LOG(
             f"📱 Notification sent success from {'wsl' if is_wsl_env else 'native' }: {title[:40]}{'...' if len(title) > 40 else ''}")
-
-    return success
-
-
-def test_notification():
-    """Test the notification function"""
-    import argparse
-
-    parser = argparse.ArgumentParser(description='Test notification system')
-    parser.add_argument('--title', default='Test Notification', help='Notification title')
-    parser.add_argument('--message', default='This is a test message from Python!', help='Notification message')
-    parser.add_argument('--duration', default=NOTI_DURATION_LONG,
-                        help='Duration: "short", "long", or number of seconds')
-    args = parser.parse_args()
-
-    # Convert duration using direct string comparison
-    try:
-        # Try to convert to int first for numeric inputs
-        duration_input = int(args.duration)
-    except ValueError:
-        duration_input = args.duration
-
-    success = show_noti(
-        title=args.title,
-        message=args.message,
-        duration=duration_input,
-    )
-
-    # if success:
-    #     LOG("✅ Notification sent successfully!")
-    # else:
-    #     LOG("❌ Failed to send notification")
 
     return success
 
@@ -83,13 +52,11 @@ def is_wsl():
 def get_duration_info(duration_input):
     """Convert duration input to SnoreToast format and seconds"""
     if isinstance(duration_input, str):
-        # Handle fixed string constants
         if duration_input == NOTI_DURATION_LONG:
             return "long", 25
         elif duration_input == NOTI_DURATION_SHORT:
             return "short", 7
         else:
-            # Default to LONG for any unmatched strings
             return "long", 25
     elif isinstance(duration_input, (int, float)):
         # Convert numeric duration to short/long
@@ -179,5 +146,36 @@ def show_native_notification(title, message, duration_seconds, app_name):
         return False
 
 
+def run_notification():
+    """Run the notification function"""
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Test notification system')
+    parser.add_argument('--title', default='Test Notification', help='Notification title')
+    parser.add_argument('--message', default='This is a test message from Python!', help='Notification message')
+    parser.add_argument('--duration', default=NOTI_DURATION_LONG,
+                        help='Duration: "short", "long", or number of seconds')
+    args = parser.parse_args()
+
+    # Convert duration using direct string comparison
+    try:
+        # Try to convert to int first for numeric inputs
+        duration_input = int(args.duration)
+    except ValueError:
+        duration_input = args.duration
+
+    success = show_noti(
+        title=args.title,
+        message=args.message,
+        duration=duration_input,
+    )
+
+    # if success:
+    #     LOG("✅ Notification sent successfully!")
+    # else:
+    #     LOG("❌ Failed to send notification")
+
+    return success
+
 if __name__ == "__main__":
-    test_notification()
+    run_notification()

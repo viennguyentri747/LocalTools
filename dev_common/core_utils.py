@@ -7,11 +7,11 @@ from typing import List, Literal, Optional, Union
 from datetime import datetime
 import traceback
 
-def run_shell(cmd: Union[str, List[str]], cwd: Optional[Path] = None, check_throw_exception_on_exit_code: bool = True, stdout=None, stderr=None, text=None, capture_output: bool = False, encoding: str = 'utf-8') -> subprocess.CompletedProcess:
+def run_shell(cmd: Union[str, List[str]], cwd: Optional[Path] = None, check_throw_exception_on_exit_code: bool = True, stdout=None, stderr=None, text=None, capture_output: bool = False, encoding: str = 'utf-8', shell: bool = True) -> subprocess.CompletedProcess:
     """Echo + run a shell command"""
     LOG(f">>> {cmd} (cwd={cwd or Path.cwd()})")
-    is_shell = isinstance(cmd, str)
-    return subprocess.run(cmd, shell=is_shell, cwd=cwd, check=check_throw_exception_on_exit_code, stdout=stdout, stderr=stderr, text=text, capture_output=capture_output, encoding=encoding)
+    # is_shell = isinstance(cmd, str)
+    return subprocess.run(cmd, shell=shell, cwd=cwd, check=check_throw_exception_on_exit_code, stdout=stdout, stderr=stderr, text=text, capture_output=capture_output, encoding=encoding)
 
 def change_dir(path: str):
     LOG(f"Changing directory to {path}")
@@ -61,7 +61,7 @@ def md5sum(file_path):
         md5 = hashlib.md5(f.read()).hexdigest()
     return md5
 
-def read_value_from_credential_file(credentials_file_path: str, key_to_read: str) -> Union[str, None]:
+def read_value_from_credential_file(credentials_file_path: str, key_to_read: str, exit_on_error: bool = True) -> Union[str, None]:
     """
     Reads a specific key's value from a credentials file.
     Returns the value if found, otherwise None.
@@ -81,8 +81,9 @@ def read_value_from_credential_file(credentials_file_path: str, key_to_read: str
                             print(f"Warning: Skipping malformed line in {credentials_file_path}: {line}")
                             continue
         except Exception as e:
-            print(f"Error reading credentials file {credentials_file_path}: {e}")
-            sys.exit(1)
+            if exit_on_error:
+                print(f"Error reading credentials file {credentials_file_path}: {e}")
+                sys.exit(1)
     else:
         print(f"Credentials file {credentials_file_path} not found.")
     return None

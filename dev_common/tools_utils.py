@@ -114,7 +114,7 @@ def build_examples_epilog(templates: List[ToolTemplate], script_path: Path) -> s
             else:
                 arg_parts.append(f"{arg} {value}")
 
-        cmd = f"python3 {script_str} {' '.join(arg_parts)}".rstrip()
+        cmd = f"{script_str} {' '.join(arg_parts)}".rstrip()
         lines.append("")
         lines.append(f"# Example {i}: {t.name}")
         if t.description:

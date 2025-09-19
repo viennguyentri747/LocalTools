@@ -24,5 +24,16 @@ EOF
     local duration="${3:-$default_duration}"
 
     # Run detached, use disown to avoid hangup signal
-    python3 ~/local_tools/dev_common/noti_utils.py --title "$title" --message "$message" --duration "$duration"
+    ~/local_tools/dev_common/noti_utils.py --title "$title" --message "$message" --duration "$duration"
+}
+
+countdown() {
+    local duration="${1:-25}"
+    while [ $duration -gt 0 ]; do
+        printf "\rRemaining: %d second(s)" "$duration"
+        sleep 1
+        duration=$((duration - 1))
+    done
+    echo -e "\nCountdown finished!"
+    noti "Countdown" "Countdown finished!"
 }

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/home/vien/local_tools/MyVenvFolder/bin/python
 import sys
 import json
 from dev_common.noti_utils import show_noti
@@ -18,7 +18,6 @@ def main() -> int:
     notification_type = notification.get("type")
 
     if notification_type == "agent-turn-complete":
-        # Get the assistant message and clean it up
         assistant_message = notification.get("last-assistant-message", "")
         
         # Extract just the first line or summary from assistant message

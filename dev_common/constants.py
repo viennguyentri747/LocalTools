@@ -1,6 +1,6 @@
 from pathlib import Path
 
-
+# FORMATS
 LINE_SEPARATOR = f"\n{'=' * 60}\n"
 LINE_SEPARATOR_NO_ENDLINE = f"{'=' * 60}"
 

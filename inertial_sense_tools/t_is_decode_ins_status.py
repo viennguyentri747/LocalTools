@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.10
+#!/home/vien/local_tools/MyVenvFolder/bin/python
 # To get status: 
 # tail -F /var/log/ins_monitor_log | grep -i insStatus
 

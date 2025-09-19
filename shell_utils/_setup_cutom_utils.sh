@@ -25,3 +25,7 @@ done
 if [[ -n "$loaded_str" ]]; then
     echo "Loaded utils: $loaded_str"
 fi
+
+# Run startup utils
+echo "Running startup scripts..."
+mount_h

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/home/vien/local_tools/MyVenvFolder/bin/python
 from dev_common import *
 
 

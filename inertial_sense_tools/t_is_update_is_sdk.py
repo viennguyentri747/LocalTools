@@ -222,8 +222,9 @@ def get_tool_templates() -> List[ToolTemplate]:
             name="Update SDK",
             description="Update Inertial Sense SDK",
             args={
-                "--sdk_path": "~/downloads/inertial-sense-sdk-2.5.0.zip",
-            }
+                "--sdk_path": "~/downloads/inertial-sense-sdk-2.6.0.zip",
+            },
+            usage_note="Find 'Source code (zip)' file (Ex: 'inertial-sense-sdk-2.6.0.zip') in Assets section at IS inertial-sense-sdk GitHub page. Ex: https://github.com/inertialsense/inertial-sense-sdk/releases/tag/2.6.0"
         ),
     ]
 

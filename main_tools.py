@@ -135,6 +135,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                                 config=PathSearchConfig(search_root=search_root, resolve_symlinks=True, max_results=10),
                             )
 
+                        if selected_template.usage_note:
+                            LOG(f"Usage note:\n{selected_template.usage_note}")
                         if final_cmd:
                             LOG(f"\n✅ Final command:\n{final_cmd}")
                         return 0

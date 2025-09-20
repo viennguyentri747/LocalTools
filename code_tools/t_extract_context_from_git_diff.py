@@ -57,12 +57,12 @@ CELEBRATION_EMOJI = "🎉"
 def get_tool_templates() -> List[ToolTemplate]:
     return [
         ToolTemplate(
-            name="Diff between 2 ref",
+            name="Diff between 2 ref (commits, branchs, tags ...)",
             description="Extract diff between two refs with default settings",
             args={
                 ARG_PATH_LONG: "~/core_repos/intellian_pkg",
-                ARG_BASE_REF_LONG: "<base-ref>",
-                ARG_TARGET_REF_LONG: "<target-ref>",
+                ARG_BASE_REF_LONG: "<base-ref>(origin/manpack_master)",
+                ARG_TARGET_REF_LONG: "<target-ref>(origin/feature_branch)",
             }
         ),
         ToolTemplate(

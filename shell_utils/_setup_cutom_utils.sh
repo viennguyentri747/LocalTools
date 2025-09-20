@@ -29,3 +29,4 @@ fi
 # Run startup utils
 echo "Running startup scripts..."
 mount_h
+monitor_stock not_restart_if_running

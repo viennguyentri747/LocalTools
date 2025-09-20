@@ -27,10 +27,10 @@ class FirmwarePair(NamedTuple):
     version: str  # Add version to the tuple for easier access
 
 
-def find_firmware_pairs(version_or_fw_path: str) -> List[FirmwarePair]:
+def find_firmware_pairs_recursively(version_or_fw_path: str) -> List[FirmwarePair]:
     """
     Scans for firmware pairs based on a version string or a firmware file path.
-    If a firmware file path is given, it searches that file's directory.
+    If a firmware file path is given, it searches that file's directory recursively.
     If a version is given, it searches the downloads directory.
 
     Args:
@@ -42,14 +42,14 @@ def find_firmware_pairs(version_or_fw_path: str) -> List[FirmwarePair]:
     input_path = Path(version_or_fw_path)
     final_version_pattern = None
     search_dir = DOWNLOADS_DIR
-    # Check if input is a path to a firmware file
-    if (input_path.suffix == f'{IMX_EXTENSION}' or input_path.suffix == f'{GPX_EXTENSION}'):
+    # Check if input is a path to a firmware file or file name (with or without extension)
+    if (( input_path.name.startswith(f'{IMX_PREFIX}') or input_path.suffix == f'{IMX_EXTENSION}') or (input_path.suffix == f'{IMX_EXTENSION}' or input_path.name.startswith(f'{GPX_PREFIX}')) or input_path.suffix == f'{GPX_EXTENSION}'):
         if input_path.is_file():
             # Input == File path
             search_dir = input_path.parent.expanduser()
             file_name = input_path.name
         elif version_or_fw_path.startswith(f'{IMX_PREFIX}') or version_or_fw_path.startswith(f'{GPX_PREFIX}'):
-            # Input == File name
+            # Input == File name (with or without extension)
             file_name = version_or_fw_path
         if file_name:
             file_version_pattern = r"(\d+\.\d+\.\d+[^+]*)"  # Captures version until +
@@ -74,8 +74,8 @@ def find_firmware_pairs(version_or_fw_path: str) -> List[FirmwarePair]:
     imx_candidates: List[tuple[str, str, Path]] = []  # (version, timestamp, path)
     gpx_candidates: List[tuple[str, str, Path]] = []
 
-    # Find and extract version and timestamps from filenames
-    for file_path in search_dir.glob("*"):
+    # Find recursively and extract version and timestamps from filenames
+    for file_path in search_dir.rglob("*"):
         imx_match = imx_pattern.match(file_path.name)
         if imx_match:
             LOG(f"Found IMX firmware file: {file_path}")
@@ -236,14 +236,13 @@ def update_firmware(pair: FirmwarePair) -> None:
     )
 
 
-
 def get_tool_templates() -> List[ToolTemplate]:
     return [
         ToolTemplate(
             name="Update Firmware from path",
             description="Update firmware files from a specific directory",
             args={
-                ARG_VERSION_OR_FW_PATH: f"{DOWNLOADS_DIR}/IS_IMX-5_v2.6.0-rc.22+2025-09-13-011835{IMX_EXTENSION}",
+                ARG_VERSION_OR_FW_PATH: f"{DOWNLOADS_DIR}/IS-firmware_r2.6.0+2025-09-19-185429{GPX_EXTENSION}",
             },
             no_need_live_edit=True,
         ),
@@ -272,7 +271,7 @@ def main() -> None:
     args = parser.parse_args()
 
     version_or_fw_path = get_arg_value(args, ARG_VERSION_OR_FW_PATH)
-    firmware_pairs = find_firmware_pairs(version_or_fw_path)
+    firmware_pairs = find_firmware_pairs_recursively(version_or_fw_path)
     selected_pair = select_firmware_pair(firmware_pairs)
 
     if selected_pair:

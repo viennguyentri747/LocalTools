@@ -144,7 +144,6 @@ def modify_sdk_cmake_files(new_sdk_version, new_sdk_path: Path):
             LOG(f"   -> Set INSENSE_SDK_VERSION to \"{new_sdk_version}\" in '{cmake_path.name}'.")
         else:
             LOG(f"   -> ⚠️ WARNING: Version already set or pattern mismatch in '{cmake_path}'.")
-
     except FileNotFoundError:
         LOG(f"❌ ERROR: Top-level CMakeLists.txt not found at '{cmake_path}'.")
     except Exception as e:
@@ -221,6 +220,69 @@ def confirm_action(prompt: str) -> bool:
             LOG("Invalid input. Please enter 'y' or 'n'.")
 
 
+def apply_signal_handler(stash_ref: str) -> None:
+    """
+    Applies a specific stash ref and commits the changes with the stash's original subject.
+    Equivalent to:
+      git stash apply <ref> && git add $(git stash show --name-only <ref>) && git commit -m "$(git log --format='%s' -n 1 <ref>)"
+    """
+    try:
+        if not confirm_action(f"Apply signal handler changes from stash '{stash_ref}' and create a commit?"):
+            LOG("Skipping applying signal handler changes.")
+            return
+
+        # Get the original subject from the stash
+        try:
+            res_subject = subprocess.run(
+                ["git", "log", "--format=%s", "-n", "1", stash_ref],
+                capture_output=True,
+                text=True,
+                check=True,
+                cwd=INSENSE_SDK_REPO_DIR
+            )
+            subject = res_subject.stdout.strip() or f"Apply stash {stash_ref}"
+        except subprocess.CalledProcessError:
+            subject = f"Apply stash {stash_ref}"
+
+        # Get the list of files included in the stash
+        try:
+            res_files = subprocess.run(
+                ["git", "stash", "show", "--name-only", stash_ref],
+                capture_output=True,
+                text=True,
+                check=True,
+                cwd=INSENSE_SDK_REPO_DIR
+            )
+            files = [f.strip() for f in res_files.stdout.splitlines() if f.strip()]
+        except subprocess.CalledProcessError:
+            files = []
+
+        # Apply the stash
+        LOG(f"Applying stash '{stash_ref}' in repo '{INSENSE_SDK_REPO_DIR}'...")
+        subprocess.run(["git", "stash", "apply", stash_ref], check=True, cwd=INSENSE_SDK_REPO_DIR)
+
+        # Stage files
+        if files:
+            LOG(f"Staging {len(files)} file(s) from stash...")
+            try:
+                subprocess.run(["git", "add", *files], check=True, cwd=INSENSE_SDK_REPO_DIR)
+            except subprocess.CalledProcessError:
+                LOG("Some files from stash don't exist at original paths; staging all changes as fallback.")
+                subprocess.run(["git", "add", "-A"], check=True, cwd=INSENSE_SDK_REPO_DIR)
+        else:
+            LOG("No files reported by 'git stash show'; staging all changes as fallback.")
+            subprocess.run(["git", "add", "-A"], check=True, cwd=INSENSE_SDK_REPO_DIR)
+
+        # Commit with the subject
+        LOG(f"Committing with subject: {subject}")
+        subprocess.run(["git", "commit", "-m", subject], check=True, cwd=INSENSE_SDK_REPO_DIR)
+        LOG("✅ Applied signal handler stash and committed successfully.")
+    except subprocess.CalledProcessError as e:
+        LOG(f"❌ ERROR: Failed while applying stash '{stash_ref}': {e}")
+    except FileNotFoundError:
+        LOG("❌ ERROR: Git command not found. Please ensure Git is installed and in your PATH.")
+
+
 def get_tool_templates() -> List[ToolTemplate]:
     return [
         ToolTemplate(
@@ -286,8 +348,9 @@ def main():
 
     LOG("\n🎉 SDK update process finished successfully!")
     signal_handler_stash_ref = "bca3b5c"
-    LOG(f"Check manually add this commit (https://gitlab.com/intellian_adc/prototyping/insensesdk/-/commit/00f94302b0fdf84c4dc5794378097fde956ce094) or `git stash apply {signal_handler_stash_ref} && git add $(git stash show --name-only {signal_handler_stash_ref}) && git commit -m \"$(git log --format='%s' -n 1 {signal_handler_stash_ref})`\"")
+    apply_signal_handler(signal_handler_stash_ref)
 
 
 if __name__ == "__main__":
     main()
+

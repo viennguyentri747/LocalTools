@@ -22,6 +22,8 @@ SDK_INSTALL_DIR = INSENSE_SDK_REPO_DIR / "InsenseSDK"
 LIBUSB_ZIP_PATH = Path.home() / "downloads" / "libusb-master-1-0.zip"
 # --- End Configuration ---
 
+NO_PROMPT: bool = False
+
 
 def extract_version_from_zip(zip_path: Path) -> Optional[str]:
     """Extracts the version number from the SDK zip filename."""
@@ -204,6 +206,9 @@ def check_commit_changes_to_git(message: str, show_diff: bool = False):
 
 def confirm_action(prompt: str) -> bool:
     """Asks the user for confirmation and returns True for 'y' (case-insensitive), False otherwise."""
+    if NO_PROMPT:
+        LOG(f"{prompt} (auto-confirmed due to --no-prompt)")
+        return True
     while True:
         current_branch = get_current_git_branch()
         branch_info = f" (on branch: {current_branch})" if current_branch else ""
@@ -222,6 +227,7 @@ def get_tool_templates() -> List[ToolTemplate]:
             name="Update SDK",
             description="Update Inertial Sense SDK",
             args={
+                "--no_prompt": "True",
                 "--sdk_path": "~/downloads/inertial-sense-sdk-2.6.0.zip",
             },
             usage_note="Find 'Source code (zip)' file (Ex: 'inertial-sense-sdk-2.6.0.zip') in Assets section at IS inertial-sense-sdk GitHub page. Ex: https://github.com/inertialsense/inertial-sense-sdk/releases/tag/2.6.0"
@@ -239,8 +245,12 @@ def main():
     parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
     parser.add_argument("--sdk_path", ARG_PATH_SHORT, type=Path, required=True,
                         help="Path to the new SDK zip file (e.g., ~/downloads/inertial-sense-sdk-2.5.0.zip)")
+    parser.add_argument("--no-prompt", "--no_prompt", type=lambda x: x.lower() == 'true', default=False,
+                        help="If true, run without confirmation prompts (true or false). Defaults to false.")
     args = parser.parse_args()
     sdk_zip_path = args.sdk_path.expanduser()
+    global NO_PROMPT
+    NO_PROMPT = args.no_prompt
 
     if not sdk_zip_path.exists():
         LOG(f"❌ FATAL: SDK zip file not found at '{sdk_zip_path}'")
@@ -276,7 +286,7 @@ def main():
 
     LOG("\n🎉 SDK update process finished successfully!")
     signal_handler_stash_ref = "bca3b5c"
-    LOG(f"Check manually add this commit (https://gitlab.com/intellian_adc/prototyping/insensesdk/-/commit/00f94302b0fdf84c4dc5794378097fde956ce094) or \`git stash apply {signal_handler_stash_ref} && git add \$(git stash show --name-only {signal_handler_stash_ref}) && git commit -m \"\$(git log --format='%s' -n 1 {signal_handler_stash_ref})\`\"")
+    LOG(f"Check manually add this commit (https://gitlab.com/intellian_adc/prototyping/insensesdk/-/commit/00f94302b0fdf84c4dc5794378097fde956ce094) or `git stash apply {signal_handler_stash_ref} && git add $(git stash show --name-only {signal_handler_stash_ref}) && git commit -m \"$(git log --format='%s' -n 1 {signal_handler_stash_ref})`\"")
 
 
 if __name__ == "__main__":

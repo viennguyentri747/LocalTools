@@ -41,11 +41,11 @@ def main() -> None:
     parser.add_argument("-i", "--interactive", type=lambda x: x.lower() == 'true', default=False,
                         help="Run in interactive mode (true or false). Defaults to false.")
     parser.add_argument("--force_reset_tmp_build", type=lambda x: x.lower() == 'true', default=False,
-                        help="Force clearing tmp_build folder before sync (true or false). Defaults to False.")
+                        help="Force clearing tmp_build folder before sync (true or false). Defaults to false.")
     parser.add_argument("--sync", type=lambda x: x.lower() == 'true', default=True,
                         help="If true, perform tmp_build reset (true or false) and repo sync. Defaults to true.")
     parser.add_argument("--use_current_ow_branch", type=lambda x: x.lower() == 'true', default=True,
-                        help="Use the current branch of ow_sw_tools repo. Defaults to false.")
+                        help="Use the current branch of ow_sw_tools repo (true or false). Defaults to true.")
     parser.add_argument("--make_clean", type=lambda x: x.lower() == 'true', default=True,
                         help="Run make clean before building (true or false). Defaults to true.")
     args = parser.parse_args()
@@ -140,7 +140,7 @@ def main() -> None:
             f'scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -rJ root@$TARGET_IP "$BIN_PATH" root@192.168.100.254:/home/root/download/"$DEST_NAME" && '
             f'{{ echo "SCP copy completed successfully"; '
             f'echo -e "Binary copied completed. Setup symlink on target UT $TARGET_IP with this below command:\\n"; '
-            f'echo "actual_md5=\\$(md5sum /home/root/download/$DEST_NAME | cut -d\\\" \\\" -f1) && if [ \\\"$original_md5\\\" = \\\"\\$actual_md5\\\" ]; then echo \\\"MD5 match! Proceeding...\\\" && cp /opt/bin/$BIN_NAME /home/root/download/backup_$BIN_NAME && ln -sf /home/root/download/$DEST_NAME /opt/bin/$BIN_NAME && echo \\\"Backup created and symlink updated: /opt/bin/$BIN_NAME -> /home/root/download/$DEST_NAME\\\"; else echo \\\"MD5 MISMATCH! Aborting.\\\"; fi"; '
+            f'echo "actual_md5=\\$(md5sum /home/root/download/$DEST_NAME | cut -d\\\" \\\" -f1) && if [ \\\"$original_md5\\\" = \"$actual_md5\\\" ]; then echo \\\"MD5 match! Proceeding...\\\" && cp /opt/bin/$BIN_NAME /home/root/download/backup_$BIN_NAME && ln -sf /home/root/download/$DEST_NAME /opt/bin/$BIN_NAME && echo \\\"Backup created and symlink updated: /opt/bin/$BIN_NAME -> /home/root/download/$DEST_NAME\\\"; else echo \\\"MD5 MISMATCH! Aborting.\\\"; fi"; '
             f'}} || {{ echo "SCP copy failed"; }}',
             show_time=False)
 

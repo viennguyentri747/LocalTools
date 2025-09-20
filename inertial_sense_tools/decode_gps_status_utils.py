@@ -1,10 +1,7 @@
-#!/home/vien/local_tools/MyVenvFolder/bin/python
+"""Utility helpers for decoding GPS status messages from Inertial Sense devices."""
 
-import argparse
-from enum import IntEnum, Flag, auto
-from pathlib import Path
-from typing import List
-from dev_common.tools_utils import ToolTemplate, build_examples_epilog
+from enum import Flag, IntEnum
+from typing import Dict, List
 
 # --- Constants and Masks ---
 
@@ -14,9 +11,10 @@ GPS_STATUS_FIX_BIT_OFFSET: int = 8
 GPS_STATUS_FLAGS_MASK: int = 0xFFFFE000
 GPS_STATUS_FLAGS_BIT_OFFSET: int = 16
 
-# --- Fix Types ---
 
 class GpsFixType(IntEnum):
+    """Enumeration of supported GPS fix types."""
+
     NONE = 0x00000000
     DEAD_RECKONING_ONLY = 0x00000100
     FIX_2D = 0x00000200
@@ -31,9 +29,10 @@ class GpsFixType(IntEnum):
     RTK_FLOAT = 0x00000B00
     RTK_FIX = 0x00000C00
 
-# --- Flags ---
 
 class GpsStatusFlags(Flag):
+    """Bit flags associated with the GPS status field."""
+
     FIX_OK = 0x00010000
     DGPS_USED = 0x00020000
     RTK_FIX_AND_HOLD = 0x00040000
@@ -51,56 +50,44 @@ class GpsStatusFlags(Flag):
     GPS_NMEA_DATA = 0x00008000
     GPS_PPS_TIMESYNC = 0x10000000
 
-# --- Decoding Functions ---
 
 def decode_fix_type(status: int) -> GpsFixType:
+    """Return the fix type encoded within the status integer."""
     fix_value = status & GPS_STATUS_FIX_MASK
     try:
         return GpsFixType(fix_value)
     except ValueError:
         return GpsFixType.NONE
 
+
 def decode_flags(status: int) -> List[GpsStatusFlags]:
+    """Return the list of active status flags."""
     flags_value = status & GPS_STATUS_FLAGS_MASK
     return [flag for flag in GpsStatusFlags if flag.value & flags_value]
 
-def decode_gps_status(status: int) -> None:
-    print(f"Raw Status: 0x{status:08X}")
 
-    fix = decode_fix_type(status)
+def decode_gps_status(status: int) -> Dict[str, object]:
+    """Decode the GPS status integer into a structured mapping."""
+    return {
+        "raw_status": status,
+        "fix_type": decode_fix_type(status),
+        "flags": decode_flags(status),
+    }
+
+
+def print_gps_status_report(status: int) -> None:
+    """Print a human readable summary of the GPS status."""
+    decoded = decode_gps_status(status)
+
+    raw_status = decoded["raw_status"]
+    fix = decoded["fix_type"]
+    flags = decoded["flags"]
+
+    print(f"Raw Status: 0x{raw_status:08X}")
     print(f"Fix Type: {fix.name} (0x{fix.value:08X})")
-
-    flags = decode_flags(status)
     print("Flags:")
     if not flags:
         print("  None")
     else:
         for flag in flags:
             print(f"  {flag.name} (0x{flag.value:08X})")
-
-# --- Entry Point ---
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Decode GPS status integer")
-    parser.formatter_class = argparse.RawTextHelpFormatter
-    # Fill help epilog from templates
-    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
-    parser.add_argument("-s", "--status", required=True, type=lambda x: int(x, 0), help="GPS status value (e.g. \"0x400312\" or \"785\")")
-    args = parser.parse_args()
-
-    decode_gps_status(args.status)
-
-def get_tool_templates() -> List[ToolTemplate]:
-    return [
-        ToolTemplate(
-            name="Decode GPS Status",
-            description="Decode GPS status integer",
-            args={
-                "--status": "0x312",
-            }
-        ),
-    ]
-
-
-if __name__ == "__main__":
-    main()

@@ -18,7 +18,7 @@ def gen_coding_task_markdown(ticket: JiraTicket, main_branch: str) -> str:
     manifest: IesaManifest = parse_local_iesa_manifest()
     repos = manifest.get_all_repo_names()
     # 1. Generate the list of repos as a string first
-    repo_list_str = "".join([f"- [ ] {repo}\n" for repo in repos if (CORE_REPOS_FOLDER_PATH / repo).is_dir()])
+    repo_list_str = "".join([f"- [ ] {repo}\n" for repo in repos if (CORE_REPOS_PATH / repo).is_dir()])
 
     # 2. Now, create the template using that variable
     template = (
@@ -46,7 +46,7 @@ def gen_checkout_command(ticket: JiraTicket, main_manifest_branch: str) -> str:
     case_statement = "case $repo_name in "
     repo_names = repo_manifest.get_all_repo_names()
     for repo_name in repo_names:
-        repo_path = CORE_REPOS_FOLDER_PATH / repo_name
+        repo_path = CORE_REPOS_PATH / repo_name
         revision = repo_manifest.get_repo_revision(repo_name) or 'HEAD'  # Default to HEAD if no revision
         remote = 'origin'    # Hard code to origin instead of repo_manifest.get_repo_remote(repo_name)
         case_statement += f'"{repo_name}") repo_path="{repo_path}"; repo_revision="{revision}"; repo_remote="{remote}";; '

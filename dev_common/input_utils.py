@@ -1,7 +1,6 @@
 import shlex
 from typing import Optional, List, Tuple, Callable
 
-import os
 from pathlib import Path
 from prompt_toolkit import prompt
 from prompt_toolkit.completion import PathCompleter, Completer, Completion
@@ -9,13 +8,7 @@ from prompt_toolkit.shortcuts import CompleteStyle
 from prompt_toolkit.key_binding.key_processor import KeyPressEvent
 from prompt_toolkit.document import Document
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.application import get_app
 from prompt_toolkit.buffer import Buffer
-from prompt_toolkit.layout.containers import Window
-from prompt_toolkit.layout.controls import BufferControl
-from prompt_toolkit.layout.layout import Layout
-from prompt_toolkit.application import Application
-
 
 # Added for custom key bindings
 from prompt_toolkit.filters import has_completions
@@ -27,7 +20,6 @@ from dev_common.constants import ARG_PATH_LONG, ARG_PATH_SHORT, ARG_PATHS_LONG, 
 from dev_common.core_utils import LOG
 from dev_common.file_utils import expand_and_check_path
 from dev_common.gui_utils import _get_terminal_size
-from dev_common.tools_utils import ToolTemplate
 
 MENTION_SYMBOL = '@'
 
@@ -91,6 +83,24 @@ def prompt_confirmation(message: str) -> bool:
             print("Please enter 'y' or 'n'.")
 
 
+def prompt_input(prompt_message: str, default_input: str = "") -> Optional[str]:
+    """
+    Prompt for free-form input with a prefilled default value.
+    Returns:
+      - Entered string (stripped) on success
+      - None on cancel/EOF
+    """
+    try:
+        # Keep UI consistent with other prompts
+        LOG(LINE_SEPARATOR, show_time=False)
+        return prompt(message=f"{prompt_message} ", default=default_input).strip()
+    except KeyboardInterrupt:
+        print("\n❌ Cancelled")
+        return None
+    except EOFError:
+        return None
+
+
 class SimpleCompleter(Completer):
     """A simple completer for a given list of options."""
 
@@ -110,11 +120,7 @@ class SimpleCompleter(Completer):
                     )
 
 
-def prompt_input_with_options(
-    prompt_message: str,
-    options: List[str],
-    default_input: str = "",
-) -> Optional[str]:
+def prompt_input_with_options(prompt_message: str, options: List[str], default_input: str = "", ) -> Optional[str]:
     """
     Prompts the user with a list of options for completion.
     """
@@ -272,11 +278,9 @@ def prompt_input_with_paths(
                 if cursor_pos == len(current_text) or current_text[cursor_pos] != ' ':
                     buffer.insert_text(' ')
 
-
     @custom_keybindings.add(Keys.Enter, filter=has_completions)
     def _(event):
         accept_completion(event)
-
 
     @custom_keybindings.add(" ", filter=has_completions)  # Space key
     def _(event):

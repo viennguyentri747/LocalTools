@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 from readable_number import ReadableNumber
 
 
@@ -33,3 +34,12 @@ def get_path_no_suffix(path: str, suffix: str) -> str:
     if path.endswith(suffix):
         path = path[:-len(suffix)]
     return path
+
+
+def get_short_date(dt=None) -> str:
+    """
+    Return a short, lowercase date string like 'aug 1'.
+    If dt is None, uses the current local date/time.
+    """
+    dt = dt or datetime.now()
+    return f"{dt.strftime('%b').lower()} {dt.day}"

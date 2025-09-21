@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from dev_common.core_utils import *
+from dev_common.input_utils import prompt_confirmation
 
 # --- Constants ---
 CMD_GIT = 'git'
@@ -15,6 +16,62 @@ CMD_GIT = 'git'
 def sanitize_ref_for_filename(ref: str) -> str:
     """Sanitizes a git ref name to be used in a filename."""
     return re.sub(r'[^a-zA-Z0-9_-]', '_', ref)
+
+
+def checkout_branch(repo_path: Path, branch_name: str, *, create_when_missing: bool = True) -> bool:
+    """Checkout (optionally create) a branch inside ``repo_path``.
+
+    Returns ``True`` when the checkout succeeds and ``False`` otherwise.
+    """
+    try:
+        current_branch = subprocess.run(
+            [CMD_GIT, 'rev-parse', '--abbrev-ref', 'HEAD'],
+            cwd=repo_path,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except subprocess.CalledProcessError as exc:
+        LOG(f"❌ ERROR: Unable to determine current branch in '{repo_path}': {exc}")
+        return False
+    except FileNotFoundError as exc:
+        LOG(f"❌ ERROR: Git executable not found while inspecting '{repo_path}': {exc}")
+        return False
+
+    if current_branch == branch_name:
+        LOG(f"✅ Already on branch '{branch_name}'.")
+        return True
+
+    LOG(f"🔀 Switching to branch '{branch_name}' in '{repo_path}'...")
+    branch_exists = subprocess.run(
+        [CMD_GIT, 'rev-parse', '--verify', branch_name],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+    ).returncode == 0
+
+    if not branch_exists and not create_when_missing:
+        LOG(
+            f"❌ ERROR: Branch '{branch_name}' does not exist in '{repo_path}' and auto-create is disabled."
+        )
+        return False
+
+    checkout_cmd: List[str]
+    if branch_exists:
+        checkout_cmd = [CMD_GIT, 'checkout', branch_name]
+    else:
+        checkout_cmd = [CMD_GIT, 'checkout', '-b', branch_name]
+
+    try:
+        subprocess.run(checkout_cmd, cwd=repo_path, check=True)
+        LOG(f"✅ Now on branch '{branch_name}'.")
+        return True
+    except subprocess.CalledProcessError as exc:
+        LOG(f"❌ ERROR: Failed to switch to branch '{branch_name}': {exc}")
+        return False
+    except FileNotFoundError as exc:
+        LOG(f"❌ ERROR: Git executable not found while switching branches: {exc}")
+        return False
 
 
 def git_fetch(repo_path: Path) -> bool:
@@ -139,3 +196,58 @@ def extract_git_diff(repo_path: Path, base_ref: str, target_ref: str) -> Optiona
     except Exception as e:
         LOG(f"An unexpected error occurred while extracting diff: {e}", file=sys.stderr)
         return None
+
+
+def git_stage_and_commit(
+    repo_path: Path,
+    message: str,
+    *,
+    show_diff: bool = False,
+    stage_paths: Optional[List[str]] = None,
+    auto_confirm: bool = False,
+    prompt: Optional[str] = None,
+) -> bool:
+    """
+    Stage changes (optionally limited to specific paths) and create a commit in the given repo.
+
+    Args:
+        repo_path: Path to the git repository to operate in.
+        message: Commit message.
+        show_diff: If True, show the staged diff before committing.
+        stage_paths: Specific paths to stage (relative or absolute). If None or empty, stage all changes (-A).
+        auto_confirm: If True, skip interactive confirmation prompt.
+        prompt: Optional custom confirmation prompt message.
+
+    Returns:
+        True if commit succeeded, False otherwise.
+    """
+    if not repo_path.is_dir() or not (repo_path / '.git').exists():
+        LOG(f"❌ ERROR: The path '{repo_path}' is not a valid git repository.")
+        return False
+
+    if not auto_confirm:
+        confirm_msg = prompt or f"Do you want to commit '{message}' to Git?"
+        if not prompt_confirmation(confirm_msg):
+            LOG("Skipped commit by user choice.")
+            return False
+
+    try:
+        if stage_paths and len(stage_paths) > 0:
+            # Convert paths to strings (git accepts absolute or relative)
+            paths = [str(p) for p in stage_paths]
+            subprocess.run([CMD_GIT, 'add', *paths], check=True, cwd=repo_path)
+        else:
+            subprocess.run([CMD_GIT, 'add', '-A'], check=True, cwd=repo_path)
+
+        if show_diff:
+            subprocess.run([CMD_GIT, '--no-pager', 'diff', '--cached'], check=True, cwd=repo_path)
+
+        subprocess.run([CMD_GIT, 'commit', '-m', message], check=True, cwd=repo_path)
+        LOG("✅ Changes committed successfully.")
+        return True
+    except subprocess.CalledProcessError as exc:
+        LOG(f"❌ ERROR: Git commit failed: {exc}")
+        return False
+    except FileNotFoundError:
+        LOG("❌ ERROR: Git command not found. Please ensure Git is installed and in your PATH.")
+        return False

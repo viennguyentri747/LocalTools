@@ -1,41 +1,35 @@
-#!/home/vien/local_tools/MyVenvFolder/bin/python
-import argparse
-import os
+"""Utilities for updating the Inertial Sense SDK repository."""
+
+from __future__ import annotations
+
 import re
 import shutil
 import subprocess
-import sys
-from typing import Optional, List
 import zipfile
 from pathlib import Path
-
+from typing import Optional
 from dev_common import *
 
 # --- Configuration ---
-# Base directory for the SDK repositories.
-CORE_REPOS_DIR = Path.home() / "core_repos"
-# Parent directory where the versioned SDK folder (e.g., inertial-sense-sdk-2.5.0) is located.
-INSENSE_SDK_REPO_DIR = CORE_REPOS_DIR / "insensesdk"
-# Directory where the SDKs are extracted.
-SDK_INSTALL_DIR = INSENSE_SDK_REPO_DIR / "InsenseSDK"
-# Location of the libusb zip file.
+SDK_INSTALL_DIR = INSENSE_SDK_REPO_PATH / "InsenseSDK"
 LIBUSB_ZIP_PATH = Path.home() / "downloads" / "libusb-master-1-0.zip"
-# --- End Configuration ---
-
 NO_PROMPT: bool = False
 
 
+# ─────────────────────────── Git helpers ──────────────────────────── #
+# ─────────────────────────── Core SDK logic ────────────────────────── #
+
+
 def extract_version_from_zip(zip_path: Path) -> Optional[str]:
-    """Extracts the version number from the SDK zip filename."""
     prefix = "inertial-sense-sdk-"
     match = re.search(rf"{prefix}([\d\.]+)\.zip", zip_path.name)
     if match:
         version = match.group(1)
         LOG(f"✅ Found SDK version: {version}")
         return version
-    # TODO: if not found, try use text after inertial-sense-sdk- and before .zip
     LOG(
-        f"⚠️ WARNING: Could not extract version number from filename: {zip_path.name}, falling back to getting whole text after {prefix}")
+        f"⚠️ WARNING: Could not extract version number from filename: {zip_path.name}, falling back to getting whole text after {prefix}"
+    )
     match = re.search(rf"{prefix}(.+)\.zip", zip_path.name)
     if match:
         version = match.group(1)
@@ -46,23 +40,21 @@ def extract_version_from_zip(zip_path: Path) -> Optional[str]:
 
 
 def unzip_to_dest(zip_path: Path, dest_dir: Path) -> bool:
-    """Unzips a file and verifies its extraction."""
     LOG(f"📦 Unzipping '{zip_path.name}' to '{dest_dir}'...")
     try:
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        with zipfile.ZipFile(zip_path, "r") as zip_ref:
             zip_ref.extractall(dest_dir)
         LOG("   -> Unzip complete.")
         return True
     except FileNotFoundError:
         LOG(f"❌ ERROR: Zip file not found at '{zip_path}'")
         return False
-    except Exception as e:
-        LOG(f"❌ ERROR: Failed to unzip '{zip_path.name}': {e}")
+    except Exception as exc:
+        LOG(f"❌ ERROR: Failed to unzip '{zip_path.name}': {exc}")
         return False
 
 
-def integrate_libusb(new_sdk_path: Path):
-    """Integrates the libusb source files into the new SDK."""
+def integrate_libusb(new_sdk_path: Path) -> None:
     LOG("⚙️ Integrating libusb...")
     libusb_src_dir = new_sdk_path / "src" / "libusb"
     libusb_temp_dir = libusb_src_dir / "libusb-master"
@@ -71,7 +63,6 @@ def integrate_libusb(new_sdk_path: Path):
         LOG(f"⚠️ WARNING: libusb zip not found at '{LIBUSB_ZIP_PATH}'. Skipping integration.")
         return
 
-    # 1. Unzip libusb
     if not unzip_to_dest(LIBUSB_ZIP_PATH, libusb_src_dir):
         return
 
@@ -79,23 +70,19 @@ def integrate_libusb(new_sdk_path: Path):
         LOG(f"❌ ERROR: Expected '{libusb_temp_dir.name}' folder after unzipping libusb. Aborting integration.")
         return
 
-    # 2. Move contents up one level
     LOG(f"   -> Moving files from '{libusb_temp_dir.name}' up one level...")
     for item in libusb_temp_dir.iterdir():
         shutil.move(str(item), str(libusb_src_dir))
 
-    # 3. Remove the now-empty temporary directory
     LOG(f"   -> Removing empty directory '{libusb_temp_dir.name}'...")
     shutil.rmtree(libusb_temp_dir)
     LOG("   -> libusb integration complete.")
-    check_commit_changes_to_git("Integrate libusb")
+    git_stage_and_commit(INSENSE_SDK_REPO_PATH, "Integrate libusb", auto_confirm=NO_PROMPT)
 
 
-def modify_sdk_cmake_files(new_sdk_version, new_sdk_path: Path):
-    """Modifies the CMakeLists.txt files within the new SDK."""
+def modify_sdk_cmake_files(new_sdk_version: str, new_sdk_path: Path) -> None:
     LOG("📝 Modifying CMake files...")
 
-    # 1. Add subdirectory to root CMakeLists.txt
     root_cmake_path = new_sdk_path / "CMakeLists.txt"
     add_line = "add_subdirectory(cltool)"
     try:
@@ -103,13 +90,12 @@ def modify_sdk_cmake_files(new_sdk_version, new_sdk_path: Path):
         if add_line in content:
             LOG(f"   -> ⚠️ WARNING: '{add_line}' already exists in '{root_cmake_path.name}'.")
         else:
-            with root_cmake_path.open("a") as f:
-                f.write(f"\n{add_line}\n")
+            with root_cmake_path.open("a") as fp:
+                fp.write(f"\n{add_line}\n")
             LOG(f"   -> Added '{add_line}' to '{root_cmake_path.name}'.")
     except FileNotFoundError:
         LOG(f"❌ ERROR: Cannot find '{root_cmake_path}'. Skipping.")
 
-    # 2. Change project name in cltool/CMakeLists.txt
     cltool_cmake_path = new_sdk_path / "cltool" / "CMakeLists.txt"
     old_project = "project(cltool)"
     new_project = "project(insense_cltool)"
@@ -118,17 +104,15 @@ def modify_sdk_cmake_files(new_sdk_version, new_sdk_path: Path):
         if new_project in content:
             LOG(f"   -> Project name in '{cltool_cmake_path.name}' is already correct.")
         elif old_project in content:
-            new_content = content.replace(old_project, new_project)
-            cltool_cmake_path.write_text(new_content)
+            cltool_cmake_path.write_text(content.replace(old_project, new_project))
             LOG(f"   -> Changed project name in '{cltool_cmake_path.name}'.")
         else:
             LOG(f"   -> ⚠️ WARNING: Could not find '{old_project}' in '{cltool_cmake_path.name}'.")
     except FileNotFoundError:
         LOG(f"❌ ERROR: Cannot find '{cltool_cmake_path}'. Skipping.")
 
-    # 3. Update top level CMakeList.txt
     LOG("🚀 Updating top-level SDK version...")
-    cmake_path = INSENSE_SDK_REPO_DIR / "CMakeLists.txt"
+    cmake_path = INSENSE_SDK_REPO_PATH / "CMakeLists.txt"
     try:
         content = cmake_path.read_text()
         pattern = r'(set\(INSENSE_SDK_VERSION\s+")[^"]*("\))'
@@ -137,7 +121,7 @@ def modify_sdk_cmake_files(new_sdk_version, new_sdk_path: Path):
             LOG(f"   -> ⚠️ WARNING: Could not find INSENSE_SDK_VERSION variable in '{cmake_path}'.")
             return
 
-        new_content, count = re.subn(pattern, rf'\g<1>{new_sdk_version}\g<2>', content)
+        new_content, count = re.subn(pattern, rf"\g<1>{new_sdk_version}\g<2>", content)
 
         if count > 0:
             cmake_path.write_text(new_content)
@@ -146,35 +130,33 @@ def modify_sdk_cmake_files(new_sdk_version, new_sdk_path: Path):
             LOG(f"   -> ⚠️ WARNING: Version already set or pattern mismatch in '{cmake_path}'.")
     except FileNotFoundError:
         LOG(f"❌ ERROR: Top-level CMakeLists.txt not found at '{cmake_path}'.")
-    except Exception as e:
-        LOG(f"❌ ERROR: Failed to update top-level CMakeLists.txt: {e}")
+    except Exception as exc:
+        LOG(f"❌ ERROR: Failed to update top-level CMakeLists.txt: {exc}")
 
-    check_commit_changes_to_git("Update CMakeLists.txt files", show_diff=True)
+    git_stage_and_commit(INSENSE_SDK_REPO_PATH, "Update CMakeLists.txt files", show_diff=True, auto_confirm=NO_PROMPT)
 
 
-def cleanup_old_sdks(install_dir: Path, new_sdk_dir_name: str):
-    """Removes old SDK directories."""
+def cleanup_old_sdks(install_dir: Path, new_sdk_dir_name: str) -> None:
     LOG("🧹 Cleaning up old SDK versions...")
     for item in install_dir.glob("inertial-sense-sdk-*"):
         if item.is_dir() and item.name != new_sdk_dir_name:
             LOG(f"   -> Removing old SDK: {item.name}")
             try:
                 shutil.rmtree(item)
-            except Exception as e:
-                LOG(f"❌ ERROR: Failed to remove '{item.name}': {e}")
+            except Exception as exc:
+                LOG(f"❌ ERROR: Failed to remove '{item.name}': {exc}")
     LOG("   -> Cleanup complete.")
-    check_commit_changes_to_git("Cleanup old SDKs")
+    git_stage_and_commit(INSENSE_SDK_REPO_PATH, "Cleanup old SDKs", auto_confirm=NO_PROMPT)
 
 
 def get_current_git_branch() -> Optional[str]:
-    """Returns the current git branch name, or None if not in a git repo."""
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
             capture_output=True,
             text=True,
             check=True,
-            cwd=INSENSE_SDK_REPO_DIR  # Run git command in the parent directory of the SDK
+            cwd=INSENSE_SDK_REPO_PATH,
         )
         return result.stdout.strip()
     except subprocess.CalledProcessError:
@@ -185,26 +167,24 @@ def get_current_git_branch() -> Optional[str]:
         return None
 
 
-def check_commit_changes_to_git(message: str, show_diff: bool = False):
-    """Checks if changes need to be committed to Git."""
+def check_commit_changes_to_git(message: str, show_diff: bool = False) -> None:
     if not confirm_action(f"Do you want to commit '{message}' to Git?"):
         return
 
     LOG(f"Adding and committing changes to Git: '{message}'")
     try:
-        subprocess.run(["git", "add", "."], check=True, cwd=INSENSE_SDK_REPO_DIR)
+        subprocess.run(["git", "add", "."], check=True, cwd=INSENSE_SDK_REPO_PATH)
         if show_diff:
-            subprocess.run(["git", "--no-pager", "diff", "--cached"], check=True, cwd=INSENSE_SDK_REPO_DIR)
-        subprocess.run(["git", "commit", "-m", message], check=True, cwd=INSENSE_SDK_REPO_DIR)
+            subprocess.run(["git", "--no-pager", "diff", "--cached"], check=True, cwd=INSENSE_SDK_REPO_PATH)
+        subprocess.run(["git", "commit", "-m", message], check=True, cwd=INSENSE_SDK_REPO_PATH)
         LOG("✅ Changes committed successfully.")
-    except subprocess.CalledProcessError as e:
-        LOG(f"❌ ERROR: Git commit failed: {e}")
+    except subprocess.CalledProcessError as exc:
+        LOG(f"❌ ERROR: Git commit failed: {exc}")
     except FileNotFoundError:
         LOG("❌ ERROR: Git command not found. Please ensure Git is installed and in your PATH.")
 
 
 def confirm_action(prompt: str) -> bool:
-    """Asks the user for confirmation and returns True for 'y' (case-insensitive), False otherwise."""
     if NO_PROMPT:
         LOG(f"{prompt} (auto-confirmed due to --no-prompt)")
         return True
@@ -214,143 +194,105 @@ def confirm_action(prompt: str) -> bool:
         response = input(f"{prompt}{branch_info} (y/n): ").strip().lower()
         if response == "y":
             return True
-        elif response == "n":
+        if response == "n":
             return False
-        else:
-            LOG("Invalid input. Please enter 'y' or 'n'.")
+        LOG("Invalid input. Please enter 'y' or 'n'.")
 
 
 def apply_signal_handler(stash_ref: str) -> None:
-    """
-    Applies a specific stash ref and commits the changes with the stash's original subject.
-    Equivalent to:
-      git stash apply <ref> && git add $(git stash show --name-only <ref>) && git commit -m "$(git log --format='%s' -n 1 <ref>)"
-    """
     try:
-        if not confirm_action(f"Apply signal handler changes from stash '{stash_ref}' and create a commit?"):
+        proceed = True if NO_PROMPT else prompt_confirmation(
+            f"Apply signal handler changes from stash '{stash_ref}' and create a commit?"
+        )
+        if not proceed:
             LOG("Skipping applying signal handler changes.")
             return
 
-        # Get the original subject from the stash
         try:
             res_subject = subprocess.run(
                 ["git", "log", "--format=%s", "-n", "1", stash_ref],
                 capture_output=True,
                 text=True,
                 check=True,
-                cwd=INSENSE_SDK_REPO_DIR
+                cwd=INSENSE_SDK_REPO_PATH,
             )
             subject = res_subject.stdout.strip() or f"Apply stash {stash_ref}"
         except subprocess.CalledProcessError:
             subject = f"Apply stash {stash_ref}"
 
-        # Get the list of files included in the stash
         try:
             res_files = subprocess.run(
                 ["git", "stash", "show", "--name-only", stash_ref],
                 capture_output=True,
                 text=True,
                 check=True,
-                cwd=INSENSE_SDK_REPO_DIR
+                cwd=INSENSE_SDK_REPO_PATH,
             )
             files = [f.strip() for f in res_files.stdout.splitlines() if f.strip()]
         except subprocess.CalledProcessError:
             files = []
 
-        # Apply the stash
-        LOG(f"Applying stash '{stash_ref}' in repo '{INSENSE_SDK_REPO_DIR}'...")
-        subprocess.run(["git", "stash", "apply", stash_ref], check=True, cwd=INSENSE_SDK_REPO_DIR)
+        LOG(f"Applying stash '{stash_ref}' in repo '{INSENSE_SDK_REPO_PATH}'...")
+        subprocess.run(["git", "stash", "apply", stash_ref], check=True, cwd=INSENSE_SDK_REPO_PATH)
 
-        # Stage files
         if files:
             LOG(f"Staging {len(files)} file(s) from stash...")
             try:
-                subprocess.run(["git", "add", *files], check=True, cwd=INSENSE_SDK_REPO_DIR)
+                subprocess.run(["git", "add", *files], check=True, cwd=INSENSE_SDK_REPO_PATH)
             except subprocess.CalledProcessError:
                 LOG("Some files from stash don't exist at original paths; staging all changes as fallback.")
-                subprocess.run(["git", "add", "-A"], check=True, cwd=INSENSE_SDK_REPO_DIR)
+                subprocess.run(["git", "add", "-A"], check=True, cwd=INSENSE_SDK_REPO_PATH)
         else:
             LOG("No files reported by 'git stash show'; staging all changes as fallback.")
-            subprocess.run(["git", "add", "-A"], check=True, cwd=INSENSE_SDK_REPO_DIR)
+            subprocess.run(["git", "add", "-A"], check=True, cwd=INSENSE_SDK_REPO_PATH)
 
-        # Commit with the subject
         LOG(f"Committing with subject: {subject}")
-        subprocess.run(["git", "commit", "-m", subject], check=True, cwd=INSENSE_SDK_REPO_DIR)
+        subprocess.run(["git", "commit", "-m", subject], check=True, cwd=INSENSE_SDK_REPO_PATH)
         LOG("✅ Applied signal handler stash and committed successfully.")
-    except subprocess.CalledProcessError as e:
-        LOG(f"❌ ERROR: Failed while applying stash '{stash_ref}': {e}")
+    except subprocess.CalledProcessError as exc:
+        LOG(f"❌ ERROR: Failed while applying stash '{stash_ref}': {exc}")
     except FileNotFoundError:
         LOG("❌ ERROR: Git command not found. Please ensure Git is installed and in your PATH.")
 
 
-def get_tool_templates() -> List[ToolTemplate]:
-    return [
-        ToolTemplate(
-            name="Update SDK",
-            description="Update Inertial Sense SDK",
-            args={
-                "--no_prompt": "True",
-                "--sdk_path": "~/downloads/inertial-sense-sdk-2.6.0.zip",
-            },
-            usage_note="Find 'Source code (zip)' file (Ex: 'inertial-sense-sdk-2.6.0.zip') in Assets section at IS inertial-sense-sdk GitHub page. Ex: https://github.com/inertialsense/inertial-sense-sdk/releases/tag/2.6.0"
-        ),
-    ]
+# ─────────────────────────── Public entry point ─────────────────────── #
 
-def main():
-    """Main function to orchestrate the SDK update process."""
-    parser = argparse.ArgumentParser(
-        description="Automate the Inertial Sense SDK update process.",
-        formatter_class=argparse.RawTextHelpFormatter
-    )
-    parser.formatter_class = argparse.RawTextHelpFormatter
-    # Fill help epilog from templates
-    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
-    parser.add_argument("--sdk_path", ARG_PATH_SHORT, type=Path, required=True,
-                        help="Path to the new SDK zip file (e.g., ~/downloads/inertial-sense-sdk-2.5.0.zip)")
-    parser.add_argument("--no-prompt", "--no_prompt", type=lambda x: x.lower() == 'true', default=False,
-                        help="If true, run without confirmation prompts (true or false). Defaults to false.")
-    args = parser.parse_args()
-    sdk_zip_path = args.sdk_path.expanduser()
+
+def run_sdk_update(sdk_zip_path: Path, *, no_prompt: bool = False) -> None:
     global NO_PROMPT
-    NO_PROMPT = args.no_prompt
+    sdk_zip_path = sdk_zip_path.expanduser()
+    NO_PROMPT = no_prompt
 
     if not sdk_zip_path.exists():
         LOG(f"❌ FATAL: SDK zip file not found at '{sdk_zip_path}'")
-        sys.exit(1)
+        return
 
-    # Step 1: Extract version and set up paths
     version = extract_version_from_zip(sdk_zip_path)
     if not version:
-        sys.exit(1)
-    else:
-        LOG(f"   -> Extracted version: {version}")
+        return
+    LOG(f"   -> Extracted version: {version}")
+
     new_sdk_dir_name = f"inertial-sense-sdk-{version}"
     new_sdk_path = SDK_INSTALL_DIR / new_sdk_dir_name
 
     if new_sdk_path.exists():
         LOG(
-            f"❌ FATAL: SDK folder '{new_sdk_path}' already exists:\n1. 'cd {INSENSE_SDK_REPO_DIR}' and undo all commits\n2. Run 'cd /home/vien/core_repos/insensesdk && git reset --hard && git clean -fd'!")  # &&rm -rf {new_sdk_path}'
-        sys.exit(1)
+            f"❌ FATAL: SDK folder '{new_sdk_path}' already exists:\n1. 'cd {INSENSE_SDK_REPO_PATH}' and undo all commits\n2. Run 'cd {INSENSE_SDK_REPO_PATH} && git reset --hard && git clean -fd'!"
+        )
+        return
 
-    # Step 2: Unzip the new SDK
+    branch_name = f"update-sdk-{str_to_slug(version)}-{str_to_slug(get_short_date())}"
+    if not checkout_branch(INSENSE_SDK_REPO_PATH, branch_name):
+        return
+
     if not unzip_to_dest(sdk_zip_path, SDK_INSTALL_DIR):
-        sys.exit(1)
-    check_commit_changes_to_git(f"Unzip new SDK {version}")
+        return
+    git_stage_and_commit(INSENSE_SDK_REPO_PATH, f"Unzip new SDK {version}", auto_confirm=NO_PROMPT)
 
-    # Step 3: Integrate libusb
     integrate_libusb(new_sdk_path)
-
-    # Step 4: Modify CMakeLists.txt files
     modify_sdk_cmake_files(version, new_sdk_path)
-
-    # Step 5: Remove old SDK folders
     cleanup_old_sdks(SDK_INSTALL_DIR, new_sdk_dir_name)
 
     LOG("\n🎉 SDK update process finished successfully!")
     signal_handler_stash_ref = "bca3b5c"
     apply_signal_handler(signal_handler_stash_ref)
-
-
-if __name__ == "__main__":
-    main()
-

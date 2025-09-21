@@ -386,7 +386,7 @@ def choose_repos(manifest: IesaManifest) -> List[str]:
     picked: List[str] = []
     while True:
         repo_name = input(
-            f"[Optional] Repo name to copy from local in {CORE_REPOS_FOLDER_PATH} (enter blank to stop): ").strip()
+            f"[Optional] Repo name to copy from local in {CORE_REPOS_PATH} (enter blank to stop): ").strip()
         if not repo_name:
             break
         if repo_name not in manifest.get_all_repo_names():
@@ -399,7 +399,7 @@ def choose_repos(manifest: IesaManifest) -> List[str]:
 
 
 def sync_local_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
-    src_path = CORE_REPOS_FOLDER_PATH / repo_name
+    src_path = CORE_REPOS_PATH / repo_name
     dest_root_path = OW_BUILD_FOLDER_PATH / repo_rel_path_vs_tmp_build
 
     if not src_path.is_dir() or not dest_root_path.is_dir():

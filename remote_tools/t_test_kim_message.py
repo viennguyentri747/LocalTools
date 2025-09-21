@@ -81,8 +81,8 @@ def main() -> None:
     # 3) Build the SCP + remote-run one-liner
     one_liner = create_scp_and_run_cmd(local_path=out_path, run_cmd_on_remote=remote_run)
 
+    LOG("Paste and run this command in your local shell:", highlight=True)
     LOG(LINE_SEPARATOR, show_time=False)
-    LOG("Paste and run this one-liner in your local shell:", highlight=True)
     LOG(one_liner, show_time=False)
     LOG(LINE_SEPARATOR, show_time=False)
 

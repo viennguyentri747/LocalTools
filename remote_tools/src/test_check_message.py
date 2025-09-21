@@ -29,47 +29,17 @@ def parse_args() -> argparse.Namespace:
         description="Monitor ins_monitor logs for specific messages.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.add_argument(
-        "--messages", "-m",
-        type=str,
-        required=True,
-        help="Comma-separated list of message names to detect. Example: DID_GPS2_RTK_CMP_REL_MESSAGE,DID_GPS1_POS_MESSAGE",
-    )
-    parser.add_argument(
-        "--timeout", "-t",
-        type=int,
-        default=15,
-        help="Timeout in seconds to wait for a matching log entry (default: 15).",
-    )
-    parser.add_argument(
-        "--log_file",
-        type=str,
-        default=DEFAULT_LOG_FILE,
-        help=f"Log file to monitor (default: {DEFAULT_LOG_FILE})",
-    )
-    parser.add_argument(
-        "--service",
-        type=str,
-        default=DEFAULT_SERVICE_NAME,
-        help=f"Systemd service name to optionally restart (default: {DEFAULT_SERVICE_NAME})",
-    )
-    parser.add_argument(
-        "--restart",
-        action="store_true",
-        help="If set, restart the service before monitoring.",
-    )
-    parser.add_argument(
-        "--restart_delay",
-        type=float,
-        default=2.0,
-        help="Seconds to wait after restart before monitoring (default: 2.0)",
-    )
-    parser.add_argument(
-        "--ins_config_path",
-        type=str,
-        default=DEFAULT_INS_CONFIG_PATH,
-        help=f"Path to ins_config.json (default: {DEFAULT_INS_CONFIG_PATH})",
-    )
+    parser.add_argument("--messages", "-m", type=str, required=True, help="Comma-separated list of message names to detect. Example: DID_GPS2_RTK_CMP_REL_MESSAGE,DID_GPS1_POS_MESSAGE", )
+    parser.add_argument("--timeout", "-t", type=int, default=15, help="Timeout in seconds to wait for a matching log entry (default: 15).", )
+    parser.add_argument("--log_file", type=str, default=DEFAULT_LOG_FILE,
+                        help=f"Log file to monitor (default: {DEFAULT_LOG_FILE})", )
+    parser.add_argument("--service", type=str, default=DEFAULT_SERVICE_NAME,
+                        help=f"Systemd service name to optionally restart (default: {DEFAULT_SERVICE_NAME})", )
+    parser.add_argument("--restart", action="store_true", help="If set, restart the service before monitoring.", )
+    parser.add_argument("--restart_delay", type=float, default=2.0,
+                        help="Seconds to wait after restart before monitoring (default: 2.0)", )
+    parser.add_argument("--ins_config_path", type=str, default=DEFAULT_INS_CONFIG_PATH,
+                        help=f"Path to ins_config.json (default: {DEFAULT_INS_CONFIG_PATH})", )
     return parser.parse_args()
 
 
@@ -119,19 +89,24 @@ def monitor_logs(log_file: str, messages: List[str], timeout_sec: int) -> Tuple[
     print(f"[{timestamp()}] Timeout: {timeout_sec}s")
     start = time.time()
     try:
+        print(f"[{timestamp()}] Running command: {' '.join(cmd_list)}")
         result = subprocess.run(cmd_list, capture_output=True, text=True, timeout=timeout_sec + 5,)
         duration = time.time() - start
 
-        # If grep found a line, stdout should contain that matched line (first due to -m 1)
         stdout = (result.stdout or "").strip()
         stderr = (result.stderr or "").strip()
 
         if stdout:
-            matched_message = detect_which_message(stdout, messages)
-            print(f"[{timestamp()}] ✓ Found target message: {matched_message or 'UNKNOWN'}")
-            print(f"[{timestamp()}] Matched line: {stdout}")
-            print(f"[{timestamp()}] PASS in {duration:.1f}s")
-            return True, matched_message or "", duration
+            print(f"[{timestamp()}] stdout: {stdout}")
+            matched_message = detect_single_message_in_line(stdout, messages)
+            if matched_message:
+                print(f"[{timestamp()}] ✓ Found target message: {matched_message or 'NOT FOUND'}")
+                print(f"[{timestamp()}] Matched line: {stdout}")
+                print(f"[{timestamp()}] PASS in {duration:.1f}s")
+                return True, matched_message or "", duration
+            else:
+                print(f"[{timestamp()}] FAIL in {duration:.1f}s")
+                return False, "", duration
         else:
             if result.returncode == 124:  # timeout command returns 124 on timeout
                 print(f"[{timestamp()}] Monitoring timed out (no messages found).")
@@ -154,7 +129,7 @@ def monitor_logs(log_file: str, messages: List[str], timeout_sec: int) -> Tuple[
         return False, "", duration
 
 
-def detect_which_message(line: str, messages: List[str]) -> str:
+def detect_single_message_in_line(line: str, messages: List[str]) -> str:
     # Return the first message name that appears in the line
     for m in messages:
         if m and m in line:

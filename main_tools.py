@@ -26,21 +26,22 @@ def _group_by_folder(tools: List[ToolEntry]) -> List[tuple[str, List[ToolEntry]]
 def build_template_command(tool, template: ToolTemplate):
     """Build command line for a template"""
     cmd_parts = [sys.executable, str(tool.path)]
-
     for arg, value in template.args.items():
         if isinstance(value, list):
             cmd_parts.append(arg)
-            cmd_parts.extend(str(v) for v in value)
+            cmd_parts.extend(quote_arg_value_if_need(v) for v in value)  # cmd_parts.extend(str(v) for v in value)
         else:
-            cmd_parts.extend([arg, str(value)])
+            cmd_parts.extend([arg, quote_arg_value_if_need(value)])
 
     quoted_parts = []
+    LOG(f"Template command parts: {cmd_parts}")
     for part in cmd_parts:
         # Only quote parts that actually need quoting (contain spaces or special chars that need escaping)
-        if ' ' in part and not (part.startswith('"') and part.endswith('"')):
-            quoted_parts.append(shlex.quote(part))
-        else:
-            quoted_parts.append(part)
+        # if ' ' in part and not (part.startswith('"') and part.endswith('"')):
+        #     quoted_parts.append(quote(part))
+        # else:
+        #     quoted_parts.append(part)
+        quoted_parts.append(quote_arg_value_if_need(str(part)))
 
     return ' '.join(quoted_parts)
 
@@ -99,7 +100,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         try:
             module = importlib.import_module(f"{tool.folder}.{tool.stem}")
             if hasattr(module, 'get_tool_templates'):
-                templates = module.get_tool_templates()
+                templates: List[ToolTemplate] = module.get_tool_templates()
                 if templates:
                     # Build option data with command previews
                     option_data = []
@@ -107,7 +108,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                     for i, t in enumerate(templates, 1):
                         # Build command preview for this template
                         preview_cmd = build_template_command(tool, t)
-                        title = f"[{i}] {t.name}: {t.description}\n    → {preview_cmd}"
+                        title = f"[{i}] {t.name}: {t.extra_description}\n    → {preview_cmd}"
                         option_data.append(OptionData(title=title, selectable=True, data=t))
                         option_data.append(OptionData(title="", selectable=False))  # Spacer
                     selected = interactive_select_with_arrows(option_data, menu_title=f"Choose a template")
@@ -129,7 +130,10 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                         if selected_template.usage_note:
                             LOG(f"Usage note:\n{selected_template.usage_note}")
                         if final_cmd:
-                            LOG(f"\n✅ Final command:\n{final_cmd}")
+                            LOG(f"✅ Final command:")
+                            LOG(f"{LINE_SEPARATOR}", show_time=False)
+                            LOG(f"{final_cmd}", show_time=False)
+                            LOG(f"{LINE_SEPARATOR}", show_time=False)
                         return 0
         except ImportError as e:
             LOG(f"Could not import module for templates: {e}", file=sys.stderr)

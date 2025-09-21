@@ -281,7 +281,7 @@ def run_sdk_update(sdk_zip_path: Path, *, no_prompt: bool = False) -> None:
         )
         return
 
-    branch_name = f"update-sdk-{str_to_slug(version)}-{str_to_slug(get_short_date())}"
+    branch_name = f"update-sdk-{str_to_slug(version)}-{str_to_slug(get_short_date_now())}"
     if not checkout_branch(INSENSE_SDK_REPO_PATH, branch_name):
         return
 

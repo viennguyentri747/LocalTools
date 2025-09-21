@@ -36,10 +36,6 @@ RESTART_SERVICE = True
 RESTART_DELAY = 2.0
 
 
-def quote(s: str) -> str:
-    return shlex.quote(s)
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Show SCP+run command to copy and execute test_check_message.py on target UT.",
@@ -72,10 +68,11 @@ def main() -> None:
     parts: List[str] = ["python3", quote(remote_script_path),
                         ARG_MESSAGES_LONG, quote(args.messages),
                         ARG_TIMEOUT_LONG, str(int(args.timeout)),
-                        ARG_INS_CONFIG_PATH_LONG, quote(args.ins_config_path),
-                        ARG_LOG_FILE_LONG, quote(args.log_file),
                         "--service", quote(SERVICE_NAME),
-                        "--restart_delay", str(float(RESTART_DELAY))]
+                        "--restart_delay", str(float(RESTART_DELAY)),
+                        ARG_INS_CONFIG_PATH_LONG, args.ins_config_path,
+                        ARG_LOG_FILE_LONG, args.log_file,
+                        ]
     if RESTART_SERVICE:
         parts.append("--restart")
 
@@ -94,7 +91,6 @@ def get_tool_templates() -> List[ToolTemplate]:
     return [
         ToolTemplate(
             name="Check RTK REL message (default)",
-            description="Copy and run test_check_message.py to look for DID_GPS2_RTK_CMP_REL_MESSAGE (uses constant service control).",
             args={
                 ARG_PATH_LONG: str(DEFAULT_LOCAL_FILE),
                 ARG_MESSAGES_LONG: DEFAULT_MESSAGES,
@@ -106,7 +102,6 @@ def get_tool_templates() -> List[ToolTemplate]:
         ),
         ToolTemplate(
             name="Check GPS1/GPS2/RTK messages (multi)",
-            description="Look for DID_GPS1_POS_MESSAGE,DID_GPS2_POS_MESSAGE,DID_GPS2_RTK_CMP_REL_MESSAGE (uses constant service control).",
             args={
                 ARG_PATH_LONG: str(DEFAULT_LOCAL_FILE),
                 ARG_MESSAGES_LONG: "DID_GPS1_POS_MESSAGE,DID_GPS2_POS_MESSAGE,DID_GPS2_RTK_CMP_REL_MESSAGE",
@@ -118,7 +113,6 @@ def get_tool_templates() -> List[ToolTemplate]:
         ),
         ToolTemplate(
             name="Check RTK REL (longer timeout)",
-            description="Wait longer for DID_GPS2_RTK_CMP_REL_MESSAGE (uses constant service control).",
             args={
                 ARG_PATH_LONG: str(DEFAULT_LOCAL_FILE),
                 ARG_MESSAGES_LONG: DEFAULT_MESSAGES,

@@ -12,15 +12,15 @@ from dev_common.core_utils import LOG
 @dataclass
 class ToolTemplate:
     name: str
-    description: str
-    args: Dict[str, Any]
+    extra_description: str
+    args: Dict[str, Any]  # {arg_name: arg_value}
     search_root: Optional[Path]
     no_need_live_edit: bool
     usage_note: str = ""
 
-    def __init__(self, name: str, description: str, args: Dict[str, Any], search_root: Optional[Path] = None, no_need_live_edit: bool = True, usage_note: str = ""):
+    def __init__(self, name: str, extra_description: str = "", args: Dict[str, Any] = {}, search_root: Optional[Path] = None, no_need_live_edit: bool = True, usage_note: str = ""):
         self.name = name
-        self.description = description
+        self.extra_description = extra_description
         self.args = args
         self.search_root = search_root
         self.no_need_live_edit = no_need_live_edit
@@ -119,8 +119,8 @@ def build_examples_epilog(templates: List[ToolTemplate], script_path: Path) -> s
         cmd = f"{script_str} {' '.join(arg_parts)}".rstrip()
         lines.append("")
         lines.append(f"# Example {i}: {t.name}")
-        if t.description:
-            lines.append(f"# {t.description}")
+        if t.extra_description:
+            lines.append(f"# {t.extra_description}")
         lines.append(cmd)
 
     return "\n".join(lines)

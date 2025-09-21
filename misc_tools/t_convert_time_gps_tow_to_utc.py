@@ -10,7 +10,7 @@ def get_tool_templates() -> List[ToolTemplate]:
     return [
         ToolTemplate(
             name="Convert GPS Time",
-            description="Convert GPS week and TOW to UTC",
+            extra_description="Convert GPS week and TOW to UTC",
             args={
                 "--week": 2373,
                 "--time_of_week_ms": 271835600,

@@ -39,8 +39,8 @@ def main() -> None:
     remote_run = f"python3 /home/root/download/{out_path.name}"
     one_liner = create_scp_and_run_cmd(local_path=out_path, run_cmd_on_remote=remote_run)
 
+    LOG("Paste the following command in your local shell:", highlight=True)
     LOG(LINE_SEPARATOR, show_time=False)
-    LOG("Paste and run this one-liner in your local shell:", highlight=True)
     LOG(one_liner, show_time=False)
     LOG(LINE_SEPARATOR, show_time=False)
 
@@ -49,7 +49,7 @@ def get_tool_templates() -> List[ToolTemplate]:
     return [
         ToolTemplate(
             name="Copy helloworld.py (default)",
-            description="Copy remote_tools/src/helloworld.py to remote and show how to run it",
+            extra_description="Copy remote_tools/src/helloworld.py to remote and show how to run it",
             args={
                 ARG_PATH_LONG: str(DEFAULT_LOCAL_FILE),
             },

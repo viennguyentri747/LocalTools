@@ -16,7 +16,7 @@ def get_tool_templates() -> List[ToolTemplate]:
     return [
         ToolTemplate(
             name="Process GitLab CI",
-            description="Process .gitlab-ci.yml for local execution",
+            extra_description="Process .gitlab-ci.yml for local execution",
             args={
                 "--gl_yml_file_path": "~/core_repos/intellian_pkg/.gitlab-ci.yml",
             }

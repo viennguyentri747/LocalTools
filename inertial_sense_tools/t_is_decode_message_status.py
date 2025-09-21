@@ -75,7 +75,7 @@ def get_tool_templates() -> List[ToolTemplate]:
     return [
         ToolTemplate(
             name="Decode INS Status",
-            description="Decode INS status integer",
+            extra_description="Decode INS status integer",
             args={
                 "--type": "ins",
                 "--status": "0x00031000",
@@ -83,7 +83,7 @@ def get_tool_templates() -> List[ToolTemplate]:
         ),
         ToolTemplate(
             name="Decode GPS Status",
-            description="Decode GPS status integer",
+            extra_description="Decode GPS status integer",
             args={
                 "--type": "gps",
                 "--status": "0x312",
@@ -91,7 +91,7 @@ def get_tool_templates() -> List[ToolTemplate]:
         ),
         ToolTemplate(
             name="Decode HDW Status",
-            description="Decode hardware status integer",
+            extra_description="Decode hardware status integer",
             args={
                 "--type": "hdw",
                 "--status": "0x2088010",

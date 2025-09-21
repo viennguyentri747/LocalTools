@@ -48,7 +48,6 @@ def get_tool_templates() -> List[ToolTemplate]:
     return [
         ToolTemplate(
             name="Update BOTH Firmware and SDK",
-            description="Run both updates in one command",
             args={
                 ARG_NO_PROMPT: TRUE_ARG_VALUE,
                 ARG_UPDATE_FW: TRUE_ARG_VALUE,
@@ -59,7 +58,6 @@ def get_tool_templates() -> List[ToolTemplate]:
         ),
         ToolTemplate(
             name="Update ONLY Firmware",
-            description="Update firmware only",
             args={
                 ARG_NO_PROMPT: TRUE_ARG_VALUE,
                 ARG_UPDATE_FW: TRUE_ARG_VALUE,
@@ -69,7 +67,6 @@ def get_tool_templates() -> List[ToolTemplate]:
         ),
         ToolTemplate(
             name="Update ONLY SDK",
-            description="Update SDK only",
             args={
                 ARG_NO_PROMPT: TRUE_ARG_VALUE,
                 ARG_UPDATE_SDK: TRUE_ARG_VALUE,

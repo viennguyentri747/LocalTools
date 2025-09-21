@@ -97,14 +97,14 @@ def get_tool_templates() -> List[ToolTemplate]:
     return [
         ToolTemplate(
             name="Basic Search",
-            description="Search for version with default settings",
+            extra_description="Search for version with default settings",
             args={
                 "version": "29.9.1.6",
             }
         ),
         ToolTemplate(
             name="Search with Custom URL",
-            description="Search for version with custom base URL",
+            extra_description="Search for version with custom base URL",
             args={
                 "version": "29.9.1.6",
                 "--base-url": "http://10.1.26.170:8765",

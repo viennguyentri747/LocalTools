@@ -1,6 +1,7 @@
 import hashlib
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 from typing import List, Literal, Optional, Union
@@ -9,8 +10,14 @@ import traceback
 
 def run_shell(cmd: Union[str, List[str]], cwd: Optional[Path] = None, check_throw_exception_on_exit_code: bool = True, stdout=None, stderr=None, text=None, capture_output: bool = False, encoding: str = 'utf-8', shell: bool = True) -> subprocess.CompletedProcess:
     """Echo + run a shell command"""
+    if shell and isinstance(cmd, List):
+        LOG(f"Shell mode but cmd is a list -> Converting to string...")
+        cmd = ' '.join(shlex.quote(str(arg)) for arg in cmd)
+    elif not shell and isinstance(cmd, str):
+        LOG(f"Non-shell mode but cmd is a string -> Converting to list...")
+        cmd = shlex.split(cmd)
+
     LOG(f">>> {cmd} (cwd={cwd or Path.cwd()})")
-    # is_shell = isinstance(cmd, str)
     return subprocess.run(cmd, shell=shell, cwd=cwd, check=check_throw_exception_on_exit_code, stdout=stdout, stderr=stderr, text=text, capture_output=capture_output, encoding=encoding)
 
 def change_dir(path: str):

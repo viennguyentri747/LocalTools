@@ -537,7 +537,7 @@ def get_tool_templates() -> List[ToolTemplate]:
     return [
         ToolTemplate(
             name="IESA Build Local",
-            description="Build IESA with local manifest and current branch",
+            extra_description="Build IESA with local manifest and current branch",
             args={
                 "--build_type": "iesa",
                 "--manifest_source": "local",
@@ -551,7 +551,7 @@ def get_tool_templates() -> List[ToolTemplate]:
         ),
         ToolTemplate(
             name="Binary Build",
-            description="Build binary with default settings",
+            extra_description="Build binary with default settings",
             args={
                 "--build_type": "binary",
                 "--manifest_source": "local",

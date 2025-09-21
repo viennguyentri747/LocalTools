@@ -77,7 +77,7 @@ def get_tool_templates() -> List[ToolTemplate]:
     return [
         ToolTemplate(
             name="Get ACU Logs",
-            description="Copy flash log files from remote",
+            extra_description="Copy flash log files from remote",
             args={"--type": ["P", "T", "E"], "--ips": ["192.168.100.52"], "--date": ["20250625"], }
         ),
     ]

@@ -265,7 +265,7 @@ def run_fw_update(version_or_fw_path: str, *, no_prompt: bool = False) -> None:
         LOG("Could not extract version from firmware filename.")
         return
 
-    branch_name = f"update-fw-{str_to_slug(version)}-{str_to_slug(get_short_date())}"
+    branch_name = f"update-fw-{str_to_slug(version)}-{str_to_slug(get_short_date_now())}"
     if not checkout_branch(OW_SW_PATH, branch_name):
         return
     update_firmware(selected_pair)

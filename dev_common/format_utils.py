@@ -1,5 +1,7 @@
 import re
 from datetime import datetime
+import shlex
+from typing import List, Union
 from readable_number import ReadableNumber
 
 
@@ -36,10 +38,48 @@ def get_path_no_suffix(path: str, suffix: str) -> str:
     return path
 
 
-def get_short_date(dt=None) -> str:
+def get_short_date_now(dt=None) -> str:
     """
     Return a short, lowercase date string like 'aug 1'.
     If dt is None, uses the current local date/time.
     """
     dt = dt or datetime.now()
     return f"{dt.strftime('%b').lower()} {dt.day}"
+
+
+def get_time_stamp_now() -> str:
+    return datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
+def quote(s: Union[str, List[str], None]) -> str:
+    """Quote a string, list of strings, or None value for shell safety.
+    """
+    if s is None:
+        return '""'
+    elif isinstance(s, list):
+        # Quote each list item individually and return list
+        return [shlex.quote(str(item)) for item in s]
+    elif not isinstance(s, (str, bytes)):
+        # Convert other types to string
+        print(f"[WARNING] Converting {type(s)} to string")
+        s = str(s)
+
+    return shlex.quote(s)
+
+
+def quote_arg_value_if_need(arg_value) -> Union[str, List[str]]:
+    """Quote strings with glob characters, handle lists too."""
+    def _quote_one(single_value: str) -> str:
+        if (single_value.startswith("'") and single_value.endswith("'")) or (single_value.startswith('"') and single_value.endswith('"')):
+            # Already quoted? leave it alone
+            return single_value
+        if any(ch in single_value for ch in ['*', '?', '[', ']']):
+            return f"'{single_value}'"
+        return single_value
+
+    if isinstance(arg_value, list):
+        return [_quote_one(str(v)) for v in arg_value]
+    elif isinstance(arg_value, str):
+        return _quote_one(arg_value)
+    else:
+        return str(arg_value)

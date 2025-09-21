@@ -9,13 +9,6 @@ _git_qhelp() {
 }
 
 _git_qpush() {
-  # Add + Commit + Push to ALL remotes, interactive confirm, tolerant of "nothing to commit"
-  command git add .
-  # The `|| true` prevents the script from exiting if there's nothing to commit.
-  command git commit -m "Quick Push" || true
-
-  # Get the current branch name
-  _b=$(command git rev-parse --abbrev-ref HEAD)
   # Get a list of all configured remotes
   _remotes=$(command git remote)
 
@@ -25,32 +18,64 @@ _git_qpush() {
     return 1
   fi
 
-  # Check if the local branch is ahead of ANY of the remotes
-  any_ahead=0
-  for _r in $_remotes; do
-    # Count commits on the local branch that are not on the remote branch.
-    # `2>/dev/null` suppresses errors if the remote branch doesn't exist yet.
-    ahead=$(command git rev-list --count "${_r}/${_b}..${_b}" 2>/dev/null || echo 0)
-    if [ "${ahead:-0}" -gt 0 ]; then
-      any_ahead=1
-      break # Found a remote that's behind, no need to check others.
-    fi
-  done
-
-  # If no remotes are behind, there's nothing to push.
-  if [ "$any_ahead" -eq 0 ]; then
-    echo "Nothing to push. All remotes are up-to-date."
+  # Check if there are any changes to stage
+  if command git diff --quiet && command git diff --cached --quiet; then
+    echo "No changes to commit."
     return 0
   fi
+
+  # Get the current branch name
+  _b=$(command git rev-parse --abbrev-ref HEAD)
+
+  # Show what files would be changed
+  echo "Files to be committed:"
+  if ! command git diff --quiet; then
+    echo "  Modified files:"
+    command git diff --name-status | sed 's/^/    /'
+  fi
+  if ! command git diff --cached --quiet; then
+    echo "  Already staged files:"
+    command git diff --cached --name-status | sed 's/^/    /'
+  fi
+  echo
 
   # Format the list of remotes for the confirmation message
   _remotes_list=$(echo "$_remotes" | tr '\n' ' ')
   
-  # Ask for confirmation before pushing to all remotes
-  printf "Push branch [%s] to ALL remotes [%s]? (y/N) " "$_b" "$_remotes_list"
+  # Ask for confirmation before staging, committing, and pushing
+  printf "Stage, commit, and push branch [%s] to ALL remotes [%s]? (y/N) " "$_b" "$_remotes_list"
   read -r confirm
   case "$confirm" in
     [yY])
+      # Now do the actual staging and committing
+      echo "--> Staging changes..."
+      command git add .
+      
+      echo "--> Committing changes..."
+      # The `|| true` prevents the script from exiting if there's nothing to commit.
+      if ! command git commit -m "Quick Push"; then
+        echo "Nothing new to commit after staging."
+        return 0
+      fi
+
+      # Check if the local branch is now ahead of ANY of the remotes
+      any_ahead=0
+      for _r in $_remotes; do
+        # Count commits on the local branch that are not on the remote branch.
+        # `2>/dev/null` suppresses errors if the remote branch doesn't exist yet.
+        ahead=$(command git rev-list --count "${_r}/${_b}..${_b}" 2>/dev/null || echo 0)
+        if [ "${ahead:-0}" -gt 0 ]; then
+          any_ahead=1
+          break # Found a remote that's behind, no need to check others.
+        fi
+      done
+
+      # If no remotes are behind, there's nothing to push.
+      if [ "$any_ahead" -eq 0 ]; then
+        echo "Nothing to push. All remotes are up-to-date."
+        return 0
+      fi
+
       all_pushed=true
       # Loop through each remote and push the current branch
       for _r in $_remotes; do

@@ -1,0 +1,2124 @@
+
+
+==================================================
+FILE 1/2: file_ins_config_hd_DEFAULT.txt
+==================================================
+
+Directory structure:
+└── ins_config_hd.json
+
+================================================
+FILE: .
+================================================
+{
+    "comments" : [
+        "disable pn check: determines whether or not to replace this file or have it persist (1 means persist, 0 means replace) (this comment is specifically not including the underscore in this line so filter doesn't get confused).",
+        "The communication port is automatically detected. It can be configured",
+        "using the device_prefix and device_by_id_dir",
+        "yaw_offset_deg: Used to apply an offset to the received yaw",
+        "wait_for_fix_nav: When false, will set the INS status to tru and send RPY data",
+        "log_level: off, error, warn, info or debug",
+        "ppd_logging_enabled: true or false - when true, writes ppd logs for KIM debugging to ppd_log_path. Note - this is a DEBUG FEATURE! Should not be left enabled long term, as there is no method for log rotation.",
+        "ppd_log_dir: Absolute directory path to write KIM debug PPD logs to",
+        "ppd_log_max_size_mb: max size to log before stopping logging",
+        "num_updates_wo_send: number of unchanged status updates before sending the status again",
+        "rpy_granularity_deg: tolerance for how much change (degrees) is required in roll, pitch, and yaw before sending new RPY data",
+        "transport_type: Connection with spibeam. Use redis or udp",
+        "redis_stream_name: Stream name in redis used to send data",
+        "udp_local_port: UDP listening port",
+        "udp_remote_ip: IP where to send UDP data",
+        "udp_remote_port: Port to use for sending UDP data",
+        "device_by_id_dir: Directory where udev creates symbolic link to the device. Should not need to be set",
+        "device_prefix: The prefix of the device within the device_by_id_dir. Should not need to be set",
+        "emulate_mode: Assumes a INS device is not available and will send a status of true and the RPY values from rpy_values_deg",
+        "rpy_values_deg: If emulate more is true, will use these values when sending the RollPitchYaw message to spibeam",
+        "perform_hw_reset_on_bad_status: If true send a HW reset to the KIM after the status has been bad for hw_reset_on_bad_status_wait_time_sec and the process has been up for/not reset in the last uptime_required_before_hw_reset_sec",
+        "uptime_required_before_hw_reset_sec: time required at startup and since last reset before allowing for a HW reset",
+        "hw_reset_on_bad_status_wait_time_sec: Number of seconds to wait when the status is bad before sending a HW reset",
+        "exit_on_hw_reset: Exit on HW reset if enabled (systemd will restart)",
+        "speed_thread_Hi: Threshold to pass to set as in motion (meters/second)",
+        "speed_thread_Lo: Threshold to pass to set as stationary (meters/second)",
+        "average_velocity_weight [0-1]: The weight to apply to the existing measurements and new measurements (1-average_velocity_weight).",
+          "For example:",
+           "Set to 0 uses the current measurement and disregards the existing velocity value",
+           "Set to 0.9 will weight the existing velocity at 90% and new measurement at 10%",
+           "     so if the current velocity is 0 m/s and the next velocity measurements is 10 m/s, the velocity will be updated to 1 m/s",
+        "use_last_yaw_when_stationary: When transitioning to stationary from in motion, the last provided yaw value from the KIM will be used while stationary",
+        "messages",
+          "name: The name of the DID message to subscribe to",
+          "enabled: Whether or not the message will be subscribed to",
+          "broadcast_rate_ms: rate at which the INS should send the message to ins_monitor",
+          "log_rate: How often to log the message (e.g. 10 will log every 10th message received)"
+    ],
+    "disable_pn_check" : 0,
+    "com_port" : "/dev/ttyS1",
+    "yaw_offset_deg" : 0.0,
+    "wait_for_fix_nav" : true,
+    "log_level" : "debug",
+    "ppd_logging_enabled" : false,
+    "ppd_log_dir" : "/home/root/flash_logs/ins_ppd_logs",
+    "ppd_log_max_size_mb" : 50,
+    "num_updates_wo_send": 500,
+    "rpy_granularity_deg": 0.0,
+
+    "transport_type" : "udp",
+    "redis_stream_name" : "ins_stream",
+    "udp_local_port" : 48623,
+    "udp_remote_ip" : "127.0.0.1",
+    "udp_remote_port" : 48624,
+
+    "emulate_mode" : false,
+    "rpy_values_deg" : [-178.28, -0.55, 163.89],
+    "listen_on_serial_port_in_emulate" : false,
+
+    "perform_hw_reset_on_bad_status" : false,
+    "uptime_required_before_hw_reset_sec" : 120,
+    "hw_reset_on_bad_status_wait_time_sec" : 30,
+    "exit_on_hw_reset" : false,
+
+    "speed_thread_Hi" : 0.75,
+    "speed_thread_Lo" : 0.5,
+    "average_velocity_weight" : 0.0,
+    "use_last_yaw_when_stationary" : true,
+
+    "messages" : [
+		{
+			"name" : "DID_INS_1",
+			"enabled" : true, 
+			"broadcast_rate_ms" : 100,
+			"log_rate" : 1
+		},
+		{ 
+			"name" : "DID_GPS1_POS",
+			"enabled" : true, 
+			"broadcast_rate_ms" : 500,
+			"log_rate" : 1
+		},
+		{ 
+			"name" : "DID_GPS2_POS",
+			"enabled" : true, 
+			"broadcast_rate_ms" : 500,
+			"log_rate" : 1
+		},
+		{
+			"name" : "DID_GPS2_RTK_CMP_REL",
+			"enabled" : true, 
+			"broadcast_rate_ms" : 500,
+			"log_rate" : 1 
+		}
+	],
+  "yaw_smoothing" : {
+    "comments" : [
+      "enabled - turn the feature on or off",
+      "ins_status_mask_ok_uint - insStatus must be in this state to accept yaw values (128/0x80 = INS_STATUS_GPS_AIDING_HEADING",
+      "ar_ratio_threshold - ar ratio must be above this to accept yaw values",
+      "base_distance - base distance for gnss antennas on the antenna (physical distance)",
+      "base_deviation_threshold - absolute value of KIM calculated distance minus base_distance must be less than this threshold to accept yaw values",
+      "cnr_threshold - cnr threshold for each gnss antenna for yaw values to be accepted" ,
+      "cnr_difference_threshold - cnr difference between gnss antennas ",
+      "buffer_size - determines how many measurements are stored. 3000 at 10 Hz = 5 minutes ",
+      "use_initial_kim_msmt - use kim provided yaw value regardless of status until a valid yaw value is provided",
+      "initial_yaw_value_to_use_when_not_using_kim_value - if the use_initial_kim_msmt is false, this value will be provided until a good value is available",
+      "stop_collecting_on_full_buffer - Stop collecting data once the buffer is full and use the average from the buffer",
+      "use_first_msmt_until_buffer_full - Use the first good measurement provided until the buffer is full and then use the average from the buffer",
+      "use_yaw_from_flash - If a yaw value is available in flash, use it until a good value is provided",
+      "save_yaw_to_flash - Will save the first good yaw value provided to flash and once the buffer is full will overwrite with the average",
+      "save_to_flash_every_n_updates - Write to the flash after n updates have been received (if 0 will write on initial and full buffer only)"
+  ],
+    "enabled" : true,
+    "ins_status_mask_ok_uint" : 128,
+    "ar_ratio_threshold" : 900,
+    "base_distance" : 0.51,
+    "base_deviation_threshold" : 0.05,
+    "cnr_threshold" : 30,
+    "cnr_difference_threshold" : 6,
+    "buffer_size" : 6000,
+    "use_initial_kim_msmt" : false,
+    "initial_yaw_value_to_use_when_not_using_kim_value" : 90.0,
+    "stop_collecting_on_full_buffer" : true,
+    "use_first_msmt_until_buffer_full" : false,
+    "use_yaw_from_flash" : true,
+    "save_yaw_to_flash" : true,
+    "stored_yaw_value_location" : "/usr/local/config/system_config/ins_stored_yaw.txt",
+    "save_to_flash_every_n_updates" : 100
+  },
+  "spurious_filter" :
+  {
+    "comments" : [
+      "Description: This filter will accept yaw values that are within the delta_yaw value range and will",
+      "             become the new yaw value. If the yaw value is outside the delta_yaw value, then the previous",
+      "             yaw value will be returned and the yaw value outside the delta_yaw will be added to a buffer.",
+      "             When that buffer reaches consec_spur_yaw values, the new value will be used. If a good value",
+      "             is received before the buffer is full, the buffer will be reset",
+      "enabled - turn the feature on or off",
+      "delta_yaw - Threshold for accepting the new yaw value of",
+      "consec_spur_yaw - Number of yaw values outside the delta_yaw value range required before the value will be used"
+    ],
+    "enabled" : false,
+    "delta_yaw" : 360.0,
+    "consec_spur_yaw" : 0
+  }
+}
+
+
+
+
+==================================================
+FILE 2/2: file_ins_monitor_DEFAULT.txt
+==================================================
+
+Directory structure:
+└── ins_monitor.cpp
+
+================================================
+FILE: .
+================================================
+
+/*
+    ins_monitor.cpp
+    This is based on examples found in ISCommunicationsExample.c
+
+	TD 1/19/2024: Added a number of print statements that are commented out these are very helpful when running
+				  from the command line since the log statements do not work.
+*/
+
+#include "ins_monitor.h"
+
+#include "yaw_smoothing.h"
+#include "spurious_filter.h"
+
+#include <gnss_util.h>
+
+#include <functional>
+#include <optional>
+#include <algorithm>
+#include <chrono>
+#include <SharedMemory/SharedMemory.hpp>
+#include <sys/time.h>
+
+#include <fstream> // Added for file operations
+#include <string>  // Added for string operations
+#include <pthread.h>
+#include <sys/inotify.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/select.h>
+
+// For iesa_log_event (E_LOGS)
+#include "event_log.h"
+#include "log_define.h"
+#include "time_convert.h"
+#include <stdarg.h>
+#include <termios.h> // For Hard MCU reset of KIM
+
+namespace {
+	serial_port_t *s_serial_port = nullptr;
+}
+
+const std::unordered_map<std::string, int> didMap = {
+    {"DID_INS_1", DID_INS_1},
+    {"DID_GPS1_POS", DID_GPS1_POS},
+    {"DID_GPS2_POS", DID_GPS2_POS},
+    {"DID_GPS1_VEL", DID_GPS1_VEL},
+    {"DID_GPS2_RTK_CMP_REL", DID_GPS2_RTK_CMP_REL},
+    {"DID_GPS2_RTK_CMP_MISC", DID_GPS2_RTK_CMP_MISC},
+    {"DID_DEV_INFO", DID_DEV_INFO},
+    {"DID_GPX_DEV_INFO", DID_GPX_DEV_INFO},
+    {"DID_GPX_STATUS", DID_GPX_STATUS},
+    {"DID_FLASH_CONFIG", DID_FLASH_CONFIG},
+    {"DID_SYS_PARAMS", DID_SYS_PARAMS},
+    {"DID_DEBUG_ARRAY", DID_DEBUG_ARRAY},
+    {"DID_PORT_MONITOR", DID_PORT_MONITOR}
+};
+
+static int portWrite(unsigned int port, const unsigned char* buf, int len)
+{
+	(void) port;
+	return serialPortWrite(s_serial_port, buf, len);
+}
+
+static int portRead(int port, unsigned char* buf, int len)
+{
+	(void) port;
+	return serialPortRead(s_serial_port, buf, len);
+}
+
+INSMonitor::INSMonitor(serial_port_t *serial_port, Json::Value& jcfg)
+	: m_last_ins_status_valid(false)
+	, m_last_reported_rpy(-1000, -1000, -1000)
+	, m_INS_RESET_SLEEP_PERIOD_SEC(INS_RESET_SLEEP_PERIOD_SEC)
+	, m_DID_GPX_DEV_INFO_msgs_received(0)
+	, m_DID_FLASH_CONFIG_msgs_received(0)
+	, m_running(1)
+	, m_ins_config() // initialize with all zeroes
+	, m_constant_rpy_after_convergence(jcfg.get("constant_rpy_after_convergence", false).asBool())
+	, m_use_yaw_from_kim(jcfg.get("use_yaw_from_kim", false).asBool())
+	, m_yaw_smoothing(jcfg["yaw_smoothing"], m_constant_rpy_after_convergence)
+	, m_spurious_filter(jcfg["spurious_filter"])
+	, m_rgnss_autodetect(jcfg["rgnss_autodetection"])
+{
+    m_is_manpack = !m_use_yaw_from_kim;
+    m_use_saved_rpy = false;
+	m_gpx_missing = 0;
+	m_gps1_cno_mean = 0;
+	m_gps2_cno_mean = 0;
+	m_gain_factor = GAIN_FACTOR;
+	m_alpha = INITIAL_ALPHA;
+	m_last_RP_updated_time = 0;
+	m_last_MS_updated_time = 0;
+	m_rgnss_detected = Intellian::SharedMemory::ReadRGNSSDetected();
+	m_gnss_source = GNSS_SOURCE_UNKNOWN;
+
+	memset(m_RPY, 0, sizeof(m_RPY));
+	memset(m_RPY_deg, 0, sizeof(m_RPY_deg));
+	memset(m_lastSmoothedUVW, 0, sizeof(m_lastSmoothedUVW));
+
+	s_serial_port = serial_port;
+
+	m_tilt_based_motion = jcfg.get("tilt_based_motion", false).asBool();
+	m_yaw_offset_deg = jcfg.get("yaw_offset_deg", 0.0).asFloat();
+	m_wait_for_nav = jcfg.get("wait_for_fix_nav", true).asBool();
+	m_num_updates_wo_send = jcfg.get("num_updates_wo_send", 100).asUInt();
+	m_rpy_granularity = jcfg.get("rpy_granularity_deg", 0.01).asDouble();
+	m_time_between_imu_fault_rej_elog_sec = jcfg.get("time_between_imu_fault_rej_elog_sec", 300).asUInt();
+	
+	m_perform_hw_reset_on_bad_status = jcfg.get("perform_hw_reset_on_bad_status", false).asBool();
+	m_exit_on_hw_reset = jcfg.get("exit_on_hw_reset", false).asBool();	
+	m_uptime_required_before_hw_reset_sec = jcfg.get("uptime_required_before_hw_reset_sec", 120).asUInt();
+	m_hw_reset_on_bad_status_wait_time_sec = jcfg.get("hw_reset_on_bad_status_wait_time_sec", 30).asUInt();
+	m_speed_thread_Hi = jcfg.get("speed_thread_Hi", 2.0).asFloat();
+	m_speed_thread_Lo = jcfg.get("speed_thread_Lo", 1.0).asFloat();
+	m_ave_weight = jcfg.get("average_velocity_weight", 0.9).asFloat();
+	m_use_last_yaw_when_stationary = jcfg.get("use_last_yaw_when_stationary", false).asBool();
+	m_reset_after_n_secs_on_missed_gps_msgs = jcfg.get("reset_after_n_secs_on_missed_gps_msgs", 15).asUInt();
+
+	// Default to HD values. Used for LUI and p-log so should not cause any harm if they are missing from 
+	// the config file just some confusion. 
+	m_kim_to_body_roll_mount_rad = jcfg.get("kim_to_body_roll_mount_rad", 180.0).asFloat();;
+	m_kim_to_body_yaw_mount_rad = jcfg.get("kim_to_body_yaw_mount_rad", 90.0).asFloat();;
+	m_body_to_ut_yaw_mount_rad = jcfg.get("body_to_ut_yaw_mount_rad", 180.0).asFloat();;
+
+	m_saved_yaw_from_file = m_yaw_smoothing.getYawFromToFile();
+	INFO_LOG("Creating INSMonitor: speed_thread_Hi: %.2f,  m_speed_thread_Lo: %.2f, average_velocity_weight: %.2f, reset_after_n_secs_on_missed_gps_msgs: %u, "
+			"kim_to_body_roll_mount_rad: %.2f, m_kim_to_body_yaw_mount_rad: %.2f, m_body_to_ut_yaw_mount_rad: %.2f, m_constant_rpy_after_convergence: %d, m_tilt_based_motion:%d, m_use_yaw_from_kim: %d, saved_yaw_from_file: %.2f\n",
+			m_is_manpack ? "MANPACK" : "iESA",
+			m_speed_thread_Hi,
+			m_speed_thread_Lo,
+			m_ave_weight,
+			m_reset_after_n_secs_on_missed_gps_msgs,
+			m_kim_to_body_roll_mount_rad,
+			m_kim_to_body_yaw_mount_rad,
+			m_body_to_ut_yaw_mount_rad,
+			m_constant_rpy_after_convergence,
+                        m_tilt_based_motion,
+			m_use_yaw_from_kim,
+			m_saved_yaw_from_file);
+
+	m_INS1_MSG_FREQ_MS = 100; //default value
+	const Json::Value& messages = jcfg["messages"];
+	for (const auto& message : messages)
+	{
+		MessageConfig messageCfg;
+		messageCfg.name = message.get("name", "").asString();
+		messageCfg.enabled = message.get("enabled", false).asBool();
+		messageCfg.broadcast_rate_ms = message.get("broadcast_rate_ms", 0).asUInt();
+		messageCfg.log_rate = message.get("log_rate", 1).asUInt();
+
+        if(!messageCfg.enabled || messageCfg.name.empty() || messageCfg.broadcast_rate_ms == 0){ 
+            WARNING_LOG("Ignoring a message: message name = %s, enabled = %s, broadcast_rate_ms = %d\n", 
+                        messageCfg.name.c_str(), messageCfg.enabled ? "true" : "false", messageCfg.broadcast_rate_ms);
+            continue;
+        }
+        
+        int did = getSupportedMessageDid(messageCfg);
+		if(not did)
+		{
+			WARNING_LOG("Message %s is not supported. Skipping...\n", messageCfg.name.c_str());
+			continue;
+		}
+
+		if(did == DID_INS_1)
+		{
+			m_INS1_MSG_FREQ_MS = messageCfg.broadcast_rate_ms;
+		}
+        //Initialize maps
+        m_message_counts.emplace(did, 0);
+        m_message_cfgs.emplace(did, messageCfg);
+    }
+	m_kim_start_time = std::chrono::system_clock::now();
+
+	if(jcfg["yaw_smoothing"].get("enabled", false).asBool())
+	{
+		INFO_LOG("Yaw smoothing is enabled\n");
+		m_use_yaw_smoothing = true;
+	}
+	else
+	{
+		INFO_LOG("Yaw smoothing is disabled\n");
+	}
+
+	if(jcfg["spurious_filter"].get("enabled", false).asBool())
+	{
+		// Only 1 filter enabled at a time
+		if(m_use_yaw_smoothing)
+		{
+			WARNING_LOG("yaw_smoothing and spurious_filter are both enabled. Only one can be enabled. Disable yaw_smoothing to enable spurious_filter\n");
+		}
+		else
+		{
+			INFO_LOG("Spurious filter is enabled\n");
+			m_use_spurious_filter = true;
+		}
+	}
+	else
+	{
+		INFO_LOG("Spurious filter is disabled\n");
+	}
+
+	m_start_monitor = false;
+
+	if (m_use_yaw_smoothing || !m_use_yaw_from_kim)
+	{
+		m_start_monitor = true;
+		pthread_create(&m_file_monitor_thread, nullptr, MonitorSavedYawFile, this);
+	}
+
+    int rgnss_auto_detect_dev_override = jcfg["rgnss_autodetection"].get("developer_enabled_override", 2).asInt();
+    bool rgnss_auto_detect_enabled = (rgnss_auto_detect_dev_override != 2 ? rgnss_auto_detect_dev_override : jcfg["rgnss_autodetection"].get("enabled", false).asBool() ); // Use developer override if it isn't 2, otherwise use enabled key
+	if(rgnss_auto_detect_enabled)
+	{
+		INFO_LOG("RGNSS AUTO DETECTION is ENABLED, RGNSS detected: %d\n", m_rgnss_detected);
+		INFO_LOG("%s\n", m_rgnss_autodetect.getPrettyThresholdsLog().c_str());
+	}
+	else
+	{
+		INFO_LOG("RGNSS AUTO DETECTION is DISABLED, RGNSS detected: %d\n", m_rgnss_detected);
+	}
+}
+
+INSMonitor::~INSMonitor()
+{
+	if (m_use_yaw_smoothing)
+	{
+		m_start_monitor = false;
+		pthread_join(m_file_monitor_thread, NULL);
+	}
+}
+
+bool INSMonitor::IsFileExisted(const char *fname)
+{
+	return access(fname, F_OK) == 0;
+}
+
+void *INSMonitor::MonitorSavedYawFile(void *arg)
+{
+	INSMonitor *monitor = static_cast<INSMonitor *>(arg);
+
+	std::string filename = monitor->m_yaw_smoothing.get_stored_yaw_file_name();
+
+	while (!monitor->IsFileExisted(filename.c_str()) && monitor->m_start_monitor)
+	{
+		sleep(1);
+	}
+
+	int fd = inotify_init();
+	if (fd < 0)
+	{
+		ERROR_LOG("YAW_FILE : inotify_init failed\n");
+		return NULL;
+	}
+
+	int wd = inotify_add_watch(fd, filename.c_str(), IN_MODIFY | IN_DELETE_SELF | IN_DELETE);
+	if (wd == -1)
+	{
+		ERROR_LOG("YAW_FILE : inotify_add_watch failed\n");
+		close(fd);
+		return NULL;
+	}
+
+	INFO_LOG("YAW_FILE : Started monitoring file: %s\n", filename.c_str());
+
+	int EVENT_SIZE = (sizeof(struct inotify_event));
+	int EVENT_BUF_LEN = (1024 * (EVENT_SIZE + 16));
+
+	char buffer[EVENT_BUF_LEN] = "";
+
+	fd_set read_fds;
+	struct timeval timeout;
+
+	while (monitor->m_start_monitor)
+	{
+		FD_ZERO(&read_fds);
+		FD_SET(fd, &read_fds);
+
+		timeout.tv_sec = 5;
+		timeout.tv_usec = 0;
+
+		int ret = select(fd + 1, &read_fds, NULL, NULL, &timeout);
+		if (ret < 0)
+		{
+			ERROR_LOG("YAW_FILE : select failed\n");
+			break;
+		}
+		else if (ret == 0)
+		{
+			continue;
+		}
+
+		if (FD_ISSET(fd, &read_fds))
+		{
+			int length = read(fd, buffer, EVENT_BUF_LEN);
+			if (length < 0)
+			{
+				ERROR_LOG("YAW_FILE : Read file events failed\n");
+				break;
+			}
+
+			for (int i = 0; i < length; i += EVENT_SIZE + ((struct inotify_event *)&buffer[i])->len)
+			{
+				struct inotify_event *event = (struct inotify_event *)&buffer[i];
+
+				if (event->mask & IN_MODIFY)
+				{
+					INFO_LOG("YAW_FILE : File modified, reading new value...\n");
+
+					usleep(10000);
+					
+					if(monitor->m_use_yaw_from_kim) 
+					{
+						monitor->m_yaw_smoothing.readYawToFile();
+					}
+					else
+					{
+						monitor->m_saved_yaw_from_file = monitor->m_yaw_smoothing.getYawFromToFile();
+						INFO_LOG("YAW_FILE : new value from file = %.2f\n",monitor->m_saved_yaw_from_file);
+					}
+				}
+				else if ((event->mask & IN_DELETE) || (event->mask & IN_DELETE_SELF))
+				{
+					INFO_LOG("YAW_FILE : File deleted, waiting for recreation...\n");
+
+					if (monitor->m_use_yaw_from_kim)
+					{
+						monitor->m_yaw_smoothing.readYawToFile();
+					}
+					else
+					{
+						monitor->m_saved_yaw_from_file = monitor->m_yaw_smoothing.getYawFromToFile();
+						INFO_LOG("YAW_FILE : new value from file = %.2f before creating new file\n",monitor->m_saved_yaw_from_file);
+					}
+
+					inotify_rm_watch(fd, wd);
+					close(fd);
+
+					while (!monitor->IsFileExisted(filename.c_str()) && monitor->m_start_monitor)
+					{
+						sleep(1);
+					}
+
+					INFO_LOG("YAW_FILE : Restarted monitoring file: %s\n", filename.c_str());
+
+					fd = inotify_init();
+					if (fd < 0)
+					{
+						ERROR_LOG("YAW_FILE : inotify_reinit failed\n");
+						pthread_exit(NULL);
+					}
+
+					wd = inotify_add_watch(fd, filename.c_str(), IN_MODIFY | IN_DELETE_SELF | IN_DELETE);
+					if (wd == -1)
+					{
+						ERROR_LOG("YAW_FILE : inotify_read_watch failed\n");
+						close(fd);
+						pthread_exit(NULL);
+					}
+
+					usleep(10000);
+					
+					if(monitor->m_use_yaw_from_kim)  //Update value after file createion
+					{
+						monitor->m_yaw_smoothing.readYawToFile();
+					}
+					else
+					{
+						monitor->m_saved_yaw_from_file = monitor->m_yaw_smoothing.getYawFromToFile();
+						INFO_LOG("YAW_FILE : new value from file = %.2f after creating new file\n",monitor->m_saved_yaw_from_file);
+					}
+				}
+			}
+		}
+	}
+
+	inotify_rm_watch(fd, wd);
+	close(fd);
+	pthread_exit(NULL);
+
+	return NULL;
+}
+
+bool INSMonitor::handleInsStatus(uint32_t insStatus, bool& resetRequired)
+{
+	/* Behavior:
+	* when rv = true, use current INS1 data
+	* when rv = false, use lsat known good INS1 data
+	*/
+	bool rv = false;
+	// 10 min / number of ms between messages (e.g. num of messages seen before timeout)
+	
+	const float INS1_MSGS_TO_TIMEOUT = 10*60*1000 / m_INS1_MSG_FREQ_MS;
+	//Messages since last good status was seen
+	static int INS1_MSG_COUNT = 0;
+
+	bool incrementMsgCount = false;
+
+	// Handle INS_STATUS_SOLUTION_MASK (an int from 0-8)
+	switch(INS_STATUS_SOLUTION(insStatus))
+	{
+		case INS_STATUS_SOLUTION_OFF: 					//INS_STATUS_SOLUTION_MASK = 0
+			// reboot upon seeing (needs testing to verify we don’t see this on startup and get into a reboot loop)
+			ERROR_LOG("INS is reporting as off during usage! Attempting a reset...\n");
+			resetRequired = true;
+			INS1_MSG_COUNT = 0;
+			break;
+		case INS_STATUS_SOLUTION_ALIGNING: 				//INS_STATUS_SOLUTION_MASK = 1
+			// wait for <timeout=10min> for this to complete, then reboot if it is stuck
+			WARNING_LOG("Waiting for Alignment...\n");
+			incrementMsgCount = true;
+			break;
+		case INS_STATUS_SOLUTION_NAV: 					//INS_STATUS_SOLUTION_MASK = 3
+		case INS_STATUS_SOLUTION_AHRS: 					//INS_STATUS_SOLUTION_MASK = 5
+		case INS_STATUS_SOLUTION_VRS:                   //INS_STATUS_SOLUTION_MASK = 7
+			// Good case. Proceed as normal, and record this as the last known good case
+			INS1_MSG_COUNT = 0;
+			rv = true;
+			break;
+		case INS_STATUS_SOLUTION_NAV_HIGH_VARIANCE:		//INS_STATUS_SOLUTION_MASK = 4
+		case INS_STATUS_SOLUTION_AHRS_HIGH_VARIANCE: 	//INS_STATUS_SOLUTION_MASK = 6
+		case INS_STATUS_SOLUTION_VRS_HIGH_VARIANCE:		//INS_STATUS_SOLUTION_MASK = 8
+			// Use last known good case & continue using that. If behavior persists, SSM will cause a reset on its own (requires testing to validate)
+			WARNING_LOG("In High Variance Use Case. Continue using previously saved data...\n");
+			INS1_MSG_COUNT = 0;
+			break;
+		default:
+			ERROR_LOG("Error: Noticed invalid INS Status: %d\n", INS_STATUS_SOLUTION(insStatus));
+			break;
+	}
+	if(insStatus & INS_STATUS_RTK_COMPASSING_MASK)
+	{
+		// If GPS is not aiding the heading, print the warning log, otherwise we are good, no need for warning
+		if(! (insStatus & INS_STATUS_GPS_AIDING_HEADING) ) WARNING_LOG("Waiting for RTK Compassing to become good...\n");
+		incrementMsgCount = true;
+	}
+
+	static bool already_sent_E_LOG_on_general_fault = false;
+	if( (insStatus & INS_STATUS_GENERAL_FAULT ) )
+	{
+		ERROR_LOG("Noticed General Fault while parsing INS Status! %s\n", (already_sent_E_LOG_on_general_fault) ? "Already sent E-Log, skipping sending another..." : "Sending E-Log one time...");
+		if( !already_sent_E_LOG_on_general_fault )
+		{
+			//iesa_log_event(1, "INS_STATUS_GEN_FAULT", "INS Status contained general fault!");
+			already_sent_E_LOG_on_general_fault = true;
+		}
+		resetRequired = true;
+	}
+	else if( !(insStatus & INS_STATUS_GENERAL_FAULT ) && already_sent_E_LOG_on_general_fault )
+	{
+		ERROR_LOG("INS Status General Fault Flag Cleared!\n");
+		//iesa_log_event(0, "INS_STATUS_GEN_FAULT", "INS Status CLEARED general fault!");
+		already_sent_E_LOG_on_general_fault = false;
+	}
+
+	if(incrementMsgCount)
+		INS1_MSG_COUNT++; //only increment once, no matter which case(s) cause it to increment
+
+	if(INS1_MSG_COUNT >= INS1_MSGS_TO_TIMEOUT)
+	{
+		WARNING_LOG("Timeout Occurred for INS Alignment. Attempting a reboot...\n");
+		resetRequired = true;
+		INS1_MSG_COUNT = 0;
+	}
+
+	return rv;
+}
+
+bool INSMonitor::handleHdwStatus(uint32_t hdwStatus)
+{
+	//Validate the different hardware bits defined in data_sets.h eHdwStatusFlags
+	bool rv = true;
+	bool saturated = (hdwStatus & HDW_STATUS_SATURATION_MASK);
+	bool reset_required = (hdwStatus & HDW_STATUS_SYSTEM_RESET_REQUIRED);
+	bool bit_fault = ((hdwStatus & HDW_STATUS_BIT_MASK) == HDW_STATUS_BIT_FAILED);
+	bool temp_err = (hdwStatus & HDW_STATUS_ERR_TEMPERATURE);
+	bool watchdog_fault_reset = (hdwStatus & HDW_STATUS_RESET_CAUSE_WATCHDOG_FAULT); // i.e. did last KIM reset get caused by KIM internal watchdog? If so, report to I-S
+	bool sys_fault = (hdwStatus & HDW_STATUS_FAULT_SYS_CRITICAL);
+
+	static bool is_current_hw_status_good = false;
+	static unsigned log_every_n_for_status = 50;
+	static unsigned hw_good_status_count = 0;
+	static unsigned hw_status_bad_count = 0;
+	static unsigned number_of_resets = 0;
+	auto current_time = std::chrono::system_clock::now();
+	auto elapsed_uptime = std::chrono::duration_cast<std::chrono::seconds>(current_time - m_kim_start_time);
+
+	static bool prev_used_imu_fault_rej = false;
+	bool current_used_imu_fault_rej = (hdwStatus & HDW_STATUS_IMU_FAULT_REJECT_GYR);
+	if(current_used_imu_fault_rej != prev_used_imu_fault_rej)
+	{
+		INFO_LOG("IMU_FAULT_REJECTION STATUS CHANGED! Current State[%s], Previous State[%s]\n", current_used_imu_fault_rej ? "ACTIVE" : "INACTIVE", prev_used_imu_fault_rej ? "ACTIVE" : "INACTIVE");
+		prev_used_imu_fault_rej = current_used_imu_fault_rej;
+	}
+
+	if(saturated)
+		WARNING_LOG("Warning: INS is experiencing Saturation...\n");
+
+	if( reset_required || bit_fault || temp_err || watchdog_fault_reset || sys_fault)
+	{
+		ERROR_LOG("INS Hardware Issue ResetRequired %d, BIT Fault: %d, TempError: %d, WatchdogFaultReset: %d, SysFault: %d, HdwStatus: %x, Uptime since init or last reset (sec) %lu\n",
+			reset_required, bit_fault, temp_err, watchdog_fault_reset, sys_fault, hdwStatus, elapsed_uptime.count());
+		rv = false;
+		
+		// Once status is good and changes to bad, record the time we went into a fault
+		if(is_current_hw_status_good)
+		{
+			m_hw_status_bad_time = std::chrono::system_clock::now();
+			ERROR_LOG("INS Hardware status changed from good to bad!\n");
+
+			if(hw_good_status_count)
+			{
+				INFO_LOG("Resetting hw_good_status_count %d to 0.\n", hw_good_status_count);
+				hw_status_bad_count = 0;
+			}
+		}
+
+		// Is HW reset configured?
+		if(m_perform_hw_reset_on_bad_status)
+		{
+			// Has the KIM been running long enough to enable a reset?
+			if(elapsed_uptime.count() > m_uptime_required_before_hw_reset_sec)
+			{
+				// Has the status been bad for long enough for reset?
+				auto elapsed_bad_status = std::chrono::duration_cast<std::chrono::seconds>(current_time - m_hw_status_bad_time);
+				if(elapsed_bad_status.count() > m_hw_reset_on_bad_status_wait_time_sec)
+				{
+					++number_of_resets;
+					ERROR_LOG("Performing HW Reset on KIM. Uptime: %lu seconds, Bad Status seconds: %lu, num resets: %u (resetting stats)\n",
+								elapsed_uptime.count(), elapsed_bad_status.count(), number_of_resets);
+					// Will probably result in this process exiting since there will be too many missed messages 
+					// any systemd will restart.
+					performHWReset("stty -F /dev/ttyS3 115200 cs8 -cstopb -parenb && echo -n \"kimreset\" > /dev/ttyS3");
+					if(m_exit_on_hw_reset)
+					{
+						// Let systemd restart us. This will run the config_kim.sh script.
+						ERROR_LOG("Exit on HW reset = true. Exiting...\n");
+						exit(1);
+					}
+					static unsigned hw_good_status_count = 0;
+					static unsigned hw_status_bad_count = 0;
+					is_current_hw_status_good = false;
+					m_kim_start_time = std::chrono::system_clock::now();
+				}
+			}
+		}
+
+		++hw_status_bad_count;
+		is_current_hw_status_good = false;
+	}
+	else
+	{
+		if(++hw_good_status_count % log_every_n_for_status == 0)
+		{
+			DEBUG_LOG("HdwStatus is good. Proceeding... (good count %u)\n", hw_good_status_count);
+		}
+
+		if(not is_current_hw_status_good)
+		{
+			m_hw_status_good_time = std::chrono::system_clock::now();
+			ERROR_LOG("INS Hardware status changed from bad to good!\n");
+
+			if(hw_status_bad_count)
+			{
+				INFO_LOG("Resetting hw_status_bad_count %d to 0.\n", hw_status_bad_count);
+				hw_status_bad_count = 0;
+			}
+		}
+
+		is_current_hw_status_good = true;
+	}
+	return rv;
+}
+
+/// Returns true in good case,
+/// returns false when it needs a software reset (this allows it to be reset from main.cpp)
+bool INSMonitor::handleIns1Message(ins_1_t* ins, std::unique_ptr<INSTransportIntf>& conn_intf, bool is_log)
+{
+    static unsigned num_status_updates_wo_send = 0;
+
+	float roll = ins->theta[0] * C_RAD2DEG_F;
+	float pitch = ins->theta[1] * C_RAD2DEG_F;
+	float yaw = ins->theta[2] * C_RAD2DEG_F;	// 	(-180 to 180)
+		
+	if (is_log) {
+        INFO_LOG(", INS1Msg, TimeOfWeek[%.3fs], LLA[%.7f, %.7f, %.3f], Roll[%.2f], Pitch[%.2f], Yaw[%.2f], Yaw (with offset)[%2.1f], insStatus[0x%x], hdwStatus[0x%x], Velocity U,V,W[%.2f, %.2f, %.2f, NED: %.2f, %.2f, %.2f]\n",
+			ins->timeOfWeek,
+			ins->lla[0], ins->lla[1], ins->lla[2],
+			roll, pitch, yaw, yaw + m_yaw_offset_deg,
+			ins->insStatus, ins->hdwStatus,
+			ins->uvw[0], ins->uvw[1], ins->uvw[2],
+			ins->ned[0], ins->ned[1], ins->ned[2]);
+    }
+
+    float x_vel = ins->uvw[0];
+    float y_vel = ins->uvw[1];
+    float z_vel = ins->uvw[2];
+    
+	float uvw_speed = FindVelocity(x_vel, y_vel, z_vel);
+	float ned_speed = FindVelocity(m_last_received_gps_vel[0],m_last_received_gps_vel[1],m_last_received_gps_vel[2]);
+
+	m_speed = uvw_speed;
+
+	INS::MotionState previous_motion = m_motion_state;
+    FindMotionState(roll, pitch, yaw);
+
+	// If yaw smoothing is enabled, provided the updated yaw and let it determine the yaw value to use.
+	if (m_use_yaw_smoothing)
+	{
+		// When going from Motion to stationary, set the yaw value and clear the buffer
+		if(previous_motion == INS::IN_MOTION and m_motion_state == INS::STATIONARY)
+		{
+			// this will also write the value to flash which will allow for recovery on reboot
+			m_yaw_smoothing.setYawValueAndClearBuffer(ins->theta[2] * C_RAD2DEG_F);
+		}
+
+		m_yaw_smoothing.updateRPYFromIns1Msg(ins);
+		// Get the yaw value to use based on YawSmoothing configuration and only if stationary
+		if(m_motion_state == INS::STATIONARY)
+		{
+			m_yaw_smoothing.getYawValueToUse(yaw);
+		}
+		// else, if in motion, use the KIM value
+		DEBUG_LOG("INS1 SmoothYaw: yaw: %.2f, %s\n", yaw, m_yaw_smoothing.getStatsString().c_str());
+		// Get the yaw value to use from yaw smoothing
+	}
+
+	if(m_use_spurious_filter)
+	{
+		m_spurious_filter.getYawValueToUse(yaw);
+		DEBUG_LOG("SpuriousFilter: yaw: %.2f, %s\n", yaw, m_spurious_filter.getStatsString().c_str());
+	}
+
+    std::unique_ptr<INS::MotionStatusMsg> baseline_motion_msg = std::make_unique<INS::MotionStatusMsg>(m_motion_state);
+
+	if(m_use_last_yaw_when_stationary)
+	{
+		// If the value has been initialized, use the last value provided by the KIM until we are in motion
+		if(m_motion_state == INS::STATIONARY and m_last_yaw_to_use_when_stationary < 360)
+		{
+			DEBUG_LOG("Stationary filter: using last yaw: %.2f, ins yaw: %.2f, speed: %.2f m/s, motion: %d, uvw_speed: %.2f m/s, ned_speed: %.2f m/s\n", m_last_yaw_to_use_when_stationary, yaw, m_speed, m_motion_state, uvw_speed, ned_speed);
+			yaw = m_last_yaw_to_use_when_stationary;			
+		}
+		// If currently in motion, set the last used yaw value
+		else if(m_motion_state == INS::IN_MOTION)
+		{
+			// If I am in motion, use the value from the KIM and save the value to use when stationary
+			m_last_yaw_to_use_when_stationary = yaw;
+		}
+		// else I am stationary and the value has not been initialized so use the last value received from the KIM
+	}
+
+	bool resetRequired = false;
+	bool insStatusValid = handleInsStatus(ins->insStatus, resetRequired);
+	bool hdwStatusValid = handleHdwStatus(ins->hdwStatus);
+	bool bufferFull = m_yaw_smoothing.isBufferFull();
+	unsigned int bufferSize = m_yaw_smoothing.GetBufferSize();
+
+	if (not m_wait_for_nav)
+	{
+		insStatusValid = true;
+		hdwStatusValid = true;
+	}
+
+	yaw = m_use_yaw_from_kim ? yaw : m_saved_yaw_from_file;
+
+	auto [roll_ut_deg, pitch_ut_deg, yaw_ut_deg] = kim_rpy_to_ut_rpy(roll * C_DEG2RAD_F, pitch * C_DEG2RAD_F, yaw * C_DEG2RAD_F, m_kim_to_body_roll_mount_rad * C_DEG2RAD_F, m_kim_to_body_yaw_mount_rad * C_DEG2RAD_F, m_body_to_ut_yaw_mount_rad * C_DEG2RAD_F);
+	roll_ut_deg *= C_RAD2DEG_F;
+	pitch_ut_deg *= C_RAD2DEG_F;
+	yaw_ut_deg *= C_RAD2DEG_F;
+
+	std::unique_ptr<INS::CompassValidMsg> baseline_valid_msg = std::make_unique<INS::CompassValidMsg>(insStatusValid, ins->insStatus);
+
+	if (m_constant_rpy_after_convergence)
+	{
+		float orig_RPY[3] = {roll, pitch, yaw};
+		float orig_RPY_deg[3] = {roll_ut_deg, pitch_ut_deg, yaw_ut_deg};
+
+		if (previous_motion == INS::STATIONARY and m_motion_state == INS::STATIONARY)
+		{
+			if (!m_use_saved_rpy && bufferFull && insStatusValid && (m_RPY[0] || m_RPY[1] || m_RPY[2])) // Use saved values once the status is good to avoid drifts
+			{
+				m_use_saved_rpy = true;
+			}
+		}
+		else
+		{
+			m_use_saved_rpy = false;
+		}
+
+		if(m_use_saved_rpy)
+		{
+			roll = m_RPY[0];
+			pitch = m_RPY[1];
+			yaw = m_RPY[2];
+
+			roll_ut_deg = m_RPY_deg[0];
+			pitch_ut_deg = m_RPY_deg[1];
+			yaw_ut_deg = m_RPY_deg[2];
+		}
+		else
+		{
+			m_RPY[0] = roll;
+			m_RPY[1] = pitch;
+			m_RPY[2] = yaw;
+
+			m_RPY_deg[0] = roll_ut_deg;
+			m_RPY_deg[1] = pitch_ut_deg;
+			m_RPY_deg[2] = yaw_ut_deg;
+		}
+
+		DEBUG_LOG("RPY KIM(%.2f,%.2f,%.2f) SMOOTH_RPY(%.2f,%.2f,%.2f) LUI(%.2f,%.2f,%.2f) MOUNT(%.2f,%.2f,%.2f) CONSTANT(%.2f,%.2f,%.2f,%.2f,%.2f,%.2f) USE-SAVED(%d:INS%d/RST%d/BFULL%d); UVW(%.2f,%.2f,%.2f) NED(%.2f,%.2f,%.2f) SMOOTH_UVW(%.2f,%.2f,%.2f) MOTION(%d) SPEED(%.2f) UVW-SPEED(%.2f) END-SPEED(%.2f) SPEED-ACC(%.2f)\n",
+				ins->theta[0] * C_RAD2DEG_F, ins->theta[1] * C_RAD2DEG_F, ins->theta[2] * C_RAD2DEG_F,
+				orig_RPY[0], orig_RPY[1], orig_RPY[2],
+				orig_RPY_deg[0], orig_RPY_deg[1], orig_RPY_deg[2],
+				m_kim_to_body_roll_mount_rad, m_kim_to_body_yaw_mount_rad, m_body_to_ut_yaw_mount_rad,
+				roll, pitch, yaw, roll_ut_deg, pitch_ut_deg, yaw_ut_deg,//deg for LUI 
+				m_use_saved_rpy, insStatusValid, resetRequired, bufferFull, 
+				x_vel, y_vel, z_vel, 
+				m_last_received_gps_vel[0], m_last_received_gps_vel[1], m_last_received_gps_vel[2],
+				m_lastSmoothedUVW[0], m_lastSmoothedUVW[1], m_lastSmoothedUVW[2], 
+				m_motion_state, m_speed, uvw_speed, ned_speed, m_speed_accuracy_mps);
+	}
+	else
+	{
+		DEBUG_LOG("RPY KIM(%.2f,%.2f,%.2f) SMOOTH_RPY(%.2f,%.2f,%.2f) LUI(%.2f,%.2f,%.2f) MOUNT(%.2f,%.2f,%.2f) UVW(%.2f,%.2f,%.2f) NED(%.2f,%.2f,%.2f) SMOOTH_UVW(%.2f,%.2f,%.2f) MOTION(%d) SPEED(%.2f) UVW-SPEED(%.2f) END-SPEED(%.2f) SPEED-ACC(%.2f)\n",
+				ins->theta[0] * C_RAD2DEG_F, ins->theta[1] * C_RAD2DEG_F, ins->theta[2] * C_RAD2DEG_F,
+				roll, pitch, yaw,
+				roll_ut_deg, pitch_ut_deg, yaw_ut_deg,//deg for LUI
+				m_kim_to_body_roll_mount_rad, m_kim_to_body_yaw_mount_rad, m_body_to_ut_yaw_mount_rad, 
+				x_vel, y_vel, z_vel, 
+				m_last_received_gps_vel[0], m_last_received_gps_vel[1], m_last_received_gps_vel[2],
+				m_lastSmoothedUVW[0], m_lastSmoothedUVW[1], m_lastSmoothedUVW[2], 
+				m_motion_state, m_speed, uvw_speed, ned_speed, m_speed_accuracy_mps);
+	}
+
+	// Always provide the data
+	Intellian::SharedMemory::WriteINSData(roll, pitch, yaw, roll_ut_deg, pitch_ut_deg, yaw_ut_deg, x_vel, y_vel, z_vel, ins->lla[0], ins->lla[1], ins->lla[2], m_motion_state, ins->insStatus, bufferSize, m_gps1_cno_mean, m_gps2_cno_mean, m_speed, uvw_speed, ned_speed, m_speed_accuracy_mps, m_gpx_missing, m_rgnss_detected, m_use_saved_rpy, m_gnss_source);
+	if (insStatusValid && hdwStatusValid)
+	{
+		if (m_last_ins_status_valid != insStatusValid) {
+			INFO_LOG("INS status changed from %s to %s\n", m_last_ins_status_valid ? "true" : "false", insStatusValid ? "true" : "false");
+			m_last_ins_status_valid = insStatusValid;
+			DEBUG_LOG("Motion state: %d\n", m_motion_state);
+			num_status_updates_wo_send = 0;
+		}
+		else
+		{
+			if (++num_status_updates_wo_send >= m_num_updates_wo_send)
+			{
+				DEBUG_LOG("INS status has not changed from %s. Sending update anyways\n", m_last_ins_status_valid ? "true" : "false");
+				DEBUG_LOG("Motion state: %d\n", m_motion_state);
+				num_status_updates_wo_send = 0;
+			}
+		}
+	}
+	else if (!insStatusValid && !resetRequired && hdwStatusValid)
+	{
+		WARNING_LOG("Sending updated RPY to database despite bad INS Status.\n");
+	}
+	else
+	{
+		ERROR_LOG("Invalid HDW Status OR SW Reset Request Detected! Restarting. INS Status (%s), SW Reset Required (%s), HDW Status (%s).\n", insStatusValid ? "valid" : "invalid", resetRequired ? "true" : "false", hdwStatusValid ? "valid" : "invalid");
+		return false;
+	}
+
+	// Check to see if we have received a GPS message recently. The return false above is good since will wait until we are in a 
+	// good state before this kicks in. 
+	auto current_time = std::chrono::system_clock::now();
+	auto elapsed_last_gps_msg_time = std::chrono::duration_cast<std::chrono::seconds>(current_time - m_last_received_gps_msg);
+	if(m_reset_after_n_secs_on_missed_gps_msgs and
+	   elapsed_last_gps_msg_time.count() > m_reset_after_n_secs_on_missed_gps_msgs and
+	   elapsed_last_gps_msg_time.count() < 1000) // handle time jumping forward multiple days. Can happen at startup before have valid PPS
+	{
+		FaultData_t fdata;
+		memset(&fdata, 0, sizeof(FaultData_t));
+
+		clock_gettime(CLOCK_REALTIME,&fdata.ts);
+		fdata.alarmCode = 0;
+		fdata.severity  = 1;
+		fdata.onOff = 1;
+		snprintf(fdata.alarmName,sizeof(fdata.alarmName),"%s","INSMonitor RX GPS Msgs Timeout");
+		snprintf(fdata.location, sizeof(fdata.location), "%s", "Master");
+		snprintf(fdata.additionalText,sizeof(fdata.additionalText),"Failed to receive for %d seconds", m_reset_after_n_secs_on_missed_gps_msgs);
+		fault_log(&fdata);
+		ERROR_LOG("Failed to received GPS Message in %ld seconds (set to %d), resetting ins_monitor\n", elapsed_last_gps_msg_time.count(), m_reset_after_n_secs_on_missed_gps_msgs);
+		usleep(1E3);
+		exit(0);
+	}
+
+    return true;
+}
+
+void INSMonitor::handleIns2Message(ins_2_t* ins, std::unique_ptr<INSTransportIntf>& conn_intf, bool is_log)
+{
+	ixVector3 theta;
+	quat2euler(ins->qn2b, theta);
+
+	//INFO_LOG("INS2Msg TimeOfWeek: %.3fs, LLA: %3.7f,%3.7f,%5.2f, Euler: %5.1f,%5.1f,%5.1f\r\n",ins->timeOfWeek,ins->lla[0], ins->lla[1], ins->lla[2],	theta[0] * C_RAD2DEG_F, theta[1] * C_RAD2DEG_F, theta[2] * C_RAD2DEG_F);
+	if (is_log){
+        INFO_LOG(", INS2Msg, Roll[%5.1f], Pitch[%5.1f], Yaw[%5.1f], Yaw (with offset)[%5.1f]\n", theta[0] * C_RAD2DEG_F, theta[1] * C_RAD2DEG_F, theta[2] * C_RAD2DEG_F, (theta[2] * C_RAD2DEG_F) + m_yaw_offset_deg);
+    }
+    double roll = theta[0] * C_RAD2DEG_F;
+    double pitch = theta[1] * C_RAD2DEG_F;
+    double yaw = theta[2] * C_RAD2DEG_F;
+	// Math done in libgnss.so requires radians, however Degrees are more readable, and we don't need precision past thousands place so we can store it in degrees.
+	// Make sure to add in the yaw offset (settable via cmdline)
+	std::unique_ptr<INS::RollPitchYawMsg> rpmmsg = std::make_unique<INS::RollPitchYawMsg>(roll, pitch, yaw + m_yaw_offset_deg);
+	conn_intf->Send(std::move(rpmmsg));
+}
+
+void INSMonitor::handleFlashConfigMessage(nvm_flash_cfg_t* flash_cfg, bool is_log)
+{
+	static bool already_sent_e_log_on_missed_GPX_DEV_INFO = false;
+	// If DID_GPX_DEV_INFO is enabled, no messages are yet received, and we haven't yet sent an event log
+	if(m_message_cfgs[DID_GPX_DEV_INFO].enabled && m_DID_GPX_DEV_INFO_msgs_received == 0 && !already_sent_e_log_on_missed_GPX_DEV_INFO)
+	{
+		// Allowed # of missed DID_GPX_DEV_INFO missed messages.
+		const int allowed_missed_DID_GPX_DEV_INFO = 5;
+		// If the # of allowed missed messages * DID_GPX_DEV_INFO broadcast rate is less than the broadcast rate of a single DID_FLASH_CONFIG message, just use that
+		// (e.g. if DID_FLASH_CONFIG.broadcast_rate is 100ms & DID_GPX_DEV_INFO.broadcast_rate is 10ms and allowed missed is 5, then we should use 100ms instead of 5 * 10ms = 50ms
+		const int missed_GPX_DEV_INFO_threshold_ms = std::max( (allowed_missed_DID_GPX_DEV_INFO * m_message_cfgs[DID_GPX_DEV_INFO].broadcast_rate_ms), m_message_cfgs[DID_FLASH_CONFIG].broadcast_rate_ms );
+		int time_passed_since_first_FLASH_CONFIG_ms = m_message_cfgs[DID_FLASH_CONFIG].broadcast_rate_ms * m_DID_FLASH_CONFIG_msgs_received;
+		if(time_passed_since_first_FLASH_CONFIG_ms >= missed_GPX_DEV_INFO_threshold_ms )
+        {
+			INFO_LOG("WARNING: GPX device info not reported to ins_monitor in at least %d ms (Configured to receive every %d ms)", time_passed_since_first_FLASH_CONFIG_ms, m_message_cfgs[DID_GPX_DEV_INFO].broadcast_rate_ms);
+			// Currently no recovery, so send only one E-log
+			iesa_log_event(1, "MISSING_GPX_DEV_INFO", "GPX device info missing for %d ms(Configured for %d ms)", time_passed_since_first_FLASH_CONFIG_ms, m_message_cfgs[DID_GPX_DEV_INFO].broadcast_rate_ms);
+			// Write to volatile memory for display on LUI
+			
+			m_gpx_missing = 1;
+
+			//Finish writing volatile memory
+			already_sent_e_log_on_missed_GPX_DEV_INFO = true;
+		}
+	}
+	else if(m_DID_GPX_DEV_INFO_msgs_received != 0) // If we have seen a message, delete the file (if present)
+	{
+		m_gpx_missing = 0;
+	}
+
+	//TODO:: This should get read into the config file so that next boot, config is updated (e.g. startupNavDtMs)
+	//m_ins_config = *flash_cfg; //TODO: Enable this if we want to make decisions based on this in ins_monitor
+	if(is_log){
+		INFO_LOG(", DID_FLASH_CONFIG, "
+			"size[0x%x],checksum[0x%x],key[0x%x],startupImuDtMs[0x%x], "
+			"startupNavDtMs[0x%x],ser0BaudRate[0x%x],ser1BaudRate[0x%x],insRotation[%d,%d,%d], "
+			"insOffset[%d,%d,%d],gps1AntOffset[%d,%d,%d],dynamicModel[0x%x],debug[0x%x],gnssSatSigConst[0x%x], "
+			"sysCfgBits[0x%x],refLla[%0.2f,%0.2f,%0.2f],lastLla[%0.2f,%0.2f,%0.2f], "
+			"lastLlaTimeOfWeekMs[0x%x],lastLlaWeek[0x%x],lastLlaupdateDistance[%0.2f],ioConfig[0x%x],platformConfig[0x%x], "
+			"gps2AntOffset[%0.2f,%0.2f,%0.2f],zeroVelRotation[%0.2f,%0.2f,%0.2f],zeroVelOffset[%0.2f,%0.2f,%0.2f], "
+			"gpsTimeUserDelay[%0.2f],magDeclination[%0.2f],gpsTimeSyncPeriodMs[0x%x],startupGPSDtMs[0x%x],RTKCfgBits[0x%x], "
+			"sensorConfig[0x%x],gpsMinimumElevation[%0.2f],ser2BaudRate[0x%x],wheelCfgBits[%x], "
+			"magInterferenceThreshold[%0.2f],magCalibrationQualityThreshold[%0.2f],gnssCn0Minimum[0x%x],gnssCn0DynMinOffset[0x%x]\n", \
+			flash_cfg->size, flash_cfg->checksum, flash_cfg->key, flash_cfg->startupImuDtMs, flash_cfg->startupNavDtMs, flash_cfg->ser0BaudRate, flash_cfg->ser1BaudRate, \
+			flash_cfg->insRotation[0], flash_cfg->insRotation[1], flash_cfg->insRotation[2], flash_cfg->insOffset[0], flash_cfg->insOffset[1], flash_cfg->insOffset[2], \
+			flash_cfg->gps1AntOffset[0], flash_cfg->gps1AntOffset[1], flash_cfg->gps1AntOffset[2], flash_cfg->dynamicModel, flash_cfg->debug, flash_cfg->gnssSatSigConst, \
+			flash_cfg->sysCfgBits, flash_cfg->refLla[0], flash_cfg->refLla[1], flash_cfg->refLla[2], flash_cfg->lastLla[0], flash_cfg->lastLla[1], flash_cfg->lastLla[2], \
+			flash_cfg->lastLlaTimeOfWeekMs, flash_cfg->lastLlaWeek, flash_cfg->lastLlaUpdateDistance, flash_cfg->ioConfig, flash_cfg->platformConfig, \
+			flash_cfg->gps2AntOffset[0], flash_cfg->gps2AntOffset[1], flash_cfg->gps2AntOffset[2], flash_cfg->zeroVelRotation[0], \
+			flash_cfg->zeroVelRotation[1], flash_cfg->zeroVelRotation[2], flash_cfg->zeroVelOffset[0], flash_cfg->zeroVelOffset[1], \
+			flash_cfg->zeroVelOffset[2], flash_cfg->gpsTimeUserDelay, flash_cfg->magDeclination, flash_cfg->gpsTimeSyncPeriodMs, flash_cfg->startupGPSDtMs, \
+			flash_cfg->RTKCfgBits, flash_cfg->sensorConfig, flash_cfg->gpsMinimumElevation, flash_cfg->ser2BaudRate, flash_cfg->wheelConfig.bits, \
+			flash_cfg->magInterferenceThreshold,flash_cfg->magCalibrationQualityThreshold,flash_cfg->gnssCn0Minimum,flash_cfg->gnssCn0DynMinOffset);
+    }
+}
+
+void INSMonitor::handleDidDevInfoMessage(dev_info_t* dev_info, std::string did_name, bool is_log)
+{
+	//Log the DEV INFO
+	if(is_log){
+		INFO_LOG(", %s, "
+			"reserved[0x%x], hardwareType[%s], reserved2[0x%x], serialNumber[%d], "
+			"hardwareVer[%d.%d.%d.%d], firmwareVer[%d.%d.%d.%d], buildNumber[%x], protocolVer[%d.%d.%d.%d], "
+			"repoRevision[%x], manufacturer[%s], buildType[%d], "
+			"buildYear[%d], buildMonth[%d], buildDay[%d], buildHour[%d], buildMinute[%d], buildSecond[%d], buildMillisecond[%d], "
+			"addInfo[%s]\n", \
+			did_name.c_str(), dev_info->reserved, g_isHardwareTypeNames[dev_info->hardwareType], dev_info->reserved2, dev_info->serialNumber, \
+			dev_info->hardwareVer[0], dev_info->hardwareVer[1], dev_info->hardwareVer[2], dev_info->hardwareVer[3], \
+			dev_info->firmwareVer[0], dev_info->firmwareVer[1], dev_info->firmwareVer[2], dev_info->firmwareVer[3], \
+			dev_info->buildNumber, dev_info->hardwareVer[0], dev_info->hardwareVer[1], dev_info->hardwareVer[2], dev_info->hardwareVer[3], \
+			dev_info->repoRevision, dev_info->manufacturer, dev_info->buildType, \
+			dev_info->buildYear, dev_info->buildMonth, dev_info->buildDay, dev_info->buildHour, dev_info->buildMinute, dev_info->buildSecond, dev_info->buildMillisecond, \
+			dev_info->addInfo
+		);
+    }
+}
+
+void INSMonitor::handleGpxStatusMessage(gpx_status_t *gpx, std::unique_ptr<INSTransportIntf> &conn_intf, bool is_log)
+{
+    if(is_log){
+		INFO_LOG(", DID_GPX_STATUS_MESSAGE, "
+			"timeOfWeekMs[%d], status[0x%x], grmcBitsSer0[0x%llx], grmcBitsSer1[0x%llx], grmcBitsSer2[0x%llx], grmcBitsUSB[0x%llx], " 
+			"grmcNMEABitsSer0[0x%llx], grmcNMEABitsSer1[0x%llx], grmcNMEABitsSer2[0x%llx], grmcNMEABitsUSB[0x%llx], " 
+			"hdwStatus[0x%x], mcuTemp[%.02f], navOutputPeriodMs[%u], flashCfgChecksum[0x%x], rtkMode[0x%x], " 
+			"gnssStatusRCVR1[ lastRstCause[%u], fwUpdateState[%u], initState[%u], runState[%u] ], "
+			"gnssStatusRCVR2[ lastRstCause[%u], fwUpdateState[%u], initState[%u], runState[%u] ], "
+			"gpxSourcePort[%u], upTime[%.02f]\n",
+			gpx->timeOfWeekMs, gpx->status, gpx->grmcBitsSer0,  gpx->grmcBitsSer1,  gpx->grmcBitsSer2,  gpx->grmcBitsUSB, \
+			gpx->grmcBitsSer0,  gpx->grmcBitsSer1,  gpx->grmcBitsSer2,  gpx->grmcBitsUSB, \
+			gpx->hdwStatus, gpx->mcuTemp, gpx->navOutputPeriodMs, gpx->flashCfgChecksum, gpx->rtkMode, \
+			(unsigned int)gpx->gnssStatus[0].lastRstCause, (unsigned int)gpx->gnssStatus[0].fwUpdateState, (unsigned int)gpx->gnssStatus[0].initState, (unsigned int)gpx->gnssStatus[0].runState, \
+			(unsigned int)gpx->gnssStatus[1].lastRstCause, (unsigned int)gpx->gnssStatus[1].fwUpdateState, (unsigned int)gpx->gnssStatus[1].initState, (unsigned int)gpx->gnssStatus[1].runState, \
+			gpx->gpxSourcePort, gpx->upTime            
+		);
+    }
+}
+
+void INSMonitor::handleGps1VelMessage(gps_vel_t *gps, std::unique_ptr<INSTransportIntf> &conn_intf, bool is_log)
+{
+    if(is_log){
+		INFO_LOG(", DID_GPS1_VEL_MESSAGE, "
+			"timeOfWeekMs[%d], vel[%.02f,%.02f,%.02f], sAcc[%.02f], status[0x%x]\n", \
+			gps->timeOfWeekMs, gps->vel[0], gps->vel[1], gps->vel[2], gps->sAcc, gps->status
+		);
+    }
+	m_last_received_gps_vel[0] = gps->vel[0];
+    m_last_received_gps_vel[1] = gps->vel[1];
+    m_last_received_gps_vel[2] = gps->vel[2];
+    m_speed_accuracy_mps = gps->sAcc;
+}
+
+void INSMonitor::handleGps1PosMessage(gps_pos_t *gps, std::unique_ptr<INSTransportIntf> &conn_intf, bool is_log)
+{
+	checkLogGpsPos("DID_GPS1_POS_MESSAGE", gps, is_log);
+	m_last_received_gps_msg = std::chrono::system_clock::now();
+	if (m_use_yaw_smoothing)
+	{
+		m_yaw_smoothing.updateFromGNSSMsg(1, gps);
+	}
+	m_gps1_cno_mean = gps->cnoMean;
+}
+
+void INSMonitor::handleGps2PosMessage(gps_pos_t *gps, std::unique_ptr<INSTransportIntf> &conn_intf, bool is_log)
+{
+	checkLogGpsPos("DID_GPS2_POS_MESSAGE", gps, is_log);
+	m_last_received_gps_msg = std::chrono::system_clock::now();
+	if (m_use_yaw_smoothing)
+	{
+		m_yaw_smoothing.updateFromGNSSMsg(2, gps);
+	}
+	m_gps2_cno_mean = gps->cnoMean;
+}
+
+void INSMonitor::handleDidDebugArrayMessage(debug_array_t *dbg_arr, bool is_log)
+{
+	if(is_log)
+	{
+		INFO_LOG(", DID_DEBUG_ARRAY, "
+			"i: [%d,%d,%d,%d,%d,%d,%d,%d,%d], "
+			"f: [%0.2f,%0.2f,%0.2f,%0.2f,%0.2f,%0.2f,%0.2f,%0.2f,%0.2f], "
+			"lf: [%0.2f,%0.2f,%0.2f]\n", \
+			dbg_arr->i[0], dbg_arr->i[1], dbg_arr->i[2], dbg_arr->i[3], dbg_arr->i[4], dbg_arr->i[5], dbg_arr->i[6], dbg_arr->i[7], dbg_arr->i[8],  \
+			dbg_arr->f[0], dbg_arr->f[1], dbg_arr->f[2], dbg_arr->f[3], dbg_arr->f[4], dbg_arr->f[5], dbg_arr->f[6], dbg_arr->f[7], dbg_arr->f[8], \
+			dbg_arr->lf[0], dbg_arr->lf[1], dbg_arr->lf[2]
+		);
+    }
+}
+
+void INSMonitor::handleDidPortMonitorMessage(port_monitor_t *pm, bool is_log)
+{
+    const int ser2_portnum = 2;
+    const int txDroppedThreshold = 10000;
+    static int ser2_last_txbytes = 0;
+	
+    //txBytes stop incrementing over 2-5 seconds, AND 
+    // txDropped > 10000 AND 
+    // txDataDrops == 0
+    for(int i = 0; i < 6; i++)
+	{
+        if(is_log)
+        {
+            INFO_LOG(", DID_PORT_MONITOR, "
+                "PORT %d: portInfo[0x%x], status[0x%x], txBytesPerSec[%d], rxBytesPerSec[%d], txBytes[%d], rxBytes[%d],"
+                "txDataDrops[%d], rxOverflows[%d], txBytesDropped[%d], rxChecksumErrors[%d]\n", \
+                i, pm->port[i].portInfo, pm->port[i].status, pm->port[i].txBytesPerSec, pm->port[i].rxBytesPerSec, pm->port[i].txBytes, pm->port[i]. rxBytes, \
+                pm->port[i].txDataDrops, pm->port[i].rxOverflows, pm->port[i].txBytesDropped, pm->port[i].rxChecksumErrors
+            );
+        }
+        if(i == ser2_portnum)
+        {
+            if( ser2_last_txbytes == pm->port[i].txBytes            // If txBytes is not incrementing for between messages received
+                && pm->port[i].txBytesDropped > txDroppedThreshold  // If txDropped is greater than the threshold
+                && pm->port[i].txDataDrops == 0 )                   // If there are no txDataDrops
+            {
+                ERROR_LOG("Noticed KIM[ser2] -> FTM communications are disrupted [txBytes: %d, txDropped: %d, txDataDrops: %d]! Resetting to attempt auto-fix!\n", pm->port[i].txBytes, pm->port[i].txBytesDropped, pm->port[i].txDataDrops);
+                iesa_log_event(1, "KIM_FTM_COMM_FAULT", "Noticed KIM[ser2] -> FTM comms are disrupted! Restarting ins_monitor");
+                static int res = 1;
+                if(res != 0) // Only reset if have not done before or reset didn't work (e.g. res == 1 instead of 0)
+                {
+                    res = hard_reset_kim();
+                    ERROR_LOG("Successfully reset KIM. Res: %d\n", res);
+                }
+                ERROR_LOG("Resetting KIM result code: %d\n", res); // Print the result
+            }
+            ser2_last_txbytes = pm->port[i].txBytes;
+        }
+
+    }
+}
+
+void INSMonitor::handleDidSysParamsMessage(sys_params_t *sys_params, bool is_log)
+{
+	if(is_log)
+	{
+		INFO_LOG(", DID_SYS_PARAMS, "
+			"timeOfWeekMs[%d], insStatus[0x%x], hdwStatus[0x%x], imuTemp[%0.2f], baroTemp[%0.2f], mcuTemp[%0.2f], "
+			"sysStatus[0x%x], imuSamplePeriodMs[%d], navOutputPeriodMs[%d], sensorTruePeriod[%0.2f], "
+			"flashCfgChecksum[0x%x], navUpdatePeriodMs[%d], genFaultCode[0x%x], upTime[%0.2f]\n", \
+			sys_params->timeOfWeekMs, sys_params->insStatus, sys_params->hdwStatus, sys_params->imuTemp, sys_params->baroTemp, sys_params->mcuTemp, \
+			sys_params->sysStatus, sys_params->imuSamplePeriodMs, sys_params->navOutputPeriodMs, sys_params->sensorTruePeriod, \
+			sys_params->flashCfgChecksum, sys_params->navUpdatePeriodMs, sys_params->genFaultCode, sys_params->upTime
+		);
+	}
+	if( !handleGeneralFaultCodes(sys_params->genFaultCode) )
+		WARNING_LOG("Noticed General Fault Code while parsing DID_SYS_PARAMS!\n");
+
+	
+	if (sys_params->sysStatus == SYS_STATUS_GPS1) {
+		m_gnss_source = GNSS_SOURCE_1;
+	}
+	else if (sys_params->sysStatus == SYS_STATUS_GPS2) {
+		m_gnss_source = GNSS_SOURCE_2;
+	}
+	else {
+		WARNING_LOG("MP GNSS SOURCE UPDATE: Unexpected sysStatus %d\r\n", sys_params->sysStatus);
+		m_gnss_source = GNSS_SOURCE_UNKNOWN;
+	}
+}
+
+bool INSMonitor::handleGeneralFaultCodes(uint32_t gfc)
+{
+    static bool already_sent_e_log_on_GFC_GNSS_SYS_FAULT = false; // Only send 1 e_log max
+    //Validate the different hardware bits defined in data_sets.h eGenFaultCodes
+    bool rv = true;
+    bool gfc_ins_state_orun_uvw = (gfc & GFC_INS_STATE_ORUN_UVW);
+    bool gfc_ins_state_orun_lat = (gfc & GFC_INS_STATE_ORUN_LAT);
+    bool gfc_ins_state_orun_alt = (gfc & GFC_INS_STATE_ORUN_ALT);
+    bool gfc_unhandled_interrupt = (gfc & GFC_UNHANDLED_INTERRUPT);
+    bool gfc_gnss_sys_fault = (gfc & GFC_GNSS_CRITICAL_FAULT);
+    bool gfc_gnss_tx_limited = (gfc & GFC_GNSS_TX_LIMITED);
+    bool gfc_gnss_rx_overrun = (gfc & GFC_GNSS_RX_OVERRUN);
+    bool gfc_init_sensors = (gfc & GFC_INIT_SENSORS);
+    bool gfc_init_spi = (gfc & GFC_INIT_SPI);
+    bool gfc_config_spi = (gfc & GFC_CONFIG_SPI);
+    bool gfc_gnss1_init = (gfc & GFC_GNSS1_INIT);
+    bool gfc_gnss2_init = (gfc & GFC_GNSS2_INIT);
+    bool gfc_flash_invalid_values = (gfc & GFC_FLASH_INVALID_VALUES);
+    bool gfc_flash_checksum_failure = (gfc & GFC_FLASH_CHECKSUM_FAILURE);
+    bool gfc_flash_write_failure = (gfc & GFC_FLASH_WRITE_FAILURE);
+    bool gfc_sys_fault_general = (gfc & GFC_SYS_FAULT_GENERAL);
+    bool gfc_sys_fault_critical = (gfc & GFC_SYS_FAULT_CRITICAL);
+    bool gfc_sensor_saturation = (gfc & GFC_SENSOR_SATURATION);
+    bool gfc_init_imu = (gfc & GFC_INIT_IMU);
+    bool gfc_init_barometer = (gfc & GFC_INIT_BAROMETER);
+    bool gfc_init_magnetometer = (gfc & GFC_INIT_MAGNETOMETER);
+    bool gfc_init_i2c = (gfc & GFC_INIT_I2C);
+    bool gfc_chip_erase_invalid = (gfc & GFC_CHIP_ERASE_INVALID);
+
+    // Specifically check GFC_GNSS_SYS_FAULT (GPX Comms not working) and send E-Log if seen!
+    if(gfc_gnss_sys_fault && !already_sent_e_log_on_GFC_GNSS_SYS_FAULT)
+    {
+        ERROR_LOG("ERROR: Noticed GFC_GNSS_SYS_FAULT! Are GPX Comms OK?\n");
+        // Currently, there is no recovery, so only send one E-Log
+        iesa_log_event(1, "GPX_GNSS_SYS_FAULT", "KIM GFC reported GNSS_SYS_FAULT!");
+        already_sent_e_log_on_GFC_GNSS_SYS_FAULT = true;
+    }
+        
+
+    if( gfc_ins_state_orun_uvw || gfc_ins_state_orun_lat || gfc_ins_state_orun_alt || gfc_unhandled_interrupt || \
+        gfc_gnss_sys_fault || gfc_gnss_tx_limited || gfc_gnss_rx_overrun || gfc_init_sensors || gfc_init_spi || \
+        gfc_config_spi || gfc_gnss1_init || gfc_gnss2_init || gfc_flash_invalid_values || gfc_flash_checksum_failure || \
+        gfc_flash_write_failure || gfc_sys_fault_general || gfc_sys_fault_critical || gfc_sensor_saturation || \
+        gfc_init_imu || gfc_init_barometer || gfc_init_magnetometer || gfc_init_i2c || gfc_chip_erase_invalid)
+    {
+        ERROR_LOG("INS General Fault Code Reported! gfc_ins_state_orun_uvw: %d, gfc_ins_state_orun_lat: %d, gfc_ins_state_orun_alt: %d, gfc_unhandled_interrupt: %d, \
+        gfc_gnss_sys_fault: %d, gfc_gnss_tx_limited: %d, gfc_gnss_rx_overrun: %d, gfc_init_sensors: %d, gfc_init_spi: %d, \
+        gfc_config_spi: %d, gfc_gnss1_init: %d, gfc_gnss2_init: %d, gfc_flash_invalid_values: %d, gfc_flash_checksum_failure: %d, \
+        gfc_flash_write_failure: %d, gfc_sys_fault_general: %d, gfc_sys_fault_critical: %d, gfc_sensor_saturation: %d, \
+        gfc_init_imu: %d, gfc_init_barometer: %d, gfc_init_magnetometer: %d, gfc_init_i2c: %d, gfc_chip_erase_invalid: %d\n", \
+        gfc_ins_state_orun_uvw, gfc_ins_state_orun_lat, gfc_ins_state_orun_alt, gfc_unhandled_interrupt, \
+        gfc_gnss_sys_fault, gfc_gnss_tx_limited, gfc_gnss_rx_overrun, gfc_init_sensors, gfc_init_spi, \
+        gfc_config_spi, gfc_gnss1_init, gfc_gnss2_init, gfc_flash_invalid_values, gfc_flash_checksum_failure, \
+        gfc_flash_write_failure, gfc_sys_fault_general, gfc_sys_fault_critical, gfc_sensor_saturation, \
+        gfc_init_imu, gfc_init_barometer, gfc_init_magnetometer, gfc_init_i2c, gfc_chip_erase_invalid);
+        
+        rv = false;
+
+    }
+    return rv;
+}
+
+
+void INSMonitor::checkLogGpsPos(std::string message_name, gps_pos_t* gps, bool is_log){
+    if (is_log){
+        INFO_LOG(", %s, "
+            "week: %u, "
+            "timeOfWeekMs: %u, "
+            "status: 0x%x, "
+            "ecef: [%0.2f, %0.2f, %0.2f], "
+            "lla: [%0.2f, %0.2f, %0.2f], "
+            "hMSL: %0.2f, "
+            "hAcc: %0.2f, "
+            "vAcc: %0.2f, "
+            "pDop: %0.2f, "
+            "cnoMean: %0.2f, "
+            "towOffset: %0.2f, "
+            "leapS: %u, "
+            "satsUsed: %u, "
+            "cnoMeanSigma: %u\n",
+            message_name.c_str(), gps->week, gps->timeOfWeekMs, gps->status, gps->ecef[0], gps->ecef[1], gps->ecef[2], gps->lla[0],
+            gps->lla[1], gps->lla[2], gps->hMSL, gps->hAcc, gps->vAcc, gps->pDop, gps->cnoMean, gps->towOffset,
+            gps->leapS, gps->satsUsed, gps->cnoMeanSigma);
+
+        // This log is entirely to check RGNSS AutoDetection metrics and should be removed once done
+        DEBUG_LOG(", %s RGNSS AUTO DETECT STATS, "
+            "cnoMean[%0.2f], satsUsed[%d]\n",
+            message_name.c_str(), gps->cnoMean, gps->satsUsed);
+    }
+
+
+    if(message_name == "DID_GPS1_POS_MESSAGE")
+    {
+        m_rgnss_autodetect.setCNOMeanGPS1(gps->cnoMean);
+        m_rgnss_autodetect.setSatsUsedGPS1(gps->satsUsed);
+    }
+    else
+    {
+        m_rgnss_autodetect.setCNOMeanGPS2(gps->cnoMean);
+    }
+}
+
+void INSMonitor::handleGps2RtkCmpMiscMessage(gps_rtk_misc_t* gps_rtk, std::unique_ptr<INSTransportIntf>& conn_intf, bool is_log,serial_port_t *serialPort, is_comm_instance_t *comm)
+{
+	if(m_is_manpack) {
+		return;
+	}
+
+	//Handle RGNSS AutoDetect for non-manpack
+    static int msgs_since_last_autodetect = 0;
+
+    if(is_log){
+        INFO_LOG(", DID_GPS2_RTK_CMP_MISC_MESSAGE, "
+            "timeOfWeekMs[%u], accuracyPos[%0.2f,%0.2f,%0.2f], accuracyCov[%0.2f,%0.2f,%0.2f], "
+            "arThreshold[%0.2f], gDop[%0.2f], hDop[%0.2f], vDop[%0.2f], baseLla[%0.2f,%0.2f,%0.2f], "
+            "cycleSlipCount[%u], roverGpsObservationCount[%u], baseGpsObservationCount[%u], roverGlonassObservationCount[%u], "
+            "baseGlonassObservationCount[%u], roverGalileoObservationCount[%u], baseGalileoObservationCount[%u], "
+            "roverBeidouObservationCount[%u], baseBeidouObservationCount[%u], roverQzsObservationCount[%u], baseQzsObservationCount[%u], "
+            "roverGpsEphemerisCount[%u], baseGpsEphemerisCount[%u], roverGlonassEphemerisCount[%u], baseGlonassEphemerisCount[%u],  "
+            "roverGalileoEphemerisCount[%u], baseGalileoEphemerisCount[%u], roverBeidouEphemerisCount[%u], baseBeidouEphemerisCount[%u], "
+            "roverQzsEphemerisCount[%u], baseQzsEphemerisCount[%u], roverSbasCount[%u], baseSbasCount[%u], baseAntennaCount[%u], "
+            "ionUtcAlmCount[%u], correctionChecksumFailures[%u], timeToFirstFixMs[%u]\n", 
+            gps_rtk->timeOfWeekMs, gps_rtk->accuracyPos[0], gps_rtk->accuracyPos[1], gps_rtk->accuracyPos[2], \
+            gps_rtk->accuracyCov[0], gps_rtk->accuracyCov[1], gps_rtk->accuracyCov[2], gps_rtk->arThreshold, \
+            gps_rtk->gDop, gps_rtk->hDop, gps_rtk->vDop, gps_rtk->baseLla[0], gps_rtk->baseLla[1], gps_rtk->baseLla[2], \
+            gps_rtk->cycleSlipCount, gps_rtk->roverGpsObservationCount, gps_rtk->baseGpsObservationCount, \
+            gps_rtk->roverGlonassObservationCount, gps_rtk->baseGlonassObservationCount, gps_rtk->roverGalileoObservationCount, \
+            gps_rtk->baseGalileoObservationCount, gps_rtk->roverBeidouObservationCount, gps_rtk->baseBeidouObservationCount, \
+            gps_rtk->roverQzsObservationCount, gps_rtk->baseQzsObservationCount, gps_rtk->roverGpsEphemerisCount, \
+            gps_rtk->baseGpsEphemerisCount, gps_rtk->roverGlonassEphemerisCount, gps_rtk->baseGlonassEphemerisCount, \
+            gps_rtk->roverGalileoEphemerisCount, gps_rtk->baseGalileoEphemerisCount, gps_rtk->roverBeidouEphemerisCount, \
+            gps_rtk->baseBeidouEphemerisCount, gps_rtk->roverQzsEphemerisCount, gps_rtk->baseQzsEphemerisCount, \
+            gps_rtk->roverSbasCount, gps_rtk->baseSbasCount, gps_rtk->baseAntennaCount, gps_rtk->ionUtcAlmCount, \
+            gps_rtk->correctionChecksumFailures, gps_rtk->timeToFirstFixMs);
+
+        DEBUG_LOG(", DID_GPS2_RTK_CMP_MISC RGNSS AUTO DETECT STATS, msgs_since_last_autodetect[%d], num_msgs_between_detect[%d]\n",
+            msgs_since_last_autodetect, m_rgnss_autodetect.num_msgs_between_detect);
+    }
+    
+    if( msgs_since_last_autodetect < m_rgnss_autodetect.num_msgs_between_detect )
+    {
+        msgs_since_last_autodetect++;
+        m_rgnss_autodetect.setroverGPSOBSCnt(gps_rtk->roverGpsObservationCount);
+        m_rgnss_autodetect.setroverGPSEPHCnt(gps_rtk->roverGpsEphemerisCount);
+        m_rgnss_autodetect.setroverGALOBSCnt(gps_rtk->roverGalileoObservationCount);
+        m_rgnss_autodetect.setroverGALEPHCnt(gps_rtk->roverGalileoEphemerisCount);
+    }
+    else
+    {
+        INFO_LOG("Automatically Detecting if RGNSS Mode is active...\n");
+        DEBUG_LOG("%s\n", m_rgnss_autodetect.getPrettyStatsLog().c_str());
+        DEBUG_LOG("%s\n", m_rgnss_autodetect.getPrettyConditionLog().c_str());
+        if( m_rgnss_autodetect.enabled && m_rgnss_autodetect.autoDetectRGNSS() )
+        {
+            m_rgnss_detected = 2;
+            INFO_LOG("RGNSS AUTO DETECT STATS: RGNSS WAS AUTOMATICALLY DETECTED!\n");
+        }
+        else{
+            INFO_LOG("RGNSS Mode not auto detected. Detection is %s by configuration. Continuing...\n", (m_rgnss_autodetect.enabled) ? "enabled" : "disabled");
+        }
+
+        checkUpdateGnssSource(serialPort, comm, false);
+        msgs_since_last_autodetect = 0;
+    }
+}
+
+
+void INSMonitor::handleAutoDetectRgnssManpack(serial_port_t *serialPort, is_comm_instance_t *comm)
+{
+    static int msgs_since_last_autodetect = 0;
+    static bool is_external_gps_good_state = false; // Persistent state for hysteresis
+    if (msgs_since_last_autodetect < m_rgnss_autodetect.num_msgs_between_detect)
+    {
+        msgs_since_last_autodetect++;
+    }
+    else
+    {
+        msgs_since_last_autodetect = 0;
+        float min_gps1_cno = m_rgnss_autodetect.manpack_min_gps1_cno;
+        float hysteresis_threshold = m_rgnss_autodetect.manpack_cno_hysteresis_threshold;
+
+        if (m_gps1_cno_mean >= min_gps1_cno) //Switch on external
+        {
+            is_external_gps_good_state = true;
+        }
+        else if (is_external_gps_good_state && (m_gps1_cno_mean < (min_gps1_cno - hysteresis_threshold))) // Switch off external
+        {
+            is_external_gps_good_state = false;
+        }
+
+        int new_rgnss_detected = is_external_gps_good_state ? 2 : 1;
+        INFO_LOG("MP GNSS: Auto Detect External GPS good: %s (external CNO=%.2f vs %.2f, hysteresis threshold=%.2f). new m_rgnss_detected=%d vs current m_rgnss_detected=%d.\n", is_external_gps_good_state ? "yes" : "no", m_gps1_cno_mean, min_gps1_cno, hysteresis_threshold, new_rgnss_detected, m_rgnss_detected);
+        m_rgnss_detected = new_rgnss_detected;
+        checkUpdateGnssSource(serialPort, comm, false);
+    }
+}
+
+void INSMonitor::handleGps2RtkCmpRelMessage(gps_rtk_rel_t* gps_rtk, std::unique_ptr<INSTransportIntf>& conn_intf, bool is_log)
+{
+    if(is_log){
+        INFO_LOG(", DID_GPS2_RTK_CMP_REL_MESSAGE, "
+            "timeOfWeekMs: %u, "
+            "differentialAge: %0.2f, "
+            "arRatio: %0.2f, "
+            "baseToRoverVector: [%0.2f, %0.2f, %0.2f], "
+            "baseToRoverDistance: %0.2f, "
+            "baseToRoverHeading: %0.2f, "
+            "baseToRoverHeadingAcc: %0.2f, "
+            "status: 0x%x\n",
+            gps_rtk->timeOfWeekMs, gps_rtk->differentialAge, gps_rtk->arRatio, gps_rtk->baseToRoverVector[0],
+            gps_rtk->baseToRoverVector[1], gps_rtk->baseToRoverVector[2], gps_rtk->baseToRoverDistance,
+            gps_rtk->baseToRoverHeading, gps_rtk->baseToRoverHeadingAcc, gps_rtk->status);
+
+    }
+	if(m_use_yaw_smoothing)
+	{
+		m_yaw_smoothing.updateFromGPS2RtkCmpMsg(gps_rtk);
+	}
+}
+
+int INSMonitor::set_configuration(serial_port_t *serialPort, is_comm_instance_t *comm)
+{
+	// Set INS output Euler rotation in radians to 90 degrees roll for mounting
+	float rotation[3] = { 0.0f, 0.0f, 0.0f };
+
+	INFO_LOG("Setting ins rotation in config roll: %f, pitch: %f, yaw: %f\n", rotation[0], rotation[1], rotation[2]);
+	printf("Setting ins rotation in config roll: %f, pitch: %f, yaw: %f\n", rotation[0], rotation[1], rotation[2]);
+	if (!is_comm_set_data(portWrite, 0, comm, DID_FLASH_CONFIG, sizeof(float) * 3, offsetof(nvm_flash_cfg_t, insRotation), rotation))
+	{
+		ERROR_LOG("Failed to encode and write set INS rotation\n");
+		printf("Failed to encode and write set INS rotation\n");
+		return -3;
+	}
+
+	uint16_t my_gnssSatSigConst = 0x133F;
+	INFO_LOG("Setting gnssSatSigConst: %x\n", my_gnssSatSigConst);
+	printf("Setting gnssSatSigConst: %x\n", my_gnssSatSigConst);
+	if (!is_comm_set_data(portWrite, 0, comm, DID_FLASH_CONFIG, sizeof(uint16_t), offsetof(nvm_flash_cfg_t, gnssSatSigConst), &my_gnssSatSigConst))
+	{
+		ERROR_LOG("Failed to encode and write set my_gnssSatSigConst\n");
+		printf("Failed to encode and write set my_gnssSatSigConst\n");
+		return -3;
+	}
+
+	// different for HD/FD 
+	float my_gps1AntOffset[3] = {0.06, 0.40, 0};
+	INFO_LOG("Setting ins rotation in config gps1AntOffset: x: %f, y: %f, z: %f\n", my_gps1AntOffset[0], my_gps1AntOffset[1], my_gps1AntOffset[2]);	
+	printf("Setting ins rotation in config gps1AntOffset: x: %f, y: %f, z: %f\n", my_gps1AntOffset[0], my_gps1AntOffset[1], my_gps1AntOffset[2]);	
+	if (!is_comm_set_data(portWrite, 0, comm, DID_FLASH_CONFIG, sizeof(float) * 3, offsetof(nvm_flash_cfg_t, gps1AntOffset), my_gps1AntOffset))
+	{
+		ERROR_LOG("Failed to encode and write set gps1AntOffset rotation\n");
+		printf("Failed to encode and write set gps1AntOffset rotation\n");
+		return -3;
+	}
+
+	float my_gps2AntOffset[3] = {0.21, 0.03, 0};
+	INFO_LOG("Setting ins rotation in config gps2AntOffset: x: %f, y: %f, z: %f\n", my_gps2AntOffset[0], my_gps2AntOffset[1], my_gps2AntOffset[2]);	
+	printf("Setting ins rotation in config gps2AntOffset: x: %f, y: %f, z: %f\n", my_gps2AntOffset[0], my_gps2AntOffset[1], my_gps2AntOffset[2]);	
+	if (!is_comm_set_data(portWrite, 0, comm, DID_FLASH_CONFIG, sizeof(float) * 3, offsetof(nvm_flash_cfg_t, gps2AntOffset), my_gps2AntOffset))
+	{
+		ERROR_LOG("Failed to encode and write set gps2AntOffset rotation\n");
+		printf("Failed to encode and write set gps2AntOffset rotation\n");
+		return -3;
+	}
+
+	/** Hardware interface configuration bits (see eIoConfig). */
+	//uint32_t				ioConfig;
+	uint32_t my_ioConfig = 0x06DB2046;
+	INFO_LOG("Setting ioConfig in config: %x\n", my_ioConfig);
+	printf("Setting ioConfig in config: %x\n", my_ioConfig);
+	if (!is_comm_set_data(portWrite, 0, comm, DID_FLASH_CONFIG, sizeof(uint32_t), offsetof(nvm_flash_cfg_t, ioConfig), &my_ioConfig))
+	{
+		ERROR_LOG("Failed to encode and write set ioConfig\r\n");
+		printf("Failed to encode and write set ioConfig\r\n");
+		return -3;
+	}
+
+	/** Hardware platform specifying the IMX carrier board type (i.e. RUG, EVB, IG) and configuration bits (see ePlatformConfig).
+	 * The platform type is used to simplify the GPS and I/O configuration process.  */
+    uint32_t my_platformConfig = 0x01000010;
+	INFO_LOG("Setting platformConfig in config %x\n", my_platformConfig);
+	printf("Setting platformConfig in config %x\n", my_platformConfig);
+	if (!is_comm_set_data(portWrite, 0, comm, DID_FLASH_CONFIG, sizeof(uint32_t), offsetof(nvm_flash_cfg_t, platformConfig), &my_platformConfig))
+	{
+		ERROR_LOG("Failed to encode and write set platformConfig\r\n");
+		printf("Failed to encode and write set platformConfig\r\n");
+		return -3;
+	}
+
+	// Todo RTKCfgBits = 0x00000008?
+	uint32_t my_RTKCfgBits = 0x00000008;
+	INFO_LOG("Setting RTKCfgBits in config %x\n", my_RTKCfgBits);
+	printf("Setting RTKCfgBits in config %x\n", my_RTKCfgBits);
+	if (!is_comm_set_data(portWrite, 0, comm, DID_FLASH_CONFIG, sizeof(uint32_t), offsetof(nvm_flash_cfg_t, RTKCfgBits), &my_RTKCfgBits))
+	{
+		ERROR_LOG("Failed to encode and write set RTKCfgBits\r\n");
+		printf("Failed to encode and write set RTKCfgBits\r\n");
+		return -3;
+	}
+
+	uint32_t my_ser2BaudRate = 230400;
+	INFO_LOG("Setting ser2BaudRate in config %x\n", my_ser2BaudRate);
+	printf("Setting ser2BaudRate in config %x\n", my_ser2BaudRate);
+	if (!is_comm_set_data(portWrite, 0, comm, DID_FLASH_CONFIG, sizeof(uint32_t), offsetof(nvm_flash_cfg_t, ser2BaudRate), &my_ser2BaudRate))
+	{
+		ERROR_LOG("Failed to encode and write set ser2BaudRate\r\n");
+		printf("Failed to encode and write set ser2BaudRate\r\n");
+		return -3;
+	}
+
+	return 0;
+}
+
+int INSMonitor::stop_message_broadcasting(serial_port_t *serialPort, is_comm_instance_t *comm)
+{
+	// Stop all broadcasts on the device
+	// int n = is_comm_stop_broadcasts_all_ports(comm);
+	// if (n != serialPortWrite(serialPort, comm->buf.start, n))
+	INFO_LOG("Stop all broadcast messages\n");
+	printf("Stop all broadcast messages\n");
+	if (!is_comm_stop_broadcasts_all_ports(portWrite, 0, comm))
+	{
+		ERROR_LOG("Failed to encode and write stop broadcasts message\r\n");
+		printf("Failed to encode and write stop broadcasts message\r\n");
+		return -3;
+	}
+	return 0;
+}
+
+int INSMonitor::stop_current_port_message_broadcasting(serial_port_t *serialPort, is_comm_instance_t *comm)
+{
+	// Stop current port broadcasts on the device
+	INFO_LOG("Stop current port broadcast messages from KIM -> ACU\n");
+	printf("Stop current port broadcast messages from KIM -> ACU\n");
+	if (!is_comm_stop_broadcasts_current_ports(portWrite, 0, comm))
+	{
+		ERROR_LOG("Failed to encode and write stop current port broadcasts message\r\n");
+		printf("Failed to encode and write stop current port broadcasts message\r\n");
+		return -3;
+	}
+	return 0;
+}
+
+int INSMonitor::save_persistent_messages(serial_port_t *serialPort, is_comm_instance_t *comm)
+{
+	system_command_t cfg;
+	cfg.command = SYS_CMD_SAVE_PERSISTENT_MESSAGES;
+	cfg.invCommand = ~cfg.command;
+
+	// int n = is_comm_set_data(comm, DID_SYS_CMD, 0, sizeof(system_command_t), &cfg);
+	// if (n != serialPortWrite(serialPort, comm->buf.start, n))
+	INFO_LOG("Save persistent messages\n");
+	printf("Save persistent messages\n");
+	if (!is_comm_set_data(portWrite, 0, comm, DID_SYS_CMD, 0, sizeof(system_command_t), &cfg))
+	{
+		ERROR_LOG("Failed to write save persistent message\r\n");
+		printf("Failed to write save persistent message\r\n");
+		return -3;
+	}
+	return 0;
+}
+
+int INSMonitor::enable_message_broadcasting(serial_port_t *serialPort, is_comm_instance_t *comm, bool recurring_broadcasts)
+{
+    checkUpdateGnssSource(serialPort, comm, true);
+	// Comment and code taken from ISCommunicationExample.c:
+	// Ask for INS message w/ update 40ms period (4ms source period x 10).  Set data rate to zero to disable broadcast and pull a single packet.
+
+	// config_kim.sh configures the following clock periods:
+	//    startupNavDtMs = 20 //SDK allows for up to 1ms, but KIM has a limitation of 20ms per InertialSense
+	//    startupImuDtMs = 1
+	//    startupGpsDtMs = 500
+    int updatePeriodMs = 20; //Assuming that default is 20 based on config_kim_ftm.py configuring startupNavDtMs to 20ms
+    for (const auto& pair : m_message_cfgs) {
+        int did = pair.first;
+        const MessageConfig& messageCfg = pair.second;
+
+		if (!messageCfg.enabled)
+		{
+			continue;
+		}
+        
+        int messageDid = getSupportedMessageDid(messageCfg); 
+        //TODO: These values should be read from flash config, but we don't currently support that
+		//          instead, we are configuring this in config_kim.sh and assuming it doesn't change
+        switch (messageDid)
+        {
+            case DID_INS_1:
+                updatePeriodMs = 20; //config_kim_ftm.py hardcodes this value to 20ms
+                break;
+            case DID_GPS2_POS:
+            case DID_GPS1_POS:
+                if(m_is_manpack){
+                    m_rgnss_autodetect.setNumMsgsBetweenDetect(messageCfg.broadcast_rate_ms);
+                }
+                // fallthrough
+            case DID_GPS1_VEL:
+            case DID_GPS2_RTK_CMP_REL:
+                updatePeriodMs = 500; //config_kim_ftm.py hardcodes this value to 500ms
+                break;
+            case DID_GPS2_RTK_CMP_MISC:
+                updatePeriodMs = 500; //config_kim_ftm.py hardcodes this value to 500ms
+                if (!m_is_manpack){
+                    m_rgnss_autodetect.setNumMsgsBetweenDetect(messageCfg.broadcast_rate_ms); // If it is a DID_GPS2_RTK_CMP_MISC, set the period appropriately
+                }
+                break;
+            case DID_DEV_INFO:
+            case DID_GPX_DEV_INFO:
+            case DID_GPX_STATUS:
+            case DID_FLASH_CONFIG:
+            case DID_SYS_PARAMS:
+            case DID_DEBUG_ARRAY:
+            case DID_PORT_MONITOR:
+                updatePeriodMs = 1; //default from Inertial Sense
+                break;
+            default:
+                break;
+        }
+
+        int period_multiple = (int) (messageCfg.broadcast_rate_ms / updatePeriodMs);
+        if(period_multiple == 0){ 
+            period_multiple = 1;
+        }
+        INFO_LOG("Subscribing to message %d at a period: %d (receive new message every %dms)\n", messageDid, period_multiple, messageCfg.broadcast_rate_ms);
+		if (!is_comm_get_data(portWrite, 0, comm, messageDid, 0, 0, period_multiple))
+		{
+			ERROR_LOG("Failed to encode and write get INS message\r\n");
+			printf("Failed to encode and write get INS message\r\n");
+			return -4;
+		}
+	}
+
+	return 0;
+}
+
+int INSMonitor::getSupportedMessageDid(INSMonitor::MessageConfig messageCfg){
+    if (didMap.find(messageCfg.name) != didMap.end()) {
+        return didMap.at(messageCfg.name);
+    }
+
+    ERROR_LOG("Failed to find support did for message %s \n", messageCfg.name.c_str());
+    return 0;
+}
+
+void INSMonitor::handleInsMessages(serial_port_t *serialPort, is_comm_instance_t *comm, std::unique_ptr<INSTransportIntf>& conn_intf)
+{   
+    int messageDid = comm->rxPkt.hdr.id;
+    bool isLog = isLogMessage(messageDid);
+    
+	//There are two macro lists that enumerate the InertialSense messages - #defines in data_sets.h & #defines in ISComm.h
+	//    The ISComm.h list includes data_sets.h and defines off of data_sets.h (e.g. #define    _DID_INS_LLA_EULER_NED    DID_INS_1)
+	//    The point is, note that in this function, which deals with the output from the comm instance, the #define name may not be the one found in data_sets.h
+	switch (messageDid)
+	{
+	case _DID_INS_LLA_EULER_NED:
+		//If handleIns1Message returns false, we need a software reset
+		// INFO_LOG("Received Msg: DID_INS_LLA_EULER_NED\n");
+		// printf("Received Msg: DID_INS_LLA_EULER_NED\n");
+		if(!handleIns1Message((ins_1_t*)comm->rxPkt.data.ptr, conn_intf, isLog))
+		{
+			//INFO_LOG("Failed to process ins status message...\n");
+			// Leaving old behavior here for now. The sendInsSWResetCommand would cause the unit to reset
+			// and switch devices from ACM0 to ACM1.
+			// if(sendInsSWResetCommand(serialPort, comm) != 0)
+			// 	setRunning(false); // Error case! stop ins_monitor to enable debug!
+			// sleep(getINSResetSleepPeriodSec()); //Give INS time to come back up
+			// restartMessageBroadcasting(serialPort, comm, true);
+		}
+		break;
+	case DID_INS_2:
+		WARNING_LOG("INS2 msg: Not currently handled\n");
+		break;
+	case _DID_IMU:
+		WARNING_LOG("IMU msg: Not currently handled\n");
+		break;
+	case _DID_FLASH_CONFIG:
+		m_DID_FLASH_CONFIG_msgs_received++;
+		handleFlashConfigMessage((nvm_flash_cfg_t*)comm->rxPkt.data.ptr, isLog);
+		break;
+    case DID_SYS_PARAMS:
+        handleDidSysParamsMessage((sys_params_t*)comm->rxPkt.data.ptr, isLog);
+        break;
+    case DID_DEBUG_ARRAY:
+        handleDidDebugArrayMessage((debug_array_t*)comm->rxPkt.data.ptr, isLog);
+        break;
+    case DID_PORT_MONITOR:
+        handleDidPortMonitorMessage((port_monitor_t*)comm->rxPkt.data.ptr, isLog);
+        break;
+    case DID_DEV_INFO:
+        handleDidDevInfoMessage((dev_info_t*)comm->rxPkt.data.ptr, "DID_DEV_INFO", isLog);
+        break;
+    case DID_GPX_DEV_INFO:
+        m_DID_GPX_DEV_INFO_msgs_received++;
+        handleDidDevInfoMessage((dev_info_t*)comm->rxPkt.data.ptr, "DID_GPX_DEV_INFO", isLog);
+        break;
+    case DID_GPX_STATUS:
+        handleGpxStatusMessage((gpx_status_t*)comm->rxPkt.data.ptr, conn_intf, isLog);
+        break;
+    case _DID_GPS1_POS:
+        handleGps1PosMessage((gps_pos_t*)comm->rxPkt.data.ptr, conn_intf, isLog);
+        if (m_is_manpack) 
+        {
+            if(m_rgnss_autodetect.enabled)
+            {
+                handleAutoDetectRgnssManpack(serialPort, comm);
+            }
+        }
+		break;
+    case DID_GPS2_POS:
+        handleGps2PosMessage((gps_pos_t*)comm->rxPkt.data.ptr, conn_intf, isLog);
+        break;
+    case DID_GPS1_VEL:
+        handleGps1VelMessage((gps_vel_t*)comm->rxPkt.data.ptr, conn_intf, isLog);
+        break;
+    case DID_GPS2_RTK_CMP_REL:
+        handleGps2RtkCmpRelMessage((gps_rtk_rel_t*)comm->rxPkt.data.ptr, conn_intf, isLog);
+        break;
+    case DID_GPS2_RTK_CMP_MISC:
+        handleGps2RtkCmpMiscMessage((gps_rtk_misc_t*)comm->rxPkt.data.ptr, conn_intf, isLog, serialPort, comm);
+        break;
+    default:
+        DEBUG_LOG("INSENSE DATA: Unknown msg type\n");
+        break;
+	}
+}
+
+bool INSMonitor::isLogMessage(int messageDid)
+{
+    if(m_message_counts.count(messageDid) == 0){
+        //No message config -> Log by default
+        return true;
+    }
+
+    MessageConfig messageCfg = m_message_cfgs[messageDid];
+    return messageCfg.log_rate && (++m_message_counts[messageDid] % messageCfg.log_rate == 0);
+}
+
+int INSMonitor::sendInsSWResetCommand(serial_port_t *serialPort, is_comm_instance_t *comm)
+{
+	system_command_t cfg;
+	cfg.command = SYS_CMD_SOFTWARE_RESET;
+	cfg.invCommand = ~cfg.command;
+
+	// int n = is_comm_set_data(comm, DID_SYS_CMD, 0, sizeof(system_command_t), &cfg);
+	// if (n != serialPortWrite(serialPort, comm->buf.start, n))
+	if (!is_comm_set_data(portWrite, 0, comm, DID_SYS_CMD, 0, sizeof(system_command_t), &cfg))
+	{
+		ERROR_LOG("Failed to write software reset!\n");
+		return -3;
+	}
+	INFO_LOG("Requested Software Reset!\n");
+	return 0;
+}
+
+void INSMonitor::sendInsBITCommand()
+{
+	//TODO:: If necessary, implement this. (Is it enough to run from CL Tool?)
+	//bit_t bit;
+	WARNING_LOG("sendInsBITCommand is currently unsupported.\n");
+}
+
+int INSMonitor::restartMessageBroadcasting(serial_port_t *serialPort, is_comm_instance_t *comm, bool recurring_broadcasts)
+{
+	int error;
+	if ((error = stop_message_broadcasting(serialPort, comm)))
+	{
+		ERROR_LOG("Stopping all broadcasts turned in an error.\n");
+		return error;
+	}
+
+	// Set configuration, if necessary
+	// TODO:: Set configuration function?
+	if ((error = set_configuration(serialPort, comm)))
+	{
+		ERROR_LOG("Error when attempting to set_configuration for restartMessageBroadcasting.\n");
+		return error;
+	}
+
+	// config script
+	// line in there - stopping all message broadcasts 
+	// Send recurring_broadcasts=true so that we enable INS1 message
+	INFO_LOG("Enabling INS Messaging (recurring messages)\n");
+	if ((error = enable_message_broadcasting(serialPort, comm, recurring_broadcasts)))
+	{
+		ERROR_LOG("Enabling recurring broadcasts turned in an error.\n");
+		return error;
+	}
+	return 0;
+}
+
+void INSMonitor::emulate_send_msgs(float roll, float pitch, float yaw, std::unique_ptr<INSTransportIntf>& conn_intf)
+{
+	Intellian::SharedMemory::WriteINSData(roll, pitch, yaw + m_yaw_offset_deg, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0, 0.0, 0.0, INS::STATIONARY, 0x54314f7, 0, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0, 0, 0, 0);
+}
+
+void INSMonitor::sendRPYMessage(std::unique_ptr<INSTransportIntf>& conn_intf, double roll, double pitch, double yaw)
+{
+	double reported_roll, reported_pitch, reported_yaw;
+	std::tie(reported_roll, reported_pitch, reported_yaw) = m_last_reported_rpy;
+
+	double total_diff = std::abs(roll - reported_roll) + std::abs(pitch - reported_pitch) + std::abs(yaw - reported_yaw);
+	if(total_diff >= m_rpy_granularity)
+	{
+		std::unique_ptr<INS::RollPitchYawMsg> rpy_msg = std::make_unique<INS::RollPitchYawMsg>(roll, pitch, yaw + m_yaw_offset_deg);
+		conn_intf->Send(std::move(rpy_msg));
+		m_last_reported_rpy = {roll, pitch, yaw};
+	}
+}
+
+
+std::string INSMonitor::performHWReset(const char* cmd)
+{
+	std::array<char, 128> buffer;
+    std::string result;
+    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd, "r"), pclose);
+    if (!pipe) {
+        throw std::runtime_error("popen() failed!");
+    }
+    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
+        result += buffer.data();
+    }
+    return result;
+}
+
+int INSMonitor::hard_reset_kim() //Returen 0 on success
+{
+	int ret = 1;
+	int serial_port = -1;
+
+	do
+	{
+		const char* portname = "/dev/ttyS3"; // Path to the serial device
+		serial_port = open(portname, O_RDWR);
+
+		// Check for errors
+		if (serial_port < 0) 
+		{
+			break;
+		}
+
+		struct termios tty;
+		// Read in existing settings, and handle any error
+		if (tcgetattr(serial_port, &tty) != 0) 
+		{
+			break;
+		}
+
+		// Configure the serial port settings same as the upgrade-serial program
+		cfsetospeed(&tty, B115200); // Set baud rate (output speed) = 115200
+		cfsetispeed(&tty, B115200); // Set baud rate (input speed)
+
+		tty.c_cflag |= (CLOCAL | CREAD); // Enable receiver, Ignore modem control lines
+		tty.c_cflag &= ~CSIZE; // Mask the character size bits
+		tty.c_cflag |= CS8; // 8 data bits
+		tty.c_cflag &= ~PARENB; // No parity bit
+		tty.c_cflag &= ~CSTOPB; // 1 stop bit
+		tty.c_cflag &= ~CRTSCTS; // No hardware flow control (Request to Send/Clear to Send) 
+
+		tty.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG); // Raw input, disable echo and signals
+		tty.c_iflag &= ~(IXON | IXOFF | IXANY); // Disable software flow control
+		tty.c_oflag &= ~OPOST; // Raw output
+
+		// Save tty settings, also checking for error
+		if (tcsetattr(serial_port, TCSANOW, &tty) != 0) 
+		{
+			break;
+		}
+
+		// Reset kim
+		const char* cmd = "kimreset\n";
+		// Flush the serial port output buffer before sending new commands
+		tcflush(serial_port, TCOFLUSH);
+		// Write the command to the serial port
+		write(serial_port, cmd, strlen(cmd));
+
+		ret = 0;
+	} while(0);
+
+	if(serial_port != -1)
+	{
+		close(serial_port);
+	}
+
+	return ret;
+}
+
+#if 0
+void INSMonitor::FindMotionState(float x_vel, float y_vel, float z_vel)//Used in only gtest
+{
+    float   x_vel_ave = m_ave_weight*std::get<0>(m_ave_velocity) + (1.0-m_ave_weight) * std::abs(x_vel);
+    float   y_vel_ave = m_ave_weight*std::get<1>(m_ave_velocity) + (1.0-m_ave_weight) * std::abs(y_vel);
+    float   z_vel_ave = m_ave_weight*std::get<2>(m_ave_velocity) + (1.0-m_ave_weight) * std::abs(z_vel);
+    m_speed = x_vel_ave + y_vel_ave + z_vel_ave;
+    // ToDo: Different weight for STATIONARY & IN_MOTION to compensate different transition rate
+    if (m_motion_state == INS::STATIONARY && m_speed > m_speed_thread_Hi)
+    {
+        // Fast transition rate
+        m_motion_state = INS::IN_MOTION;
+    }
+    else if (m_motion_state == INS::IN_MOTION && m_speed < m_speed_thread_Lo)
+    {
+        // Slower transition rate to avoid stop-and-go
+        m_motion_state = INS::STATIONARY;
+    }
+    m_ave_velocity = {x_vel_ave, y_vel_ave, z_vel_ave};
+}
+#endif
+
+void INSMonitor::SmoothSpeed(float newU, float newV, float newW)
+{
+	m_lastSmoothedUVW[0] = m_alpha * newU + (1 - m_alpha) * m_lastSmoothedUVW[0];
+	m_lastSmoothedUVW[1] = m_alpha * newV + (1 - m_alpha) * m_lastSmoothedUVW[1];
+	m_lastSmoothedUVW[2] = m_alpha * newW + (1 - m_alpha) * m_lastSmoothedUVW[2];
+
+	// Decrease the smoothing factor gradually
+	m_alpha = fmax(m_alpha - ALPHA_DECAY_RATE, FINAL_ALPHA);
+
+	float magnitude = sqrt(m_lastSmoothedUVW[0] * m_lastSmoothedUVW[0] + m_lastSmoothedUVW[1] * m_lastSmoothedUVW[1] + m_lastSmoothedUVW[2] * m_lastSmoothedUVW[2]);
+
+	m_speed = m_speed * (1 - m_gain_factor) + magnitude * m_gain_factor;
+}
+
+float INSMonitor::FindVelocity(float x_vel, float y_vel, float z_vel)
+{
+	float speed = sqrt(x_vel*x_vel + y_vel*y_vel + z_vel*z_vel);
+
+	float x_vel_ave = m_ave_weight * std::get<0>(m_ave_velocity) + (1.0 - m_ave_weight) * std::abs(x_vel);
+	float y_vel_ave = m_ave_weight * std::get<1>(m_ave_velocity) + (1.0 - m_ave_weight) * std::abs(y_vel);
+	float z_vel_ave = m_ave_weight * std::get<2>(m_ave_velocity) + (1.0 - m_ave_weight) * std::abs(z_vel);
+
+	m_ave_velocity = {x_vel_ave, y_vel_ave, z_vel_ave};
+
+	return speed;
+}
+
+long long INSMonitor::GetTimeInMilliSec()
+{
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+
+	return (long long)(tv.tv_sec) * 1000 + (tv.tv_usec / 1000);
+}
+
+void INSMonitor::SaveLastRollPitch(float roll, float pitch)
+{
+	if (!m_last_Roll_Pitch.empty())
+	{
+		const std::pair<float, float> &lastCoord = m_last_Roll_Pitch.back();
+		float dRoll = fabs(roll - lastCoord.first);
+		float dPitch = fabs(pitch - lastCoord.second);
+
+		DEBUG_LOG("Delta in Roll/Pitch(%.2f/%.2f) Prev(%.2f/%.2f) New(%.2f/%.2f)\n", dRoll, dPitch, lastCoord.first, lastCoord.second, roll, pitch);
+	}
+
+	if (m_last_Roll_Pitch.size() >= 3)
+	{
+		m_last_Roll_Pitch.erase(m_last_Roll_Pitch.begin());
+	}
+
+	m_last_Roll_Pitch.emplace_back(roll, pitch);
+}
+
+void INSMonitor::FindMotionState(float roll_in, float pitch_in, float yaw_in)
+{
+	char motion_type = 0;
+
+	// Determine motion state based on speed
+	INS::MotionState motion_state = (m_speed > m_speed_thread_Hi) ? INS::IN_MOTION : INS::STATIONARY;
+
+	long long curr_time = GetTimeInMilliSec();
+
+	if(m_tilt_based_motion)
+	{
+		auto [roll, pitch, yaw] = kim_rpy_to_ut_rpy(roll_in * C_DEG2RAD_F, pitch_in * C_DEG2RAD_F, 0 * C_DEG2RAD_F, m_kim_to_body_roll_mount_rad * C_DEG2RAD_F, m_kim_to_body_yaw_mount_rad * C_DEG2RAD_F, m_body_to_ut_yaw_mount_rad * C_DEG2RAD_F);
+		roll *= C_RAD2DEG_F;
+		pitch *= C_RAD2DEG_F;
+		yaw *= C_RAD2DEG_F; // Use LUI displayed values
+
+		long long curr_time = GetTimeInMilliSec();
+
+		// Save roll and pitch values every 1 second
+		if (!m_last_RP_updated_time || (curr_time - m_last_RP_updated_time >= 1000)) // 1 second
+		{
+			m_last_RP_updated_time = curr_time;
+			SaveLastRollPitch(roll, pitch);
+		}
+
+		// Update motion state based on roll and pitch changes if stationary and enough samples are available
+		if (motion_state == INS::STATIONARY && m_last_Roll_Pitch.size() >= 3)
+		{
+			float th_roll = fabs((m_last_Roll_Pitch[2].first - m_last_Roll_Pitch[1].first) - (m_last_Roll_Pitch[1].first - m_last_Roll_Pitch[0].first));
+			float th_pitch = fabs((m_last_Roll_Pitch[2].second - m_last_Roll_Pitch[1].second) - (m_last_Roll_Pitch[1].second - m_last_Roll_Pitch[0].second));
+
+			// If roll or pitch deviation exceeds the threshold, set motion state to IN_MOTION
+			if (th_roll > 0.5 || th_pitch > 0.5)
+			{
+				motion_state = INS::IN_MOTION;
+				motion_type = 1;
+			}
+		}
+	}
+
+	// Update the motion state if it has changed
+	if (motion_state != m_motion_state)
+	{
+		// Start the timer when the motion state first changes
+		if (!m_last_MS_updated_time)
+		{
+			m_last_MS_updated_time = curr_time;
+		}
+
+		int wait_time = 3000;
+
+		if (!motion_type) // Velocity
+		{
+			wait_time = 0;
+		}
+
+		if ((!wait_time) || (curr_time - m_last_MS_updated_time >= wait_time)) // Wait for continuous change
+		{
+			DEBUG_LOG("Motion State Changed from %d -> %d by %s for %dms\n", m_motion_state, motion_state, motion_type ? "ROLL/PITCH" : "VELOCITY", wait_time);
+
+			if(m_is_manpack)
+			{
+				if(m_motion_state == INS::STATIONARY && motion_state == INS::IN_MOTION) //Stationary to motion
+				{
+					m_use_yaw_from_kim = true;
+				}
+				else if(m_motion_state == INS::IN_MOTION && motion_state == INS::STATIONARY) //Motion to Stationary
+				{
+					m_use_yaw_from_kim = false;
+					m_yaw_smoothing.setYawValueAndClearBuffer(yaw_in);
+					m_saved_yaw_from_file = m_yaw_smoothing.getYawFromToFile();
+				}
+			}
+
+			m_motion_state = motion_state;
+			m_last_MS_updated_time = 0; // Reset the timer after the update
+		}
+	}
+	else
+	{
+		// If the state has not changed, reset the timer
+		m_last_MS_updated_time = 0;
+	}
+}
+
+bool INSMonitor::checkUpdateGnssSource(serial_port_t *serialPort, is_comm_instance_t *comm, bool forceUpdate) {
+	//COMMENT THIS UNTIL WE USE KIM 251>
+
+	// int target_gnss_source = getTargetGnssSource();
+	// if (!forceUpdate && target_gnss_source == m_gnss_source)
+	// {
+	// 	return false;
+	// }
+
+	// if (target_gnss_source != GNSS_SOURCE_1 && target_gnss_source != GNSS_SOURCE_2)
+	// {
+	// 	ERROR_LOG("MP GNSS SOURCE UPDATE: Invalid target_gnss_source %d\r\n", target_gnss_source);
+	// 	return false;
+	// }
+    
+	// uint32_t new_sys_status = (target_gnss_source == GNSS_SOURCE_1) ? SYS_STATUS_GPS1 : SYS_STATUS_GPS2;
+	// INFO_LOG("MP GNSS SOURCE UPDATE: current_gnss_source %d, target_gnss_source %d, new_sys_status %d\r\n", m_gnss_source, target_gnss_source, new_sys_status);
+	// if (!setSysStatus(comm, new_sys_status))
+	// {
+	// 	INFO_LOG("MP GNSS SOURCE UPDATE: Failed to Set DID_SYS_PARAMS sysStatus\r\n");
+	// 	return false;
+	// }
+
+	return true;
+}
+
+int INSMonitor::getTargetGnssSource() {
+    if (!m_rgnss_autodetect.enabled)
+    {
+        // Auto-detection is off, so we use the user-configured preference.
+        return m_rgnss_autodetect.prefer_gps_when_detection_off;
+    }
+
+    switch (m_rgnss_detected)
+    {
+        case 1:  return GNSS_SOURCE_2; // Internal
+        case 2:  return GNSS_SOURCE_1; // External
+        default:
+            return GNSS_SOURCE_UNKNOWN;
+    }
+}
+
+bool INSMonitor::setSysStatus(is_comm_instance_t *comm, uint32_t targetSysStatus)
+{
+	if (!is_comm_set_data(portWrite, 0, comm, DID_SYS_PARAMS, sizeof(uint32_t), offsetof(sys_params_t, sysStatus), &targetSysStatus))
+	{
+		return false;
+	}
+
+	return true;
+}
+
+// onOff: 1 turns on the alarm, 0 clears it
+void INSMonitor::iesa_log_event(int onOff, const char* event, const char* text, ...)
+{
+    FaultData_t fdata;
+    memset(&fdata, 0, sizeof(FaultData_t));
+    clock_gettime(CLOCK_REALTIME,&fdata.ts);
+    fdata.alarmCode = 0;
+    fdata.severity  = 1;
+    fdata.onOff = onOff;
+    snprintf(fdata.alarmName, sizeof(fdata.alarmName),"%s", event);
+    snprintf(fdata.location, sizeof(fdata.location), "%s", "Master");
+    va_list args;
+    va_start(args, text);
+    vsnprintf(fdata.additionalText, sizeof(fdata.additionalText), text, args);
+    va_end(args);
+    fault_log(&fdata);
+}
+
+

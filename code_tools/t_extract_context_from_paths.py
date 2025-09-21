@@ -399,7 +399,7 @@ def main() -> None:
     # LOG a final summary of results
     LOG(f"\n{SUMMARY_SEPARATOR}")
     if successes:
-        LOG(f"{SUCCESS_EMOJI} Successfully processed {len(successes)} paths.")
+        LOG(f"{SUCCESS_EMOJI} Successfully processed {len(successes)} paths: {', '.join(successes)}")
     if failures:
         LOG(f"{FAILURE_EMOJI} Failed to process {len(failures)} paths:", file=sys.stderr)
         for f in failures:

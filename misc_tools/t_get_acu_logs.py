@@ -6,7 +6,7 @@ from typing import List, Tuple
 from pathlib import Path
 import argparse
 
-from dev_common.tools_utils import ToolTemplate, build_examples_epilog
+from dev_common import *
 
 
 def parse_args() -> argparse.Namespace:
@@ -17,34 +17,14 @@ def parse_args() -> argparse.Namespace:
     parser.formatter_class = argparse.RawTextHelpFormatter
     # Fill help epilog from templates
     parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
-    parser.add_argument(
-        '-t', '--type',
-        nargs='+',
-        choices=['P', 'T', 'E'],
-        required=True,
-        help='Log filename prefix(es) (P, T, or E).'
-    )
-    parser.add_argument(
-        '-i', '--ips',
-        nargs='+',
-        required=True,
-        help='UT IP address(es) to use as SSH jump host(s).'
-    )
-    parser.add_argument(
-        '-u', '--user',
-        default='root',
-        help='SSH username (default: root).'
-    )
-    parser.add_argument(
-        '-r', '--remote',
-        default='192.168.100.254',
-        help='Remote flash-logs server IP (default: 192.168.100.254).'
-    )
-    parser.add_argument(
-        '-d', '--date',
-        nargs='+',
-        help='Date(s) to filter logs (YYYYMMDD format). If provided, only logs starting with these dates will be fetched.'
-    )
+    parser.add_argument('-t', '--type', nargs='+', choices=['P', 'T', 'E'],
+                        required=True, help='Log filename prefix(es) (P, T, or E).')
+    parser.add_argument('-i', '--ips', nargs='+', required=True, help='UT IP address(es) to use as SSH jump host(s).')
+    parser.add_argument('-u', '--user', default='root', help='SSH username (default: root).')
+    parser.add_argument('-r', '--remote', default='192.168.100.254',
+                        help='Remote flash-logs server IP (default: 192.168.100.254).')
+    parser.add_argument('-d', '--date', nargs='+',
+                        help='Date(s) to filter logs (YYYYMMDD format). If provided, only logs starting with these dates will be fetched.')
     return parser.parse_args()
 
 
@@ -66,7 +46,7 @@ def build_scp_command(user: str, jump_ip: str, remote: str, log_type_prefix: str
 def fetch_logs_for_ip(user: str, remote: str, log_types: List[str], ip: str, timestamp: str, date_filters: List[str] = None) -> Tuple[bool, str]:
     """Create destination folder and invoke scp for each log type and date filter. Returns (success, ip)."""
     all_ok = True
-    subprocess.call("ssh-keygen -R 192.168.100.254", shell=True)
+    run_shell("ssh-keygen -R 192.168.100.254", shell=True)
     dates_to_process = date_filters if date_filters else [None]  # Process all dates or no date filter
     for log_type_prefix in log_types:
         for date_filter in dates_to_process:
@@ -98,11 +78,7 @@ def get_tool_templates() -> List[ToolTemplate]:
         ToolTemplate(
             name="Get ACU Logs",
             description="Copy flash log files from remote",
-            args={
-                "--type": ["P", "T", "E"],
-                "--ips": ["192.168.100.52"],
-                "--date": ["20250625"],
-            }
+            args={"--type": ["P", "T", "E"], "--ips": ["192.168.100.52"], "--date": ["20250625"], }
         ),
     ]
 
@@ -114,14 +90,8 @@ def main() -> None:
 
     failures = []
     for ip in args.ips:
-        ok, this_ip = fetch_logs_for_ip(
-            user=args.user,
-            remote=args.remote,
-            log_types=args.type,
-            ip=ip,
-            timestamp=now,
-            date_filters=args.date  # Pass date_filters
-        )
+        ok, this_ip = fetch_logs_for_ip(user=args.user, remote=args.remote,
+                                        log_types=args.type, ip=ip, timestamp=now, date_filters=args.date)
         if not ok:
             failures.append(this_ip)
 

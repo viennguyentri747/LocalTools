@@ -3,12 +3,24 @@ import importlib.util
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 from typing import List, Dict, Any, Optional
+from enum import IntEnum, auto
 import pyperclip
-from dev_common.constants import LINE_SEPARATOR
+from dev_common.constants import CMD_WSLPATH, LINE_SEPARATOR, CMD_EXPLORER, WSL_SELECT_FLAG
 from dev_common.core_utils import LOG
+
+
+class ToolFolderPriority(IntEnum):
+    TOP = 0
+    code_tool= auto()
+    iesa_tool= auto()
+    inertial_sense_tool= auto()
+    remote_tool= auto()
+    # TODO: Add more priorities
+    LAST = 999
 
 
 @dataclass
@@ -54,6 +66,7 @@ class ToolFolderMetadata:
     extra_title_description: str = ""
     always_expand: bool = False
     start_collapsed: Optional[bool] = None
+    priority: ToolFolderPriority = ToolFolderPriority.LAST
 
     def get_display_title(self, fallback_title: str) -> str:
         base = self.title or fallback_title
@@ -67,6 +80,7 @@ class ToolFolderMetadata:
         if self.start_collapsed is not None:
             return self.start_collapsed
         return True
+
 
 def discover_tools(root: Path, folder_pattern: str, prefix: str) -> List[ToolEntry]:
     tools: List[ToolEntry] = []
@@ -165,19 +179,19 @@ def load_tools_metadata(folder: Path) -> ToolFolderMetadata:
 
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    
+
     metadata_factory = getattr(module, "get_tools_metadata", None)
     if metadata_factory is None:
         raise AttributeError(f"No get_tools_metadata function found in {folder.name}")
 
     metadata = metadata_factory()
-    
+
     if isinstance(metadata, ToolFolderMetadata):
         return metadata
-    
+
     if isinstance(metadata, dict):
         return ToolFolderMetadata(**metadata)
-    
+
     raise TypeError(f"Unsupported metadata type {type(metadata)} for {folder.name}")
 
 
@@ -186,7 +200,7 @@ def display_command_to_use(command: str, is_copy_to_clipboard: bool = True, purp
     Handles the final command display and clipboard copying.
     """
     purpose_text = f" to {purpose}" if purpose else ""
-    
+
     # Try to copy to clipboard first
     clipboard_status = ""
     if is_copy_to_clipboard:
@@ -200,3 +214,28 @@ def display_command_to_use(command: str, is_copy_to_clipboard: bool = True, purp
     LOG(f"{LINE_SEPARATOR}", show_time=False)
     LOG(f"{command}", show_time=False)
     LOG(f"{LINE_SEPARATOR}", show_time=False)
+
+
+def open_explorer_to_file(file_path: Path) -> None:
+    """
+    Open Windows Explorer and highlight the specified file (WSL only).
+    """
+    try:
+        # Check if we're in WSL
+        if shutil.which(CMD_WSLPATH) and shutil.which(CMD_EXPLORER):
+            # Convert WSL path to Windows path
+            result = subprocess.run(
+                [CMD_WSLPATH, "-w", str(file_path)],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            windows_path = result.stdout.strip()
+
+            # Open Explorer with file selected
+            subprocess.run([CMD_EXPLORER, WSL_SELECT_FLAG, windows_path], check=False)
+            LOG(f"Opened Explorer to highlight '{file_path}'")
+        else:
+            LOG(f"Explorer is not available in this environment")
+    except Exception as e:
+        LOG(f"Failed to open Explorer: {e}")

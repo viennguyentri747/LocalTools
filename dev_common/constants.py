@@ -25,6 +25,16 @@ IESA_MANIFEST_RELATIVE_PATH = f"tools/manifests/iesa_manifest_gitlab.xml"
 IESA_MANIFEST_FILE_PATH = OW_SW_PATH / IESA_MANIFEST_RELATIVE_PATH
 OW_MAIN_BRANCHES = ["manpack_master", "master"]
 
+# WSL COMMANDS
+CMD_WSLPATH = 'wslpath'
+CMD_EXPLORER = 'explorer.exe'
+CMD_GITINGEST = 'gitingest'
+CMD_GIT = 'git'
+WSL_SELECT_FLAG = '/select,'
+
+# SYMBOLS
+UNDERSCORE = '_'
+HYPHEN = '-'
 
 # TOKEN KEYS
 GL_TISDK_TOKEN_KEY_NAME = "GITLAB_TISDK_TOKEN"
@@ -38,9 +48,10 @@ MANIFEST_SOURCE_REMOTE = "remote"
 BUILD_TYPE_IESA = "iesa"
 BUILD_TYPE_BINARY = "binary"
 
-# MISC
+# File extensions and suffixes
 FILE_PREFIX = 'file_'
 GIT_SUFFIX = ".git"
+TXT_EXTENSION = '.txt'
 
 # Argument name constants
 ARGUMENT_LONG_PREFIX = "--"
@@ -56,9 +67,25 @@ ARG_PATHS_LONG = f"{ARGUMENT_LONG_PREFIX}paths"
 ARG_PATH_SHORT = f"{ARGUMENT_SHORT_PREFIX}p"
 ARG_PATHS_SHORT = f"{ARGUMENT_SHORT_PREFIX}p"
 ARG_TICKET_URL_LONG = f"{ARGUMENT_LONG_PREFIX}jira_url"
+ARG_OUTPUT_DIR_LONG = '--output_dir'
+ARG_OUTPUT_DIR_SHORT = '-o'
+ARG_NO_OPEN_EXPLORER = '--no-open-explorer'
+ARG_MAX_FOLDERS = '--max-folders'
 
 # New common argument names for Inertial Sense tools
 ARG_UPDATE_FW = f"{ARGUMENT_LONG_PREFIX}update_fw"
 ARG_UPDATE_SDK = f"{ARGUMENT_LONG_PREFIX}update_sdk"
 ARG_NO_PROMPT = f"{ARGUMENT_LONG_PREFIX}no_prompt"
 ARG_SDK_PATH = f"{ARGUMENT_LONG_PREFIX}sdk_path"
+
+# Emojis
+SUCCESS_EMOJI = "✅"
+FAILURE_EMOJI = "❌"
+CELEBRATION_EMOJI = "🎉"
+
+# Messages
+LOG_PREFIX_MSG_INFO = '[INFO]'
+LOG_PREFIX_MSG_SUCCESS = '[SUCCESS]'
+LOG_PREFIX_MSG_ERROR = '[ERROR]'
+LOG_PREFIX_MSG_WARNING = '[WARNING]'
+LOG_PREFIX_MSG_FATAL = '[FATAL]'

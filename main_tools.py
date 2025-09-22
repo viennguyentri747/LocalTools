@@ -2,16 +2,13 @@
 from __future__ import annotations
 
 import argparse
-from time import sleep
 import importlib
-import shlex
 import sys
 from pathlib import Path
 from typing import Iterable, List, Optional
 from dataclasses import dataclass, field
 from dev_common import *
 from dev_common.tools_utils import ToolFolderMetadata, load_tools_metadata, display_command_to_use
-import re
 
 
 @dataclass
@@ -36,18 +33,10 @@ def _group_by_folder(tools: List[ToolEntry]) -> List[tuple[str, List[ToolEntry]]
     return [(folder, groups[folder]) for folder in order]
 
 
-def get_folder_priority(folder_name: str) -> int:
-    """Extracts priority from folder name, e.g., '1_tools' -> 1."""
-    match = re.match(r"(\d+)", folder_name)
-    if not match:
-        raise ValueError(f"Tool folder '{folder_name}' must start with a priority number (e.g., '1_tools', '10_my_tools').")
-    return int(match.group(1))
-
-
 def discover_and_nest_tools(project_root: Path, folder_pattern: str, tool_prefix: str) -> List[ToolEntryNode]:
     """Discovers tools and organizes them into a hierarchical structure."""
     tools = discover_tools(project_root, folder_pattern, tool_prefix)
-    
+
     root_nodes: dict[str, ToolEntryNode] = {}
 
     for tool in tools:
@@ -65,7 +54,7 @@ def discover_and_nest_tools(project_root: Path, folder_pattern: str, tool_prefix
 
     # Sort the root nodes based on priority from folder name
     try:
-        sorted_nodes = sorted(list(root_nodes.values()), key=lambda node: get_folder_priority(node.folder_name))
+        sorted_nodes = sorted(list(root_nodes.values()), key=lambda node: node.metadata.priority)
         return sorted_nodes
     except ValueError as e:
         LOG(f"Error: {e}", file=sys.stderr)
@@ -102,12 +91,6 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
 
     p.add_argument(ARG_TOOL_FOLDER_PATTERN, default=r"^(?!misc_tools$).*_tools$",
                    help=r"Regex to match tool folders at project root, excluding 'ignore_tools' (default: ^(?!ignore_tools$).*_tools$)", )
-    # p.add_argument(
-    #     ARG_PATH_SHORT, ARG_TOOL_ROOT_PATH,
-    #     default=Path.cwd(),
-    #     help=f"Root path for fuzzy path search (default:CWD)",
-    #     type=Path,
-    # )
 
     return p.parse_args(argv)
 
@@ -199,10 +182,11 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                                 LOG(f"Running template command now")
                                 run_shell(final_cmd)
                             else:
-                                display_command_to_use(final_cmd, is_copy_to_clipboard=True, purpose=f"Run tool {tool.stem}")
+                                display_command_to_use(final_cmd, is_copy_to_clipboard=True,
+                                                       purpose=f"Run tool {tool.stem}")
                         return 0
-        except ImportError as e:
-            LOG(f"Could not import module for templates: {e}", file=sys.stderr)
+        except Exception as e:
+            LOG_EXCEPTION(e)
 
     LOG("No templates available for this tool.")
     return 0

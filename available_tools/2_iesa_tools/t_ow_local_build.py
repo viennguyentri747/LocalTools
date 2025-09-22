@@ -14,6 +14,8 @@ import argparse
 from dev_common import *
 import yaml
 
+from dev_common.tools_utils import display_command_to_use
+
 
 GITLAB_CI_YML_PATH = OW_SW_PATH / ".gitlab-ci.yml"
 # Need to put this here because we will go into docker environment from OW_SW_PATH
@@ -106,18 +108,18 @@ def main() -> None:
             new_iesa_output_abs_path = new_iesa_path.resolve()
             LOG(f"Renamed '{OW_OUTPUT_IESA_PATH.name}' to '{new_iesa_path.name}'")
             LOG(f"Find output IESA here (WSL path): {new_iesa_output_abs_path}")
-            LOG(f"{LINE_SEPARATOR}")
             # run_shell(f"sudo chmod 644 {new_iesa_output_abs_path}")
             # original_md5 = md5sum(new_iesa_output_abs_path)
-            LOG("Use this below command to copy to target IP:\n")
-            LOG(
+            
+            command = (
                 f'output_path="{new_iesa_output_abs_path}" '
                 '&& read -e -i "192.168.10" -p "Enter source IP address: " source_ip '
                 # '&& rmh '
                 '&& sudo chmod 644 "$output_path" '
                 '&& scp -rJ root@$source_ip "$output_path" root@192.168.100.254:/home/root/download/ && { original_md5=$(md5sum "$output_path" | cut -d" " -f1); noti "SCP copy completed successfully"; echo -e "IESA copied completed. Install on target UT $source_ip with this below command:\\n"; } || { noti "SCP copy failed"; } '
-                f'&& echo "original_md5=\\"$original_md5\\"; actual_md5=\\$(md5sum /home/root/download/{new_iesa_name} | cut -d\\\" \\\" -f1); echo \\\"original md5sum: \\$original_md5\\\"; echo \\\"actual md5sum: \\$actual_md5\\\"; if [ \\\"\\$original_md5\\\" = \\\"\\$actual_md5\\\" ]; then read -r -p \\\"MD5 match! Install (y/n)?: \\\" confirm; [ \\\"\\$confirm\\\" = \\\"y\\\" -o \\\"\\$confirm\\\" = \\\"Y\\\" ] && iesa_umcmd install pkg {new_iesa_name} && tail -F /var/log/upgrade_log; else echo \\\"MD5 MISMATCH! Not installing.\\\"; fi"', show_time=False
+                f'&& echo "original_md5=\\"$original_md5\\"; actual_md5=\\$(md5sum /home/root/download/{new_iesa_name} | cut -d\\\" \\\" -f1); echo \\\"original md5sum: \\$original_md5\\\"; echo \\\"actual md5sum: \\$actual_md5\\\"; if [ \\\"\\$original_md5\\\" = \\\"\\$actual_md5\\\" ]; then read -r -p \\\"MD5 match! Install (y/n)?: \\\" confirm; [ \\\"\\$confirm\\\" = \\\"y\\\" -o \\\"\\$confirm\\\" = \\\"Y\\\" ] && iesa_umcmd install pkg {new_iesa_name} && tail -F /var/log/upgrade_log; else echo \\\"MD5 MISMATCH! Not installing.\\\"; fi"'
             )
+            display_command_to_use(command, is_copy_to_clipboard=True, purpose="Copy IESA to target IP")
         else:
             LOG(
                 f"ERROR: Expected IESA artifact not found at '{OW_OUTPUT_IESA_PATH}' or it's not a file.", file=sys.stderr)
@@ -126,9 +128,7 @@ def main() -> None:
         LOG(f"{MAIN_STEP_LOG_PREFIX} Binary build finished.")
         LOG(f"Find output binary files in '{OW_BUILD_BINARY_OUTPUT_PATH}'")
         LOG(f"{LINE_SEPARATOR}")
-        LOG("Use this below command to copy to target IP:")
-        # LOG(f'sudo chmod -R 755 {OW_BUILD_BINARY_OUTPUT_PATH} && read -e -p "Enter target IP (192.168.10): " -i "192.168.10" TARGET_IP && read -e -p "Enter binary path: " -i "{OW_BUILD_BINARY_OUTPUT_PATH}/" BIN_PATH && scp -rJ root@$TARGET_IP $BIN_PATH root@192.168.100.254:/home/root/download/', show_time=False)
-        LOG(f'sudo chmod -R 755 {OW_BUILD_BINARY_OUTPUT_PATH} && '
+        command = (f'sudo chmod -R 755 {OW_BUILD_BINARY_OUTPUT_PATH} && '
             f'while true; do '
             f'read -e -p "Enter binary path: " -i "{OW_BUILD_BINARY_OUTPUT_PATH}/" BIN_PATH && '
             f'if [ -f "$BIN_PATH" ]; then break; else echo "Error: File $BIN_PATH does not exist. Please try again."; fi; '
@@ -141,8 +141,9 @@ def main() -> None:
             f'{{ echo "SCP copy completed successfully"; '
             f'echo -e "Binary copied completed. Setup symlink on target UT $TARGET_IP with this below command:\\n"; '
             f'echo "actual_md5=\\$(md5sum /home/root/download/$DEST_NAME | cut -d\\\" \\\" -f1) && if [ \\\"$original_md5\\\" = \"$actual_md5\\\" ]; then echo \\\"MD5 match! Proceeding...\\\" && cp /opt/bin/$BIN_NAME /home/root/download/backup_$BIN_NAME && ln -sf /home/root/download/$DEST_NAME /opt/bin/$BIN_NAME && echo \\\"Backup created and symlink updated: /opt/bin/$BIN_NAME -> /home/root/download/$DEST_NAME\\\"; else echo \\\"MD5 MISMATCH! Aborting.\\\"; fi"; '
-            f'}} || {{ echo "SCP copy failed"; }}',
-            show_time=False)
+            f'}} || {{ echo "SCP copy failed"; }}'
+        )
+        display_command_to_use(command, is_copy_to_clipboard=True, purpose="Copy BINARY to target IP")
 
         # LOG(f'sudo chmod -R 755 {BUILD_BINARY_OUTPUT_PATH} && read -e -p "Enter target IP: " -i "192.168.10" TARGET_IP && scp -rJ root@$TARGET_IP {BUILD_BINARY_OUTPUT_PATH}/<bin> root@192.168.100.254:/home/root/download/', show_time=False)
 

@@ -8,7 +8,20 @@ import shlex
 import sys
 from pathlib import Path
 from typing import Iterable, List, Optional
+from dataclasses import dataclass, field
 from dev_common import *
+from dev_common.tools_utils import ToolFolderMetadata, load_tools_metadata, display_command_to_use
+import re
+
+
+@dataclass
+class ToolEntryNode:
+    """Represents a node in the tool hierarchy."""
+    name: str
+    tool: Optional[ToolEntry] = None
+    children: List[ToolEntryNode] = field(default_factory=list)
+    metadata: Optional[ToolFolderMetadata] = None
+    folder_name: Optional[str] = None
 
 
 # Helper functions that don't call other functions in this file
@@ -21,6 +34,42 @@ def _group_by_folder(tools: List[ToolEntry]) -> List[tuple[str, List[ToolEntry]]
             order.append(t.folder)
         groups[t.folder].append(t)
     return [(folder, groups[folder]) for folder in order]
+
+
+def get_folder_priority(folder_name: str) -> int:
+    """Extracts priority from folder name, e.g., '1_tools' -> 1."""
+    match = re.match(r"(\d+)", folder_name)
+    if not match:
+        raise ValueError(f"Tool folder '{folder_name}' must start with a priority number (e.g., '1_tools', '10_my_tools').")
+    return int(match.group(1))
+
+
+def discover_and_nest_tools(project_root: Path, folder_pattern: str, tool_prefix: str) -> List[ToolEntryNode]:
+    """Discovers tools and organizes them into a hierarchical structure."""
+    tools = discover_tools(project_root, folder_pattern, tool_prefix)
+    
+    root_nodes: dict[str, ToolEntryNode] = {}
+
+    for tool in tools:
+        if tool.folder not in root_nodes:
+            folder_path = project_root / tool.folder
+            metadata = load_tools_metadata(folder_path)
+            root_nodes[tool.folder] = ToolEntryNode(
+                name=tool.folder.upper(),
+                metadata=metadata,
+                folder_name=tool.folder,
+            )
+
+        tool_node = ToolEntryNode(name=tool.filename, tool=tool)
+        root_nodes[tool.folder].children.append(tool_node)
+
+    # Sort the root nodes based on priority from folder name
+    try:
+        sorted_nodes = sorted(list(root_nodes.values()), key=lambda node: get_folder_priority(node.folder_name))
+        return sorted_nodes
+    except ValueError as e:
+        LOG(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 def build_template_command(tool, template: ToolTemplate):
@@ -63,21 +112,36 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
-def interactive_tool_select(message: str, tools: List[ToolEntry]) -> Optional[ToolEntry]:
-    if not tools:
+def interactive_tool_select(message: str, tool_nodes: List[ToolEntryNode]) -> Optional[ToolEntry]:
+    """Recursively builds and displays a collapsible, interactive tool selection menu."""
+    if not tool_nodes:
         LOG("No tools available to select.")
         return None
-    groups = _group_by_folder(tools)
-    if not groups:
-        return None
-    # Build option_data with headers and indented children
-    option_data = []
-    for folder, folder_tools in groups:
-        option_data.append(OptionData(title=f"{folder.upper()}:", selectable=False))
-        for t in folder_tools:
-            option_data.append(OptionData(title=f"  {t.filename}", selectable=True, data=t))
-        option_data.append(OptionData(title=f"", selectable=False))
+
+    def build_option_data(nodes: List[ToolEntryNode], level: int = 0) -> List[OptionData]:
+        """Recursively converts tool nodes to OptionData for the interactive menu."""
+        options = []
+        for node in nodes:
+            if node.tool:  # It's a tool
+                options.append(OptionData(
+                    title=f"{'  ' * level}{node.name}",
+                    selectable=True,
+                    data=node.tool
+                ))
+            else:  # It's a folder/category
+                metadata = node.metadata or ToolFolderMetadata()
+                child_options = build_option_data(node.children, level + 1)
+                options.append(OptionData(
+                    title=f"{'  ' * level}{metadata.get_display_title(fallback_title=node.name)}",
+                    selectable=False,
+                    children=child_options,
+                    collapsed=metadata.is_collapsed()
+                ))
+        return options
+
+    option_data = build_option_data(tool_nodes)
     selected = interactive_select_with_arrows(option_data, menu_title=message)
+
     if selected is None or not selected.selectable:
         return None
     return selected.data
@@ -85,14 +149,15 @@ def interactive_tool_select(message: str, tools: List[ToolEntry]) -> Optional[To
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = parse_args(argv)
-    project_root = Path(__file__).resolve().parent
+    project_root = AVAILABLE_TOOLS_PATH
     # search_root = get_attribute_value(args, ARG_TOOL_ROOT_PATH)
-    tools = discover_tools(project_root, get_arg_value(
+    tool_nodes = discover_and_nest_tools(project_root, get_arg_value(
         args, ARG_TOOL_FOLDER_PATTERN), get_arg_value(args, ARG_TOOL_PREFIX))
-    tool = interactive_tool_select(f"Select a tool", tools)
+
+    tool = interactive_tool_select(f"Select a tool", tool_nodes)
     if tool is None:
         return 0
-    LOG(f"Selected tool: {tool.display} ....")
+    LOG(f"Selected tool: {tool.full_path} ....")
     # Only show templates for Python tools
     if tool.path.suffix == ".py":
         if str(project_root) not in sys.path:
@@ -134,10 +199,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                                 LOG(f"Running template command now")
                                 run_shell(final_cmd)
                             else:
-                                LOG(f"✅ Final command:")
-                                LOG(f"{LINE_SEPARATOR}", show_time=False)
-                                LOG(f"{final_cmd}", show_time=False)
-                                LOG(f"{LINE_SEPARATOR}", show_time=False)
+                                display_command_to_use(final_cmd, is_copy_to_clipboard=True, purpose=f"Run tool {tool.stem}")
                         return 0
         except ImportError as e:
             LOG(f"Could not import module for templates: {e}", file=sys.stderr)

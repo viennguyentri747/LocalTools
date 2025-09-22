@@ -1,11 +1,13 @@
 from dataclasses import dataclass
+import importlib.util
 import os
 from pathlib import Path
 import re
 import subprocess
 import sys
 from typing import List, Dict, Any, Optional
-
+import pyperclip
+from dev_common.constants import LINE_SEPARATOR
 from dev_common.core_utils import LOG
 
 
@@ -36,13 +38,35 @@ class ToolEntry:
     path: Path
 
     @property
-    def display(self) -> str:
+    def full_path(self) -> str:
         return f"{self.folder}/{self.filename}"
 
     @property
     def stem(self) -> str:
         return Path(self.filename).stem
 
+
+@dataclass
+class ToolFolderMetadata:
+    """Metadata describing how a tool folder should be displayed."""
+
+    title: Optional[str] = None
+    extra_title_description: str = ""
+    always_expand: bool = False
+    start_collapsed: Optional[bool] = None
+
+    def get_display_title(self, fallback_title: str) -> str:
+        base = self.title or fallback_title
+        if self.extra_title_description:
+            return f"{base} - {self.extra_title_description}"
+        return base
+
+    def is_collapsed(self) -> bool:
+        if self.always_expand:
+            return False
+        if self.start_collapsed is not None:
+            return self.start_collapsed
+        return True
 
 def discover_tools(root: Path, folder_pattern: str, prefix: str) -> List[ToolEntry]:
     tools: List[ToolEntry] = []
@@ -90,7 +114,7 @@ def get_python_tool_help_output(tool: ToolEntry) -> Optional[str]:
         if text:
             return text
     except Exception:
-        LOG(f"Error getting help output for tool: {tool.display}")
+        LOG(f"Error getting help output for tool: {tool.full_path}")
 
 
 def build_examples_epilog(templates: List[ToolTemplate], script_path: Path) -> str:
@@ -126,3 +150,53 @@ def build_examples_epilog(templates: List[ToolTemplate], script_path: Path) -> s
         lines.append(cmd)
 
     return "\n".join(lines)
+
+
+def load_tools_metadata(folder: Path) -> ToolFolderMetadata:
+    """Load metadata customizations for a tools folder if present."""
+    metadata_file_name = "_tools_metadata.py"
+    metadata_path = folder / f"{metadata_file_name}"
+    if not metadata_path.exists():
+        return ToolFolderMetadata()
+
+    spec = importlib.util.spec_from_file_location(f"{folder.name}_tools_metadata", metadata_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Failed to create module spec for {folder.name}")
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    
+    metadata_factory = getattr(module, "get_tools_metadata", None)
+    if metadata_factory is None:
+        raise AttributeError(f"No get_tools_metadata function found in {folder.name}")
+
+    metadata = metadata_factory()
+    
+    if isinstance(metadata, ToolFolderMetadata):
+        return metadata
+    
+    if isinstance(metadata, dict):
+        return ToolFolderMetadata(**metadata)
+    
+    raise TypeError(f"Unsupported metadata type {type(metadata)} for {folder.name}")
+
+
+def display_command_to_use(command: str, is_copy_to_clipboard: bool = True, purpose: str = ""):
+    """
+    Handles the final command display and clipboard copying.
+    """
+    purpose_text = f" to {purpose}" if purpose else ""
+    
+    # Try to copy to clipboard first
+    clipboard_status = ""
+    if is_copy_to_clipboard:
+        try:
+            pyperclip.copy(command)
+            clipboard_status = " (copied to clipboard)"
+        except Exception as e:
+            clipboard_status = f" (clipboard failed: {e})"
+    LOG(f"\n", show_time=False)
+    LOG(f"✅ Cmd{purpose_text}{clipboard_status}:", show_time=False)
+    LOG(f"{LINE_SEPARATOR}", show_time=False)
+    LOG(f"{command}", show_time=False)
+    LOG(f"{LINE_SEPARATOR}", show_time=False)

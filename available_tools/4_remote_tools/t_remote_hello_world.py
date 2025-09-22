@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import List
 from dev_common import *
 from dev_common.remote_utils import create_scp_and_run_cmd
+from dev_common.tools_utils import display_command_to_use
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_LOCAL_FILE = SCRIPT_DIR / "src" / "helloworld.py"
 
@@ -39,10 +40,7 @@ def main() -> None:
     remote_run = f"python3 /home/root/download/{out_path.name}"
     one_liner = create_scp_and_run_cmd(local_path=out_path, run_cmd_on_remote=remote_run)
 
-    LOG("Paste the following command in your local shell:", highlight=True)
-    LOG(LINE_SEPARATOR, show_time=False)
-    LOG(one_liner, show_time=False)
-    LOG(LINE_SEPARATOR, show_time=False)
+    display_command_to_use(one_liner, is_copy_to_clipboard=True, purpose="Paste the following command in your local shell")
 
 
 def get_tool_templates() -> List[ToolTemplate]:

@@ -4,8 +4,10 @@ import curses
 import shutil
 import sys
 from typing import List, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
+
+from dev_common.core_utils import LOG
 
 
 @dataclass
@@ -13,6 +15,133 @@ class OptionData:
     title: str
     selectable: bool
     data: Optional[Any] = None
+    children: List[OptionData] = field(default_factory=list)
+    collapsed: bool = True
+    # Temporary fields for tracking
+    parent: Optional[OptionData] = None
+    level: int = 0
+
+    def __init__(self, title: str, selectable: bool = False, data: Optional[Any] = None, children: List[OptionData] = [], collapsed: bool = True):
+        self.title = title
+        self.selectable = selectable
+        self.data = data
+        self.children = children
+        self.collapsed = collapsed
+
+
+def _set_levels(options: List[OptionData], level: int = 0, parent: Optional[OptionData] = None) -> None:
+    """Set the level and parent for each option recursively."""
+    for option in options:
+        option.level = level
+        option.parent = parent
+        if option.children:
+            _set_levels(option.children, level + 1, option)
+
+
+def find_next_selectable_and_expand(options: List[OptionData], current_index: int, direction: int) -> int:
+    """
+    Find next selectable item using depth-first search and expand parent chains as needed.
+
+    Args:
+        options: Root level options
+        current_index: Current cursor position in flattened list
+        direction: 1 for next, -1 for previous
+
+    Returns:
+        Index of next selectable item in flattened list
+    """
+    # Get all options in depth-first order (this represents the "navigation order")
+    def get_all_options_dfs(opts: List[OptionData]) -> List[OptionData]:
+        """Get all options in depth-first order, regardless of collapsed state."""
+        result = []
+        for opt in opts:
+            result.append(opt)
+            if opt.children:
+                result.extend(get_all_options_dfs(opt.children))
+        return result
+
+    all_options_dfs = get_all_options_dfs(options)
+
+    # Find current option in the DFS order
+    current_flat = _flatten_non_collapsed_options(options)
+    if current_index >= len(current_flat) or current_index < 0:
+        # Handle initialization case - find first selectable
+        if direction > 0:
+            current_dfs_index = -1  # Start before first item
+        else:
+            current_dfs_index = len(all_options_dfs)  # Start after last item
+    else:
+        current_option = current_flat[current_index]
+        try:
+            current_dfs_index = all_options_dfs.index(current_option)
+        except ValueError:
+            current_dfs_index = 0
+
+    # Search for next selectable in DFS order
+    dfs_length = len(all_options_dfs)
+    for step in range(1, dfs_length + 1):  # +1 to handle full wrap-around
+        next_dfs_index = (current_dfs_index + direction * step) % dfs_length
+        next_option = all_options_dfs[next_dfs_index]
+
+        if next_option.selectable:
+            # Found a selectable option - now expand its parent chain
+            _expand_parent_chain(next_option)
+
+            # Collapse siblings of parents at each level to maintain clean navigation
+            _collapse_siblings_of_parents(next_option, options)
+
+            # Get new flattened list and find the index
+            new_flat = _flatten_non_collapsed_options(options)
+            try:
+                return new_flat.index(next_option)
+            except ValueError:
+                return current_index
+
+    return current_index  # No selectable found, stay put
+
+
+def _expand_parent_chain(option: OptionData) -> None:
+    """Expand all parents up to the root for the given option."""
+    current = option.parent
+    while current:
+        current.collapsed = False
+        current = current.parent
+
+
+def _collapse_siblings_of_parents(option: OptionData, root_options: List[OptionData]) -> None:
+    """
+    Collapse sibling branches that are not in the path to the selected option.
+    This keeps the interface clean by only showing the relevant expanded branches.
+    """
+    # Get the path from root to the option
+    path_to_option = []
+    current = option
+    while current:
+        path_to_option.append(current)
+        current = current.parent
+    path_to_option.reverse()  # Now root to option
+
+    def collapse_siblings_recursive(opts: List[OptionData], path_index: int):
+        if path_index >= len(path_to_option):
+            return
+
+        target_option = path_to_option[path_index]
+
+        for opt in opts:
+            if opt == target_option:
+                # This is in our path - don't collapse it, but recurse into its children
+                if opt.children and path_index + 1 < len(path_to_option):
+                    collapse_siblings_recursive(opt.children, path_index + 1)
+            else:
+                # This is a sibling - collapse it if it has children
+                if opt.children and not opt.collapsed:
+                    # Only collapse if it's at the same level as our target and not a parent
+                    if opt.level == target_option.level:
+                        opt.collapsed = True
+
+    # Start the collapsing process from root
+    if path_to_option:
+        collapse_siblings_recursive(root_options, 0)
 
 
 def interactive_select_with_arrows(option_data: List[OptionData], menu_title: Optional[str] = None) -> Optional[OptionData]:
@@ -28,6 +157,12 @@ def interactive_select_with_arrows(option_data: List[OptionData], menu_title: Op
     if not option_data:
         return None
 
+    # Never modify the original list
+    options_copy = [od for od in option_data]
+
+    # Set levels for all options
+    _set_levels(options_copy)
+
     # Build a title that can span multiple lines. If the caller supplies
     # multiple lines, put the help hint on its own line for clarity.
     help_hint = "(↑/↓ or j/k, Enter to select, q to cancel)"
@@ -42,7 +177,7 @@ def interactive_select_with_arrows(option_data: List[OptionData], menu_title: Op
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         return _numeric_fallback(option_data, full_title)
     try:
-        return curses.wrapper(_interactive_menu_selector, option_data, full_title)
+        return curses.wrapper(_interactive_menu_selector, options_copy, full_title)
     except Exception:
         # If curses fails for any reason, gracefully fall back
         return _numeric_fallback(option_data, full_title)
@@ -68,21 +203,33 @@ def _interactive_menu_selector(stdscr: "curses._CursesWindow", option_data: List
     # Get initial terminal dimensions
     height, width = stdscr.getmaxyx()
 
-    # Pre-process option data to handle multi-line titles
-    processed_options = []
-    option_line_counts = []
-
-    for od in option_data:
-        lines = _wrap_text(od.title, width - 2)  # Use actual terminal width minus padding
-        processed_options.append((od, lines))
-        option_line_counts.append(len(lines))
-
-    # Start cursor on first selectable item
-    cursor = next((i for i in range(len(option_data)) if option_data[i].selectable), 0)
+    # Initialize cursor to first selectable item
+    cursor = find_next_selectable_and_expand(option_data, -1, 1)
     top = 0
 
     while True:
         height, width = stdscr.getmaxyx()  # Get current dimensions (in case of resize)
+
+        # Re-flatten after any expansions
+        flat_options = _flatten_non_collapsed_options(option_data)
+
+        # Pre-process option data to handle multi-line titles
+        processed_options: List[tuple[OptionData, list[str]]] = []
+        option_line_counts: List[int] = []
+
+        for od in flat_options:
+            prefix = ""
+            if od.children:
+                prefix = "[-] " if not od.collapsed else "[+] "
+
+            lines = _wrap_text(prefix + od.title, width - 2)
+            processed_options.append((od, lines))
+            option_line_counts.append(len(lines))
+
+        # Ensure cursor is still valid
+        if cursor >= len(flat_options):
+            cursor = max(0, len(flat_options) - 1)
+
         # Compute wrapped title lines count for current width
         title_lines: List[str] = []
         if title:
@@ -105,28 +252,67 @@ def _interactive_menu_selector(stdscr: "curses._CursesWindow", option_data: List
 
         ch = stdscr.getch()
         if ch in (curses.KEY_UP, ord('k')):
-            cursor = _next_selectable(option_data, cursor, -1)
+            cursor = find_next_selectable_and_expand(option_data, cursor, -1)
         elif ch in (curses.KEY_DOWN, ord('j')):
-            cursor = _next_selectable(option_data, cursor, 1)
+            cursor = find_next_selectable_and_expand(option_data, cursor, 1)
         elif ch in (curses.KEY_HOME,):
-            cursor = next((i for i in range(len(option_data)) if option_data[i].selectable), 0)
+            cursor = find_next_selectable_and_expand(option_data, -1, 1)
         elif ch in (curses.KEY_END,):
-            cursor = next((i for i in range(len(option_data) - 1, -1, -1)
-                          if option_data[i].selectable), len(option_data) - 1)
+            cursor = find_next_selectable_and_expand(option_data, len(flat_options), -1)
         elif ch in (10, 13, curses.KEY_ENTER):  # Enter
-            return option_data[cursor]
+            if cursor < len(flat_options):
+                selected_option = flat_options[cursor]
+                if selected_option.selectable:
+                    return selected_option
         elif ch in (27, ord('q')):  # ESC or q to cancel
             return None
         elif ch == curses.KEY_RESIZE:
-            # Re-process options with new width on resize
-            height, width = stdscr.getmaxyx()
-            processed_options = []
-            option_line_counts = []
+            # Handled at the start of the loop
+            pass
 
-            for od in option_data:
-                lines = _wrap_text(od.title, width - 2)
-                processed_options.append((od, lines))
-                option_line_counts.append(len(lines))
+
+def _flatten_non_collapsed_options(options: List[OptionData], parent: Optional[OptionData] = None) -> List[OptionData]:
+    """Recursively flattens the list of options, respecting the collapsed state."""
+    flat_list = []
+    for option in options:
+        option.parent = parent
+        flat_list.append(option)
+        if option.children and not option.collapsed:
+            flat_list.extend(_flatten_non_collapsed_options(option.children, parent=option))
+    return flat_list
+
+
+def _wrap_text(text: str, width: int) -> List[str]:
+    """Wrap text to fit within the given width, respecting word boundaries where possible."""
+    if width <= 0:
+        return [text]
+
+    lines = []
+    for line in text.split('\n'):
+        if len(line) <= width:
+            lines.append(line)
+        else:
+            # For very long lines, try to break at spaces first
+            words = line.split(' ')
+            current_line = ""
+
+            for word in words:
+                test_line = f"{current_line} {word}".strip()
+                if len(test_line) <= width:
+                    current_line = test_line
+                else:
+                    if current_line:
+                        lines.append(current_line)
+                    # If single word is too long, truncate it
+                    if len(word) > width:
+                        lines.append(word[:width-3] + "...")
+                    else:
+                        current_line = word
+
+            if current_line:
+                lines.append(current_line)
+
+    return lines
 
 
 def _draw_menu_multiline(
@@ -171,7 +357,6 @@ def _draw_menu_multiline(
         if display_row >= height:
             break
 
-        # Display lines for this option
         for line_idx, line in enumerate(lines):
             line_number = current_line + line_idx
 
@@ -188,13 +373,21 @@ def _draw_menu_multiline(
 
             # Highlight entire option if this is the cursor position
             if option_idx == cursor:
+                attr = curses.A_REVERSE
+                if not od.selectable:
+                    # Non-selectable items shouldn't be fully reversed.
+                    # This could be customized further.
+                    attr = curses.A_BOLD
                 try:
-                    stdscr.addstr(display_row, 0, display_line, curses.A_REVERSE)
+                    stdscr.addstr(display_row, 0, display_line, attr)
                 except curses.error:
                     pass
             else:
+                attr = curses.A_NORMAL
+                if not od.selectable:
+                    attr = curses.A_DIM  # Make non-selectable items less prominent
                 try:
-                    stdscr.addstr(display_row, 0, display_line)
+                    stdscr.addstr(display_row, 0, display_line, attr)
                 except curses.error:
                     pass
 
@@ -218,60 +411,21 @@ def _get_terminal_size() -> tuple[int, int]:
     return size.lines, size.columns
 
 
-def _next_selectable(option_data: List[OptionData], current: int, direction: int) -> int:
-    """Find the next selectable index in the given direction, wrapping around if necessary."""
-    n = len(option_data)
-    i = current
-    while True:
-        i = (i + direction) % n
-        if i == current:
-            return current  # No other selectable items, stay put
-        if option_data[i].selectable:
-            return i
-
-
-def _wrap_text(text: str, width: int) -> List[str]:
-    """Wrap text to fit within the given width, respecting word boundaries where possible."""
-    if width <= 0:
-        return [text]
-
-    lines = []
-    for line in text.split('\n'):
-        if len(line) <= width:
-            lines.append(line)
-        else:
-            # For very long lines, try to break at spaces first
-            words = line.split(' ')
-            current_line = ""
-
-            for word in words:
-                test_line = f"{current_line} {word}".strip()
-                if len(test_line) <= width:
-                    current_line = test_line
-                else:
-                    if current_line:
-                        lines.append(current_line)
-                    # If single word is too long, truncate it
-                    if len(word) > width:
-                        lines.append(word[:width-3] + "...")
-                    else:
-                        current_line = word
-
-            if current_line:
-                lines.append(current_line)
-
-    return lines
-
-
 def _numeric_fallback(option_data: List[OptionData], title: Optional[str] = None) -> Optional[OptionData]:
     """Provides a fallback numeric selection when curses is not available or fails."""
-    selectable_indices = [i for i, od in enumerate(option_data) if od.selectable]
-    if not selectable_indices:
+    flat_options = _flatten_non_collapsed_options(option_data)
+    selectable_options = [od for od in flat_options if od.selectable]
+    if not selectable_options:
         return None
     if title:
         print(title)
-    for num, idx in enumerate(selectable_indices, start=1):
-        print(f"  [{num}] {option_data[idx].title}")
+
+    for num, od in enumerate(selectable_options, start=1):
+        prefix = ""
+        if od.children:
+            prefix = "[+] " if od.collapsed else "[-] "
+        print(f"  [{num}] {prefix}{od.title}")
+
     while True:
         try:
             raw = input("Select number (or 'q' to cancel): ").strip()
@@ -281,8 +435,13 @@ def _numeric_fallback(option_data: List[OptionData], title: Optional[str] = None
             return None
         if raw.isdigit():
             num = int(raw)
-            if 1 <= num <= len(selectable_indices):
-                return option_data[selectable_indices[num - 1]]
+            if 1 <= num <= len(selectable_options):
+                selected = selectable_options[num-1]
+                if selected.children:
+                    selected.collapsed = not selected.collapsed
+                    # Recurse or re-render; for simplicity, we restart the selection
+                    return _numeric_fallback(option_data, title)
+                return selected
         print("Invalid choice. Enter a number from the list.")
 
 

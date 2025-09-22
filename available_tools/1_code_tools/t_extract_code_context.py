@@ -93,7 +93,7 @@ def get_tool_templates() -> List[ToolTemplate]:
     """Get tool templates for both extraction modes."""
     return [
         ToolTemplate(
-            name="[paths] Multiple files with exclude GLOB patterns",
+            name="[paths] Context from multiple paths with exclude GLOB patterns",
             args={
                 ARG_EXTRACT_MODE: EXTRACT_MODE_PATHS,
                 ARG_INCLUDE_PATHS_PATTERN: ["*"],
@@ -102,12 +102,12 @@ def get_tool_templates() -> List[ToolTemplate]:
             }
         ),
         ToolTemplate(
-            name="[git_diff] Diff between 2 ref (commits, branchs, tags ...)",
+            name="[git_diff] Context from Git Diff between 2 refs (commits, branchs, tags ...)",
             args={
                 ARG_EXTRACT_MODE: EXTRACT_MODE_GIT_DIFF,
                 ARG_PATH_LONG: "~/core_repos/intellian_pkg",
-                ARG_BASE_REF_LONG: "<base-ref>(origin/manpack_master)",
-                ARG_TARGET_REF_LONG: "<target-ref>(origin/feature_branch)",
+                ARG_BASE_REF_LONG: "origin/manpack_master",
+                ARG_TARGET_REF_LONG: "origin/feat_branch",
             }
         ),
     ]

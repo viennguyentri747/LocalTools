@@ -1,13 +1,14 @@
 from pathlib import Path
 
 # FORMATS
-LINE_SEPARATOR = f"\n{'=' * 60}\n"
-LINE_SEPARATOR_NO_ENDLINE = f"{'=' * 60}"
+LINE_SEPARATOR = f"\n{'=' * 70}\n"
+LINE_SEPARATOR_NO_ENDLINE = f"{'=' * 70}"
 
 
 # PATHS
 DOWNLOAD_FOLDER_PATH = Path.home() / "downloads"
 REPO_PATH = Path.home() / "local_tools/"
+AVAILABLE_TOOLS_PATH = REPO_PATH / "available_tools"
 CREDENTIALS_FILE_PATH = REPO_PATH / ".my_credentials.env"
 OW_SW_PATH = Path.home() / "ow_sw_tools"
 CORE_REPOS_PATH = Path.home() / "workspace" / "intellian_core_repos/"

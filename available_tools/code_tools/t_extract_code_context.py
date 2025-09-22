@@ -2,6 +2,7 @@
 from available_tools.code_tools.common_utils import *
 from available_tools.code_tools.context_from_paths import *
 from available_tools.code_tools.context_from_git_diff import *
+from available_tools.code_tools.context_from_git_lab_mr import *
 from dev_common import *
 from datetime import datetime
 from typing import List, Tuple
@@ -16,7 +17,7 @@ if not already_in_sys_path:
 
 def get_tool_templates() -> List[ToolTemplate]:
     """Get tool templates for both extraction modes."""
-    return get_diff_tool_templates() + get_paths_tool_templates()
+    return get_diff_tool_templates() + get_paths_tool_templates() + get_mr_tool_templates()
 
 
 def parse_args() -> argparse.Namespace:
@@ -54,6 +55,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(ARG_TARGET_REF_LONG,
                         help='[git_diff mode] The target git ref to compare against the base. Ex: origin/feat_branch)')
 
+    # --- Arguments for 'gitlab_mr' mode ---
+    parser.add_argument(ARG_GITLAB_MR_URL_LONG, help='[gitlab_mr mode] The URL of the GitLab Merge Request.')
+
     # Build and set epilog with examples
     parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
 
@@ -77,6 +81,12 @@ def main() -> None:
                 f"Error: --path, --base, and --target arguments are required for '{EXTRACT_MODE_GIT_DIFF}' mode.", file=sys.stderr)
             sys.exit(1)
         main_git_diff(args)
+    elif extract_mode == EXTRACT_MODE_GIT_MR:
+        if not get_arg_value(args, ARG_PATH_LONG) or not get_arg_value(args, ARG_GITLAB_MR_URL_LONG):
+            LOG(
+                f"Error: --path and --mr-url arguments are required for '{EXTRACT_MODE_GIT_MR}' mode.", file=sys.stderr)
+            sys.exit(1)
+        main_git_mr(args)
     else:
         LOG(f"Invalid extract mode: {extract_mode}", file=sys.stderr)
         sys.exit(1)

@@ -9,7 +9,9 @@ import argparse
 from pathlib import Path
 from dev_common import *
 from dev_common.tools_utils import ToolTemplate
-import pyperclip
+
+
+ARG_GL_YML_FILE_PATH = f"{ARGUMENT_LONG_PREFIX}gl_yml_file_path"
 
 
 def get_tool_templates() -> List[ToolTemplate]:
@@ -18,7 +20,7 @@ def get_tool_templates() -> List[ToolTemplate]:
             name="Process GitLab CI",
             extra_description="Process .gitlab-ci.yml for local execution",
             args={
-                "--gl_yml_file_path": "~/core_repos/intellian_pkg/.gitlab-ci.yml",
+                ARG_GL_YML_FILE_PATH: "~/core_repos/intellian_pkg/.gitlab-ci.yml",
             }
         ),
     ]
@@ -29,10 +31,12 @@ def main():
     parser.formatter_class = argparse.RawTextHelpFormatter
     parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
 
-    parser.add_argument(ARG_PATH_SHORT, "--gl_yml_file_path", help="Path to the source .gitlab-ci.yml file")
+    parser.add_argument(ARG_PATH_SHORT, ARG_GL_YML_FILE_PATH,
+                        help="Path to the source .gitlab-ci.yml file", required=True)
     args = parser.parse_args()
-
-    orig_gl_yml_file = Path(args.gl_yml_file_path).resolve()
+    gl_yml_file_path = get_arg_value(args, ARG_GL_YML_FILE_PATH)
+    LOG(f"gl_yml_file_path: {gl_yml_file_path}")
+    orig_gl_yml_file = Path(gl_yml_file_path).resolve()
     yml_file_name = ".gitlab-ci.yml"
     if not orig_gl_yml_file.exists() or not orig_gl_yml_file.is_file() or not (orig_gl_yml_file.name == yml_file_name):
         LOG(f"ERROR: Invalid .gitlab-ci.yml file path: {orig_gl_yml_file}", file=sys.stderr)
@@ -111,7 +115,7 @@ def main():
 
     # --cwd {tmp_working_folder}
     ci_local_command = f"cd {tmp_working_folder} && gitlab-ci-local --file {tmp_gl_yml_file.name}"
-    display_command_to_use(ci_local_command, is_copy_to_clipboard=True, purpose="Build command")
+    display_command_to_use(ci_local_command, is_copy_to_clipboard=True, purpose="Build and run locally")
 
     # List available jobs
     run_shell(f"{ci_local_command} --list")

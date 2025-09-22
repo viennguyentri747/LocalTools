@@ -2,12 +2,15 @@ import time
 import gitlab
 import os
 import sys
+import re
+from pathlib import Path
+from urllib.parse import urlparse
 import zipfile  # Needed for extracting artifacts
 from gitlab.v4.objects import *
 from gitlab import *
 from typing import Union
 from dev_common.constants import *
-from dev_common.core_utils import read_value_from_credential_file
+from dev_common.core_utils import LOG, LOG_EXCEPTION, read_value_from_credential_file
 
 
 def main():
@@ -39,6 +42,24 @@ def main():
         print(f"Artifacts extracted to: {artifacts_dir}")
 
 
+def find_key_by_repo_path(repo_path: str) -> Union[Key, None]:
+    GL_TOKEN_MAP = {
+        IESA_OW_SW_TOOLS_REPO_NAME: GL_OW_SW_TOOLS_TOKEN_KEY_NAME,
+        IESA_TISDK_REPO_NAME: GL_TISDK_TOKEN_KEY_NAME,
+        IESA_INSENSE_SDK_REPO_NAME: GL_INSENSE_SDK_TOKEN_KEY_NAME,
+        IESA_INTELLIAN_PKG_REPO_NAME: GL_INTELLIAN_PKG_TOKEN_KEY_NAME,
+        IESA_ADC_LIB_REPO_NAME: GL_ADC_LIB_TOKEN_KEY_NAME,
+        IESA_SPIBEAM_REPO_NAME: GL_SPIBEAM_TOKEN_KEY_NAME
+    }
+
+    repo_name = repo_path.split("/")[-1]
+    for repo, key_name in GL_TOKEN_MAP.items():
+        if repo_name == repo:
+            return read_value_from_credential_file(CREDENTIALS_FILE_PATH, key_name)
+
+    raise Exception(f"ERROR: No token found for repo: {repo_path}", file=sys.stderr)
+
+
 def get_gl_project(gl_private_token: str, target_project_path: str = "intellian_adc/tisdk_tools") -> Project:
     """
     Connects to GitLab API and retrieves the target project.
@@ -51,8 +72,46 @@ def get_gl_project(gl_private_token: str, target_project_path: str = "intellian_
         print(f"Successfully connected to GitLab and retrieved project '{target_project_path}'.")
         return target_project
     except Exception as e:
-        print(f"Error connecting to GitLab or retrieving project '{target_project_path}': {e}")
-        sys.exit(1)
+        LOG(f"Error connecting to GitLab or retrieving project '{target_project_path}': {e}")
+        LOG_EXCEPTION(e)
+
+
+def get_repo_path_from_mr_url(mr_url: str) -> Union[str, None]:
+    """
+    Extracts the repository path from a GitLab MR URL.
+    """
+    try:
+        parsed_url = urlparse(mr_url)
+        # Matches paths like /group/subgroup/repo/-/merge_requests/123
+        match = re.search(r'/(.*?)/-/merge_requests/\d+', parsed_url.path)
+        if match:
+            return match.group(1)
+        return None
+    except Exception as e:
+        print(f"Error parsing MR URL: {e}")
+        return None
+
+
+def get_mr_info_from_url(mr_url: str) -> Union[tuple[str, str, str], None]:
+    """
+    Retrieves the source and target branches from a GitLab Merge Request URL.
+    """
+    try:
+        repo_path = get_repo_path_from_mr_url(mr_url)
+        if not repo_path:
+            return None
+
+        # Extract MR IID from URL
+        mr_iid = mr_url.rstrip('/').split('/')[-1]
+        gl_private_token = find_key_by_repo_path(repo_path)
+        # Get project and MR objects
+        project = get_gl_project(gl_private_token, repo_path)
+        mr = project.mergerequests.get(mr_iid)
+
+        return repo_path, mr.source_branch, mr.target_branch
+
+    except Exception as e:
+        LOG_EXCEPTION(e)
 
 
 def get_latest_successful_pipeline_id(gl_project: Project, job_name: str, git_ref: str):

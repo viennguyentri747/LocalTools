@@ -49,13 +49,13 @@ def create_scp_and_run_cmd(
         f"&& sudo chmod 644 \"$output_path\" "
         f"&& scp -rJ root@$source_ip \"$output_path\" {remote_host}:{remote_dir_norm}/ "
         f"&& {{ original_md5=$(md5sum \"$output_path\" | cut -d\" \" -f1); "
-        f"noti \"SCP copy completed successfully\"; "
         f"echo -e \"File(s) copied completed. Run on target UT $source_ip with this below command:\\n\"; "
         # Print ready-to-paste command for UT; single quotes prevent local $ expansion
         f"printf 'original_md5=\"%s\"; actual_md5=$(md5sum {remote_abs_path} | cut -d\" \" -f1); "
         f"echo \"original md5sum: %s\"; echo \"actual md5sum: $actual_md5\"; "
         f"if [ \"%s\" = \"$actual_md5\" ]; then echo \"MD5 match! Proceeding...\"; {run_cmd_on_remote}; else echo \"MD5 MISMATCH! Not running.\"; fi\\n' "
-        f"\"$original_md5\" \"$original_md5\" \"$original_md5\"; }} "
+        f"\"$original_md5\" \"$original_md5\" \"$original_md5\";"
+        f"echo; }} "   # <-- extra blank line here
         f"|| {{ noti \"SCP copy failed\"; }} "
     )
     return cmd

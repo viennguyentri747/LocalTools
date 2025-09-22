@@ -130,10 +130,14 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                         if selected_template.usage_note:
                             LOG(f"Usage note:\n{selected_template.usage_note}")
                         if final_cmd:
-                            LOG(f"✅ Final command:")
-                            LOG(f"{LINE_SEPARATOR}", show_time=False)
-                            LOG(f"{final_cmd}", show_time=False)
-                            LOG(f"{LINE_SEPARATOR}", show_time=False)
+                            if selected_template.run_now_without_modify:
+                                LOG(f"Running template command now")
+                                run_shell(final_cmd)
+                            else:
+                                LOG(f"✅ Final command:")
+                                LOG(f"{LINE_SEPARATOR}", show_time=False)
+                                LOG(f"{final_cmd}", show_time=False)
+                                LOG(f"{LINE_SEPARATOR}", show_time=False)
                         return 0
         except ImportError as e:
             LOG(f"Could not import module for templates: {e}", file=sys.stderr)

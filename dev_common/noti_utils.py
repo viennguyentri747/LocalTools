@@ -169,12 +169,6 @@ def run_notification():
         message=args.message,
         duration=duration_input,
     )
-
-    # if success:
-    #     LOG("✅ Notification sent successfully!")
-    # else:
-    #     LOG("❌ Failed to send notification")
-
     return success
 
 if __name__ == "__main__":

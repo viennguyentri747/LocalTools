@@ -8,7 +8,7 @@ from typing import List, Literal, Optional, Union
 from datetime import datetime
 import traceback
 
-def run_shell(cmd: Union[str, List[str]], cwd: Optional[Path] = None, check_throw_exception_on_exit_code: bool = True, stdout=None, stderr=None, text=None, capture_output: bool = False, encoding: str = 'utf-8', shell: bool = True) -> subprocess.CompletedProcess:
+def run_shell(cmd: Union[str, List[str]], cwd: Optional[Path] = None, check_throw_exception_on_exit_code: bool = True, stdout=None, stderr=None, text=None, capture_output: bool = False, encoding: str = 'utf-8', shell: bool = True, executable: Optional[str] = None) -> subprocess.CompletedProcess:
     """Echo + run a shell command"""
     if shell and isinstance(cmd, List):
         LOG(f"Shell mode but cmd is a list -> Converting to string...")
@@ -18,7 +18,7 @@ def run_shell(cmd: Union[str, List[str]], cwd: Optional[Path] = None, check_thro
         cmd = shlex.split(cmd)
 
     LOG(f">>> {cmd} (cwd={cwd or Path.cwd()})")
-    return subprocess.run(cmd, shell=shell, cwd=cwd, check=check_throw_exception_on_exit_code, stdout=stdout, stderr=stderr, text=text, capture_output=capture_output, encoding=encoding)
+    return subprocess.run(cmd, shell=shell, cwd=cwd, check=check_throw_exception_on_exit_code, stdout=stdout, stderr=stderr, text=text, capture_output=capture_output, encoding=encoding, executable=executable)
 
 def change_dir(path: str):
     LOG(f"Changing directory to {path}")

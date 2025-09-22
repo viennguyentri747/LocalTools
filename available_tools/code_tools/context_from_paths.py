@@ -7,10 +7,24 @@ from dev_common import *
 import os
 import sys
 from typing import List, Tuple
-from available_tools.code_tools.common_code_tools_utils import *
+from available_tools.code_tools.common_utils import *
 
 DEFAULT_MAX_WORKERS = 10
 CONTEXT_FOLDER_PREFIX_PATHS = 'context_paths_'
+
+
+def get_paths_tool_templates():
+    return [
+        ToolTemplate(
+            name="[paths] Context from multiple paths with exclude GLOB patterns",
+            args={
+                ARG_EXTRACT_MODE: EXTRACT_MODE_PATHS,
+                ARG_INCLUDE_PATHS_PATTERN: ["*"],
+                ARG_EXCLUDE_PATHS_PATTERN: [".git", ".vscode"],
+                ARG_PATHS_LONG: ["~/core_repos/intellian_pkg/", "~/ow_sw_tools/"],
+            }
+        )
+    ]
 
 
 def main_paths(args: argparse.Namespace) -> None:

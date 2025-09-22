@@ -8,19 +8,21 @@ from datetime import datetime
 
 import tiktoken
 from dev_common import *
-from available_tools.code_tools.common_code_tools_utils import *
+from available_tools.code_tools.common_utils import *
 
 
-def get_tool_template():
-    ToolTemplate(
-        name="[paths] Context from multiple paths with exclude GLOB patterns",
-        args={
-            ARG_EXTRACT_MODE: EXTRACT_MODE_PATHS,
-            ARG_INCLUDE_PATHS_PATTERN: ["*"],
-            ARG_EXCLUDE_PATHS_PATTERN: [".git", ".vscode"],
-            ARG_PATHS_LONG: ["~/core_repos/intellian_pkg/", "~/ow_sw_tools/"],
-        }
-    )
+def get_diff_tool_templates() -> List[ToolTemplate]:
+    return [
+        ToolTemplate(
+            name="[git_diff] Context from Git Diff between 2 refs (commits, branchs, tags ...)",
+            args={
+                ARG_EXTRACT_MODE: EXTRACT_MODE_GIT_DIFF,
+                ARG_PATH_LONG: "~/core_repos/intellian_pkg",
+                ARG_BASE_REF_LONG: "origin/manpack_master",
+                ARG_TARGET_REF_LONG: "origin/feat_branch",
+            }
+        ),
+    ]
 
 
 def save_base_ref_files(repo_path: Path, base: str, target: str, output_dir: Path) -> bool:

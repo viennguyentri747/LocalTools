@@ -9,6 +9,7 @@ DEFAULT_OUTPUT_SUBDIR = '.ai_context'
 CONTEXT_FOLDER_PREFIX_DIFF = 'context_diff_'
 DEFAULT_MAX_FOLDERS = 5
 
+ARG_EXTRACT_MODE = '--extract-mode'
 ARG_BASE_REF_LONG = '--base'
 ARG_TARGET_REF_LONG = '--target'
 ARG_INCLUDE_PATHS_PATTERN = '--include-paths-pattern'

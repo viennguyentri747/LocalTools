@@ -1,15 +1,9 @@
 import argparse
-import logging
-import re
 import sys
 from typing import List, Union
 import tiktoken
-from dev_common import *
 from available_tools.code_tools.common_utils import *
-from dev_common.constants import *
-from dev_common.custom_structures import LOCAL_REPO_MAPPING
-from dev_common.git_utils import git_fetch
-from dev_common.gitlab_utils import get_gl_project_path_from_mr_url, get_mr_info_from_url, get_mr_diff_from_url
+from dev_common import *
 
 
 def get_mr_tool_templates() -> List[ToolTemplate]:
@@ -52,7 +46,8 @@ def main_git_mr(args: argparse.Namespace) -> None:
     LOG()
     # Create output filename based on MR URL
     mr_id = mr_url.rstrip('/').split('/')[-1]
-    gl_project_path: str = get_gl_project_path_from_mr_url(mr_url)
+    info: InfoFromMrUrl = get_info_from_mr_url(mr_url)
+    gl_project_path: str = info.gl_project_path
     project_name = gl_project_path.split('/')[-1]
     output_filename = f"mr_diff_{project_name}_{mr_id}{TXT_EXTENSION}"
     output_path = final_output_dir / output_filename

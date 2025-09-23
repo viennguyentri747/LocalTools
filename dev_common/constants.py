@@ -1,17 +1,22 @@
 from pathlib import Path
+import re
+
+from dev_common.core_utils import read_value_from_credential_file
 
 # FORMATS
 LINE_SEPARATOR = f"\n{'=' * 70}\n"
 LINE_SEPARATOR_NO_ENDLINE = f"{'=' * 70}"
 
+
 # GL
+GL_BASE_URL = "https://gitlab.com"
 INTELLIAN_ADC_GROUP = "intellian_adc"
 PROTOTYPING_SUB_GROUP = "prototyping"
 GERRIT_OW = "gerrit_mirror/oneweb"
 
 # IESA REPO_NAMES
 IESA_OW_SW_TOOLS_REPO_NAME = "oneweb_project_sw_tools"
-IESA_TISDK_REPO_NAME = "tisdk"
+IESA_TISDK_TOOLS_REPO_NAME = "tisdk_tools"
 IESA_INTELLIAN_PKG_REPO_NAME = "intellian_pkg"
 IESA_INSENSE_SDK_REPO_NAME = "insensesdk"
 IESA_ADC_LIB_REPO_NAME = "adc_lib"
@@ -108,46 +113,3 @@ LOG_PREFIX_MSG_SUCCESS = '[SUCCESS]'
 LOG_PREFIX_MSG_ERROR = '[ERROR]'
 LOG_PREFIX_MSG_WARNING = '[WARNING]'
 LOG_PREFIX_MSG_FATAL = '[FATAL]'
-
-
-class IesaLocalRepoInfo:
-    __slots__ = ['_repo_name', '_token_key_name']
-
-    def __init__(self, repo_name: str, repo_local_path: Path, gl_project_path: Path, token_key_name: str):
-        self._repo_name = repo_name
-        self._token_key_name = token_key_name
-        self._repo_local_path = repo_local_path
-        self._gl_project_path = gl_project_path
-
-    @property
-    def repo_name(self) -> str:
-        return self._repo_name
-
-    @property
-    def token_key_name(self) -> str:
-        return self._token_key_name
-
-    @property
-    def repo_local_path(self) -> Path:
-        return self._repo_local_path
-
-    @property
-    def gl_project_path(self) -> Path:
-        return self._gl_project_path
-
-
-class LocalReposMapping:
-    def __init__(self, *repos: IesaLocalRepoInfo):
-        self._repos = {repo.repo_name: repo for repo in repos}
-
-    def get_by_name(self, repo_name: str) -> IesaLocalRepoInfo | None:
-        return self._repos.get(repo_name)
-
-    def get_by_url(self, repo_url: str) -> IesaLocalRepoInfo | None:
-        repo_name = re.search(r'/([^/]+?)(?:\.git)?$', repo_url)
-        if repo_name:
-            return self.get_by_name(repo_name.group(1))
-        return None
-
-    def __iter__(self):
-        return iter(self._repos.values())

@@ -23,7 +23,7 @@ def main():
     private_token = read_value_from_credential_file(credentials_file, GL_TISDK_TOKEN_KEY_NAME)
 
     # Details of the target project and job
-    target_project_path = f"{INTELLIAN_ADC_GROUP}/{IESA_TISDK_REPO_NAME}"
+    target_project_path = f"{INTELLIAN_ADC_GROUP}/{IESA_TISDK_TOOLS_REPO_NAME}"
     target_job_name = "sdk_create_tarball_release"
     target_ref = "manpack_master"
 
@@ -44,12 +44,11 @@ def main():
         print(f"Artifacts extracted to: {artifacts_dir}")
 
 
-def get_gl_project(gl_private_token: str, project_path: str = "intellian_adc/tisdk_tools") -> Project:
+def get_gl_project(gl_private_token: str, project_path: str) -> Project:
     """
     Connects to GitLab API and retrieves the target project.
     """
-    gitlab_url = 'https://gitlab.com'  # URL should be gitlab.com unless you're using self-hosted
-    gl: Gitlab = gitlab.Gitlab(gitlab_url, private_token=gl_private_token)
+    gl: Gitlab = gitlab.Gitlab(GL_BASE_URL, private_token=gl_private_token)
 
     try:
         target_project: Project = gl.projects.get(project_path)
@@ -60,66 +59,52 @@ def get_gl_project(gl_private_token: str, project_path: str = "intellian_adc/tis
         LOG_EXCEPTION(e)
 
 
-def get_gl_project_path_from_mr_url(mr_url: str) -> Union[str, None]:
+@dataclass
+class InfoFromMrUrl:
+    gl_project_path: str
+    mr_iid: str
+
+def get_info_from_mr_url(mr_url: str) -> InfoFromMrUrl | None:
     """
-    Extracts the repository path from a GitLab MR URL.
+    Extracts the GitLab project path and MR IID from a GitLab MR URL.
+    Example URL: https://gitlab.com/intellian_adc/prototyping/insensesdk/-/merge_requests/164
+    Returns: InfoFromMrUrl(gl_project_path="intellian_adc/prototyping/insensesdk", mr_iid="164")
     """
     try:
         parsed_url = urlparse(mr_url)
-        # Matches paths like /group/subgroup/repo/-/merge_requests/123. Ex: https://gitlab.com/intellian_adc/prototyping/insensesdk/-/merge_requests/164
-        match = re.search(r'/(.*?)/-/merge_requests/\d+', parsed_url.path)
+        # Matches paths like /group/subgroup/repo/-/merge_requests/123
+        match = re.search(r'/(.*?)/-/merge_requests/(\d+)', parsed_url.path)
         if match:
-            return match.group(1)
-        return None
-    except Exception as e:
-        print(f"Error parsing MR URL: {e}")
-        return None
-
-
-def get_mr_info_from_url(mr_url: str) -> Union[tuple[IesaLocalRepoInfo, str, str], None]:
-    """
-    Retrieves the source and target branches from a GitLab Merge Request URL.
-    """
-    try:
-        gl_project_path: str = get_gl_project_path_from_mr_url(mr_url)
-        if not gl_project_path:
+            gl_project_path = match.group(1)  # Everything before /-/merge_requests/
+            mr_iid = match.group(2)           # The merge request ID number
+            return InfoFromMrUrl(
+                gl_project_path=gl_project_path,
+                mr_iid=mr_iid
+            )
+        else:
+            # URL doesn't match expected GitLab MR pattern
             return None
-
-        # Extract MR IID from URL
-        mr_iid = mr_url.rstrip('/').split('/')[-1]
-
-        repoInfo: IesaLocalRepoInfo = LOCAL_REPO_MAPPING.get_by_gl_project_path(gl_project_path)
-        gl_private_token = repoInfo.gl_access_token
-        # Get project and MR objects
-        project = get_gl_project(gl_private_token, gl_project_path)
-        mr: ProjectMergeRequest = project.mergerequests.get(mr_iid)
-        return repoInfo, mr.source_branch, mr.target_branch
-
+            
     except Exception as e:
-        LOG_EXCEPTION(e)
+        # Handle any parsing errors (invalid URL, etc.)
+        return None
 
 
 def get_mr_diff_from_url(mr_url: str) -> Union[str, None]:
     """
-    Retrieves the diff content from a GitLab Merge Request URL.
-
-    Args:
-        mr_url: The GitLab merge request URL
-
-    Returns:
-        The diff content as a string, or None if an error occurs
+    Retrieves the diff content from a GitLab Merge Request URL. Ex: https://gitlab.com/intellian_adc/prototyping/insensesdk/-/merge_requests/164
     """
     try:
-        gl_project_path: str = get_gl_project_path_from_mr_url(mr_url)
+        info: InfoFromMrUrl = get_info_from_mr_url(mr_url)
+        gl_project_path = info.gl_project_path
         if not gl_project_path:
             return None
 
         # Extract MR IID from URL
-        mr_iid = mr_url.rstrip('/').split('/')[-1]
+        mr_iid = info.mr_iid
 
         repoInfo: IesaLocalRepoInfo = LOCAL_REPO_MAPPING.get_by_gl_project_path(gl_project_path)
         gl_private_token = repoInfo.gl_access_token
-
         # Get project and MR objects
         project = get_gl_project(gl_private_token, gl_project_path)
         mr: ProjectMergeRequest = project.mergerequests.get(mr_iid)
@@ -128,13 +113,21 @@ def get_mr_diff_from_url(mr_url: str) -> Union[str, None]:
         diff_content = mr.changes()
 
         # The changes() method returns a dict with 'changes' key containing the actual diff
+        # Structure: {'changes': [{'old_path': 'file1.py', 'new_path': 'file1.py', 'diff': '@@ -1,3 +1,3 @@...'}]}
         if isinstance(diff_content, dict) and 'changes' in diff_content:
             # Format the diff as a readable string
             diff_lines = []
             for change in diff_content['changes']:
                 if 'diff' in change:
-                    diff_lines.append(f"--- {change.get('old_path', 'unknown')}")
-                    diff_lines.append(f"+++ {change.get('new_path', 'unknown')}")
+                    # --- indicates the orig file path (before). Ex: --- packaging/systemd/system/fan_on.sh
+                    diff_lines.append(f"--- {change.get('old_path', 'unknown_old_file_path')}")
+                    # +++ indicates the modified file path (after). Ex: +++ packaging/systemd/system/fan_on.sh
+                    diff_lines.append(f"+++ {change.get('new_path', 'unknown_new_file_path')}")
+                    # Add the actual diff content which includes:
+                    # - @@ line numbers @@
+                    # - lines starting with '-' (removed)
+                    # - lines starting with '+' (added)
+                    # - lines with no prefix (unchanged context)
                     diff_lines.append(change['diff'])
             return '\n'.join(diff_lines)
         else:

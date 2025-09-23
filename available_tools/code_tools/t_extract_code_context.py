@@ -82,9 +82,9 @@ def main() -> None:
             sys.exit(1)
         main_git_diff(args)
     elif extract_mode == EXTRACT_MODE_GIT_MR:
-        if not get_arg_value(args, ARG_PATH_LONG) or not get_arg_value(args, ARG_GITLAB_MR_URL_LONG):
+        if not get_arg_value(args, ARG_GITLAB_MR_URL_LONG):
             LOG(
-                f"Error: --path and --mr-url arguments are required for '{EXTRACT_MODE_GIT_MR}' mode.", file=sys.stderr)
+                f"Error: --mr-url argument is required for '{EXTRACT_MODE_GIT_MR}' mode.", file=sys.stderr)
             sys.exit(1)
         main_git_mr(args)
     else:

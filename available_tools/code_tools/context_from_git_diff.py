@@ -70,7 +70,7 @@ def main_git_diff(args: argparse.Namespace) -> None:
             LOG(f"Diff content saved to '{output_path}'.")
 
             LOG()
-            save_base_ref_files(repo_path, base, target, final_output_dir)
+            save_changed_files(repo_path, base, target, final_output_dir)
 
         except IOError as e:
             LOG(f"Failed to write to output file '{output_path}': {e}", file=sys.stderr)

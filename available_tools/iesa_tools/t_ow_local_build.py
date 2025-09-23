@@ -14,10 +14,6 @@ import argparse
 from dev_common import *
 import yaml
 
-from dev_common.constants import LOCAL_REPO_DATA
-from dev_common.tools_utils import display_command_to_use
-
-
 GITLAB_CI_YML_PATH = OW_SW_PATH / ".gitlab-ci.yml"
 # Need to put this here because we will go into docker environment from OW_SW_PATH
 BSP_ARTIFACT_FOLDER_PATH = OW_SW_PATH / "custom_artifacts_bsp/"
@@ -188,7 +184,7 @@ def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: st
         tisdk_ref_from_ci_yml: Optional[str] = get_tisdk_ref_from_ci_yml(GITLAB_CI_YML_PATH)
         if input_tisdk_ref != tisdk_ref_from_ci_yml:
             # Maybe we should check if tisdk_ref is ahead of tisdk_branch in the future if need change tisdk ref separately
-            LOG(f"ERROR: TISDK ref '{input_tisdk_ref}' does not match with {GITLAB_CI_YML_PATH}'s tisdk branch '{tisdk_ref_from_ci_yml}'.", file=sys.stderr)
+            LOG(f"ERROR: Argument TISDK ref '{input_tisdk_ref}' does not match with local {GITLAB_CI_YML_PATH}'s tisdk branch '{tisdk_ref_from_ci_yml}'.", file=sys.stderr)
             sys.exit(1)
         else:
             LOG(f"TISDK ref '{input_tisdk_ref}' matches with {GITLAB_CI_YML_PATH}'s tisdk branch '{tisdk_ref_from_ci_yml}'.")
@@ -344,7 +340,7 @@ def get_tisdk_ref_from_ci_yml(file_path: str) -> Optional[str]:
         # Iterate over the dependencies in the 'needs' list
         for need in job_details['needs']:
             # We are looking for a dictionary entry from the correct project
-            if isinstance(need, dict) and need.get('project') == f'{INTELLIAN_ADC_GROUP}/{IESA_TISDK_REPO_NAME}':
+            if isinstance(need, dict) and need.get('project') == f'{INTELLIAN_ADC_GROUP}/{IESA_TISDK_TOOLS_REPO_NAME}':
                 job = need.get('job')
                 ref = need.get('ref')
                 if job == 'sdk_create_tarball':
@@ -472,7 +468,7 @@ def get_manifest_repo_url(manifest_source: str) -> Optional[str]:
     LOG(f"{MAIN_STEP_LOG_PREFIX} Getting manifest repo URL...")
     manifest_url: Optional[str] = None
     if manifest_source == MANIFEST_SOURCE_REMOTE:
-        manifest_url = "https://gitlab.com/intellian_adc/oneweb_project_sw_tools"
+        manifest_url = f"{GL_BASE_URL}/intellian_adc/oneweb_project_sw_tools"
     elif manifest_source == MANIFEST_SOURCE_LOCAL:
         manifest_url = f"file://{OW_SW_PATH}"
     else:
@@ -487,9 +483,6 @@ def prepare_iesa_bsp(tisdk_ref: str):
     LOG(f"{MAIN_STEP_LOG_PREFIX} Preparing IESA BSP for release, TISDK ref: {tisdk_ref}...")
     # Logic to read token from file if not in env
     private_token = read_value_from_credential_file(CREDENTIALS_FILE_PATH, GL_TISDK_TOKEN_KEY_NAME)
-    if not private_token:
-        LOG("Error: GitLab private token not found in credentials file.")
-        sys.exit(1)
 
     # Details of the target project and job
     target_project_path = "intellian_adc/tisdk_tools"

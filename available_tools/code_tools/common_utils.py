@@ -71,7 +71,7 @@ def create_log_file_paths(args: argparse.Namespace, output_dir: Path, timestamp:
     return log_path
 
 
-def save_base_ref_files(repo_path: Path, base: str, target: str, output_dir: Path) -> bool:
+def save_changed_files(repo_path: Path, base: str, target: str, output_dir: Path) -> bool:
     """
     Saves the content of changed files from the base ref to a subdirectory.
     """
@@ -96,8 +96,8 @@ def save_base_ref_files(repo_path: Path, base: str, target: str, output_dir: Pat
             original_path = Path(file_path_str)
 
             try:
-                show_cmd = [CMD_GIT, '-C', str(repo_path), 'show', f'{base}:{file_path_str}']
-                content_result = run_shell(show_cmd, capture_output=True, text=True, check=True, encoding='utf-8')
+                show_cmd = f"{CMD_GIT} -C {str(repo_path)} show {base}:{file_path_str}"
+                content_result = run_shell(show_cmd, capture_output=True, text=True, check_throw_exception_on_exit_code=True, encoding='utf-8')
                 file_content = content_result.stdout
 
                 prefixed_filename = f"{FILE_PREFIX}{original_path.name}"
@@ -106,7 +106,7 @@ def save_base_ref_files(repo_path: Path, base: str, target: str, output_dir: Pat
 
                 with open(output_file_path, 'w', encoding='utf-8') as f:
                     f.write(file_content)
-                LOG(f"  - Saved: {output_file_path}")
+                # LOG(f"  - Saved: {output_file_path}")
 
             except subprocess.CalledProcessError:
                 LOG(f"  - Skipping '{file_path_str}': could not retrieve from base ref (likely a new or binary file).")

@@ -9,8 +9,10 @@ import zipfile  # Needed for extracting artifacts
 from gitlab.v4.objects import *
 from gitlab import *
 from typing import Union
-from dev_common.constants import *
-from dev_common.core_utils import LOG, LOG_EXCEPTION, read_value_from_credential_file
+from dev_common import *
+from dev_common.custom_structures import IesaLocalRepoInfo
+# from dev_common.core_utils import LOG, LOG_EXCEPTION, read_value_from_credential_file
+# from dev_common.custom_structures import *
 
 
 def main():
@@ -42,11 +44,6 @@ def main():
         print(f"Artifacts extracted to: {artifacts_dir}")
 
 
-def find_key_by_repo_path(repo_path: str) -> Union[Key, None]:
-
-    raise Exception(f"ERROR: No token found for repo: {repo_path}", file=sys.stderr)
-
-
 def get_gl_project(gl_private_token: str, project_path: str = "intellian_adc/tisdk_tools") -> Project:
     """
     Connects to GitLab API and retrieves the target project.
@@ -63,7 +60,7 @@ def get_gl_project(gl_private_token: str, project_path: str = "intellian_adc/tis
         LOG_EXCEPTION(e)
 
 
-def get_repo_name_from_mr_url(mr_url: str) -> Union[str, None]:
+def get_gl_project_path_from_mr_url(mr_url: str) -> Union[str, None]:
     """
     Extracts the repository path from a GitLab MR URL.
     """
@@ -79,26 +76,74 @@ def get_repo_name_from_mr_url(mr_url: str) -> Union[str, None]:
         return None
 
 
-def get_mr_info_from_url(mr_url: str) -> Union[tuple[str, str, str], None]:
+def get_mr_info_from_url(mr_url: str) -> Union[tuple[IesaLocalRepoInfo, str, str], None]:
     """
     Retrieves the source and target branches from a GitLab Merge Request URL.
     """
     try:
-        repo_path = get_repo_name_from_mr_url(mr_url)
-        if not repo_path:
+        gl_project_path: str = get_gl_project_path_from_mr_url(mr_url)
+        if not gl_project_path:
             return None
 
         # Extract MR IID from URL
         mr_iid = mr_url.rstrip('/').split('/')[-1]
-        gl_private_token = find_key_by_repo_path(repo_path)
-        # Get project and MR objects
-        project = get_gl_project(gl_private_token, repo_path)
-        mr = project.mergerequests.get(mr_iid)
 
-        return repo_path, mr.source_branch, mr.target_branch
+        repoInfo: IesaLocalRepoInfo = LOCAL_REPO_MAPPING.get_by_gl_project_path(gl_project_path)
+        gl_private_token = repoInfo.gl_access_token
+        # Get project and MR objects
+        project = get_gl_project(gl_private_token, gl_project_path)
+        mr: ProjectMergeRequest = project.mergerequests.get(mr_iid)
+        return repoInfo, mr.source_branch, mr.target_branch
 
     except Exception as e:
         LOG_EXCEPTION(e)
+
+
+def get_mr_diff_from_url(mr_url: str) -> Union[str, None]:
+    """
+    Retrieves the diff content from a GitLab Merge Request URL.
+
+    Args:
+        mr_url: The GitLab merge request URL
+
+    Returns:
+        The diff content as a string, or None if an error occurs
+    """
+    try:
+        gl_project_path: str = get_gl_project_path_from_mr_url(mr_url)
+        if not gl_project_path:
+            return None
+
+        # Extract MR IID from URL
+        mr_iid = mr_url.rstrip('/').split('/')[-1]
+
+        repoInfo: IesaLocalRepoInfo = LOCAL_REPO_MAPPING.get_by_gl_project_path(gl_project_path)
+        gl_private_token = repoInfo.gl_access_token
+
+        # Get project and MR objects
+        project = get_gl_project(gl_private_token, gl_project_path)
+        mr: ProjectMergeRequest = project.mergerequests.get(mr_iid)
+
+        # Get the diff - this returns the changes between source and target branches
+        diff_content = mr.changes()
+
+        # The changes() method returns a dict with 'changes' key containing the actual diff
+        if isinstance(diff_content, dict) and 'changes' in diff_content:
+            # Format the diff as a readable string
+            diff_lines = []
+            for change in diff_content['changes']:
+                if 'diff' in change:
+                    diff_lines.append(f"--- {change.get('old_path', 'unknown')}")
+                    diff_lines.append(f"+++ {change.get('new_path', 'unknown')}")
+                    diff_lines.append(change['diff'])
+            return '\n'.join(diff_lines)
+        else:
+            # If changes() returns the diff directly as a string
+            return str(diff_content)
+
+    except Exception as e:
+        LOG_EXCEPTION(e)
+        return None
 
 
 def get_latest_successful_pipeline_id(gl_project: Project, job_name: str, git_ref: str):

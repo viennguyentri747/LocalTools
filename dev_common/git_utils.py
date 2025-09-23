@@ -184,18 +184,11 @@ def extract_git_diff(repo_local_path: Path, base_ref: str, target_ref: str) -> O
 
     try:
         LOG(f"Running git diff in '{repo_local_path}'... Command:\n{' '.join(command)}")
-        process = subprocess.run(
-            command,
-            cwd=repo_local_path,
-            check=True,
-            capture_output=True,
-            text=True,
-            encoding='utf-8'
-        )
+        process = run_shell(command, cwd=repo_local_path, check_throw_exception_on_exit_code=True,
+                            capture_output=True, text=True, encoding='utf-8')
         return process.stdout
     except Exception as e:
-        LOG(f"An unexpected error occurred while extracting diff: {e}", file=sys.stderr)
-        return None
+        LOG_EXCEPTION(e)
 
 
 def git_stage_and_commit(

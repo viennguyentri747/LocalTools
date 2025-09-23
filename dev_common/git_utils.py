@@ -164,7 +164,7 @@ def get_git_remotes(repo_path: Path) -> List[str]:
         return []
 
 
-def extract_git_diff(repo_path: Path, base_ref: str, target_ref: str) -> Optional[str]:
+def extract_git_diff(repo_local_path: Path, base_ref: str, target_ref: str) -> Optional[str]:
     """
     Extracts a git diff between two references using --patch-with-stat.
 
@@ -176,17 +176,17 @@ def extract_git_diff(repo_path: Path, base_ref: str, target_ref: str) -> Optiona
     Returns:
         The diff content as a string, or None on failure.
     """
-    if not repo_path.is_dir() or not (repo_path / '.git').exists():
-        LOG(f"The path '{repo_path}' is not a valid git repository.")
+    if not repo_local_path.is_dir() or not (repo_local_path / '.git').exists():
+        LOG(f"The path '{repo_local_path}' is not a valid git repository.")
         return None
 
     command = [CMD_GIT, 'diff', '--patch-with-stat', f"{base_ref}..{target_ref}"]
 
     try:
-        LOG(f"Running git diff in '{repo_path}'... Command:\n{' '.join(command)}")
+        LOG(f"Running git diff in '{repo_local_path}'... Command:\n{' '.join(command)}")
         process = subprocess.run(
             command,
-            cwd=repo_path,
+            cwd=repo_local_path,
             check=True,
             capture_output=True,
             text=True,

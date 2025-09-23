@@ -14,6 +14,7 @@ import argparse
 from dev_common import *
 import yaml
 
+from dev_common.constants import LOCAL_REPO_DATA
 from dev_common.tools_utils import display_command_to_use
 
 
@@ -343,7 +344,7 @@ def get_tisdk_ref_from_ci_yml(file_path: str) -> Optional[str]:
         # Iterate over the dependencies in the 'needs' list
         for need in job_details['needs']:
             # We are looking for a dictionary entry from the correct project
-            if isinstance(need, dict) and need.get('project') == 'intellian_adc/tisdk_tools':
+            if isinstance(need, dict) and need.get('project') == f'{INTELLIAN_ADC_GROUP}/{IESA_TISDK_REPO_NAME}':
                 job = need.get('job')
                 ref = need.get('ref')
                 if job == 'sdk_create_tarball':
@@ -400,7 +401,12 @@ def choose_repos(manifest: IesaManifest) -> List[str]:
 
 
 def sync_local_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
-    src_path = CORE_REPOS_PATH / repo_name
+    repo_info: Optional[IesaLocalRepoInfo] = LOCAL_REPO_MAPPING.get_by_name(repo_name)
+    if not repo_info:
+        LOG(f"ERROR: Could not find repo info for '{repo_name}'", file=sys.stderr)
+        throw_exception(f"Could not find repo info for '{repo_name}'")
+
+    src_path = repo_info.repo_local_path
     dest_root_path = OW_BUILD_FOLDER_PATH / repo_rel_path_vs_tmp_build
 
     if not src_path.is_dir() or not dest_root_path.is_dir():
@@ -415,8 +421,8 @@ def sync_local_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
 
     if src_overwrite_commit == dest_orig_commit:
         LOG("Source and destination are at the same commit. No history check needed.")
-    elif not is_ancestor(dest_orig_commit, src_overwrite_commit, cwd=src_path):
-        LOG(f"ERROR: Source (override) commit ({str(src_path)}: {src_overwrite_commit}) is not a descendant of destination ({str(dest_root_path)}: {dest_orig_commit}).\nMake sure check out correct branch +  force push local branch to remote (as it fetched dest remotely via repo sync)!", file=sys.stderr)
+    elif not is_ancestor(dest_orig_commit, src_overwrite_commit, cwd=repo_info.repo_git_path):
+        LOG(f"ERROR: Source (override) commit ({str(repo_info.repo_git_path)}: {src_overwrite_commit}) is not a descendant of destination ({str(dest_root_path)}: {dest_orig_commit}).\nMake sure check out correct branch +  force push local branch to remote (as it fetched dest remotely via repo sync)!", file=sys.stderr)
         throw_exception(
             f"Source commit {src_overwrite_commit} is not a descendant of destination commit {dest_orig_commit}.")
     else:

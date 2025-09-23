@@ -1,11 +1,8 @@
 import argparse
-from pathlib import Path
-import subprocess
 import os
 import shutil
 import sys
 from datetime import datetime
-
 import tiktoken
 from dev_common import *
 from available_tools.code_tools.common_utils import *
@@ -23,57 +20,6 @@ def get_diff_tool_templates() -> List[ToolTemplate]:
             }
         ),
     ]
-
-
-def save_base_ref_files(repo_path: Path, base: str, target: str, output_dir: Path) -> bool:
-    """
-    Saves the content of changed files from the base ref to a subdirectory.
-    """
-    try:
-        diff_files_cmd = [CMD_GIT, '-C', str(repo_path), 'diff', '--name-only', base, target]
-        result = run_shell(diff_files_cmd, capture_output=True, text=True,
-                           check_throw_exception_on_exit_code=True, encoding='utf-8')
-        changed_files = result.stdout.strip().split('\n')
-
-        if not any(f.strip() for f in changed_files):
-            LOG("No changed files found to save from base ref.")
-            return True
-
-        files_dir = output_dir / "base_ref_files"
-        LOG(f"Saving base versions of changed files to '{files_dir}'...")
-
-        for file_path_str in changed_files:
-            file_path_str = file_path_str.strip()
-            if not file_path_str:
-                continue
-
-            original_path = Path(file_path_str)
-
-            try:
-                show_cmd = [CMD_GIT, '-C', str(repo_path), 'show', f'{base}:{file_path_str}']
-                content_result = run_shell(show_cmd, capture_output=True, text=True, check=True, encoding='utf-8')
-                file_content = content_result.stdout
-
-                prefixed_filename = f"{FILE_PREFIX}{original_path.name}"
-                output_file_path = files_dir / original_path.parent / prefixed_filename
-                output_file_path.parent.mkdir(parents=True, exist_ok=True)
-
-                with open(output_file_path, 'w', encoding='utf-8') as f:
-                    f.write(file_content)
-                LOG(f"  - Saved: {output_file_path}")
-
-            except subprocess.CalledProcessError:
-                LOG(f"  - Skipping '{file_path_str}': could not retrieve from base ref (likely a new or binary file).")
-            except Exception as e:
-                LOG(f"  - An error occurred while processing '{file_path_str}': {e}", file=sys.stderr)
-
-        return True
-    except subprocess.CalledProcessError as e:
-        LOG(f"Failed to get list of changed files: {e.stderr.strip()}", file=sys.stderr)
-        return False
-    except Exception as e:
-        LOG(f"An unexpected error occurred in save_base_ref_files: {e}", file=sys.stderr)
-        return False
 
 
 def main_git_diff(args: argparse.Namespace) -> None:
@@ -146,7 +92,7 @@ def main_git_diff(args: argparse.Namespace) -> None:
         if not no_open_explorer:
             open_explorer_to_file(output_path)
 
-        LOG(f"{CELEBRATION_EMOJI} {MSG_CONTEXT_EXTRACTION_SUCCESS}")
+        LOG(f"{CELEBRATION_EMOJI} Extraction complete! Output directory: {final_output_dir}")
     else:
         LOG(f"{FAILURE_EMOJI} Failed to process '{repo_path}'.", file=sys.stderr)
         try:

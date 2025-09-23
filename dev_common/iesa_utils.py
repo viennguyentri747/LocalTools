@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import sys
 from typing import Dict, List, Optional, Tuple
 from dev_common.constants import GIT_SUFFIX, IESA_MANIFEST_FILE_PATH
@@ -7,13 +8,14 @@ from dev_common.format_utils import get_path_no_suffix
 import xml.etree.ElementTree as ElementTree
 
 
+
 class IesaManifest:
     """A class to represent the manifest data and provide helper functions."""
 
     def __init__(self, mapping: Dict[str, Tuple[str, str, str]]):
         self._mapping = mapping
-
     def get_repo_relative_path_vs_tmp_build(self, repo_name: str) -> Optional[str]:
+
         """Returns the relative path of a repository vs the tmp_build folder."""
         if repo_name in self._mapping:
             return self._mapping[repo_name][0]

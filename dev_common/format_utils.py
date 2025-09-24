@@ -83,3 +83,11 @@ def quote_arg_value_if_need(arg_value) -> Union[str, List[str]]:
         return _quote_one(arg_value)
     else:
         return str(arg_value)
+
+def strip_quotes(path_str: str) -> str:
+    """Remove surrounding quotes from a path string."""
+    path_str = path_str.strip()
+    if (path_str.startswith('"') and path_str.endswith('"')) or \
+       (path_str.startswith("'") and path_str.endswith("'")):
+        return path_str[1:-1]
+    return path_str

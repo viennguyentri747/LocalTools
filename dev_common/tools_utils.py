@@ -210,7 +210,7 @@ def display_content_to_copy(content: str, purpose: str = "", is_copy_to_clipboar
         except Exception as e:
             clipboard_status = f" (clipboard failed: {e})"
     LOG(f"\n", show_time=False)
-    LOG(f"✅ Cmd{purpose_text}{clipboard_status}:", show_time=False)
+    LOG(f"✅ Content{purpose_text}{clipboard_status}:", show_time=False)
     LOG(f"{LINE_SEPARATOR}", show_time=False)
     LOG(f"{content}", show_time=False)
     LOG(f"{LINE_SEPARATOR}", show_time=False)
@@ -221,21 +221,17 @@ def open_explorer_to_file(file_path: Path) -> None:
     Open Windows Explorer and highlight the specified file (WSL only).
     """
     try:
-        # Check if we're in WSL
-        if shutil.which(CMD_WSLPATH) and shutil.which(CMD_EXPLORER):
-            # Convert WSL path to Windows path
-            result = subprocess.run(
-                [CMD_WSLPATH, "-w", str(file_path)],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            windows_path = result.stdout.strip()
+        # Convert WSL path to Windows path
+        result = subprocess.run(
+            [CMD_WSLPATH, "-w", str(file_path)],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        windows_path = result.stdout.strip()
 
-            # Open Explorer with file selected
-            subprocess.run([CMD_EXPLORER, WSL_SELECT_FLAG, windows_path], check=False)
-            LOG(f"Opened Explorer to highlight '{file_path}'")
-        else:
-            LOG(f"Explorer is not available in this environment")
+        # Open Explorer with file selected
+        subprocess.run([CMD_EXPLORER, WSL_SELECT_FLAG, windows_path], check=False)
+        LOG(f"Opened Explorer to highlight '{file_path}'")
     except Exception as e:
         LOG(f"Failed to open Explorer: {e}")

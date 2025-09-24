@@ -1,5 +1,6 @@
 import hashlib
 import os
+import shutil
 from typing import Tuple
 
 
@@ -19,6 +20,8 @@ def expand_and_check_path(path_str: str) -> Tuple[bool, str]:
 
     return exists, absolute_path
 
+def copy_file(src_path, dst_path):
+    shutil.copy(src_path, dst_path)
 
 def get_file_md5sum(file_path):
     with open(file_path, 'rb') as f:

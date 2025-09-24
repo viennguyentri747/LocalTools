@@ -10,3 +10,4 @@ compile_commands.json
 #Ignore README.md because put it in separate dir in Obsidian Vault
 README.md
 .common_symlinks
+temp

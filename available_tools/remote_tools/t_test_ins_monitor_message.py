@@ -9,7 +9,7 @@ import argparse
 from pathlib import Path
 from typing import List
 from dev_common import *
-from dev_common.tools_utils import display_command_to_use
+from dev_common.tools_utils import display_content_to_copy
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_LOCAL_FILE = SCRIPT_DIR / "src" / "test_ins_monitor_messages.py"
@@ -90,7 +90,7 @@ def main() -> None:
         LOG("Running command now...", highlight=True)
         run_shell(one_liner, shell=True, executable='/bin/bash')
     else:
-        display_command_to_use(one_liner, is_copy_to_clipboard=True, purpose="Copy and run INS message test")
+        display_content_to_copy(one_liner, is_copy_to_clipboard=True, purpose="Copy and run INS message test")
 
 
 def get_tool_templates() -> List[ToolTemplate]:

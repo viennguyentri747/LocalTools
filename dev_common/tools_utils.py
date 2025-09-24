@@ -195,7 +195,7 @@ def load_tools_metadata(folder: Path) -> ToolFolderMetadata:
     raise TypeError(f"Unsupported metadata type {type(metadata)} for {folder.name}")
 
 
-def display_command_to_use(command: str, is_copy_to_clipboard: bool = True, purpose: str = ""):
+def display_content_to_copy(content: str, purpose: str = "", is_copy_to_clipboard: bool = True):
     """
     Handles the final command display and clipboard copying.
     """
@@ -205,14 +205,14 @@ def display_command_to_use(command: str, is_copy_to_clipboard: bool = True, purp
     clipboard_status = ""
     if is_copy_to_clipboard:
         try:
-            pyperclip.copy(command)
+            pyperclip.copy(content)
             clipboard_status = " (copied to clipboard)"
         except Exception as e:
             clipboard_status = f" (clipboard failed: {e})"
     LOG(f"\n", show_time=False)
     LOG(f"✅ Cmd{purpose_text}{clipboard_status}:", show_time=False)
     LOG(f"{LINE_SEPARATOR}", show_time=False)
-    LOG(f"{command}", show_time=False)
+    LOG(f"{content}", show_time=False)
     LOG(f"{LINE_SEPARATOR}", show_time=False)
 
 

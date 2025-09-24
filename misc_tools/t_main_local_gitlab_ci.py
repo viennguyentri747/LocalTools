@@ -115,7 +115,7 @@ def main():
 
     # --cwd {tmp_working_folder}
     ci_local_command = f"cd {tmp_working_folder} && gitlab-ci-local --file {tmp_gl_yml_file.name}"
-    display_command_to_use(ci_local_command, is_copy_to_clipboard=True, purpose="Build and run locally")
+    display_content_to_copy(ci_local_command, is_copy_to_clipboard=True, purpose="Build and run locally")
 
     # List available jobs
     run_shell(f"{ci_local_command} --list")

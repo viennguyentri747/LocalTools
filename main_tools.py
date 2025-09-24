@@ -181,8 +181,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                                 LOG(f"Running template command now")
                                 run_shell(final_cmd)
                             else:
-                                display_command_to_use(final_cmd, is_copy_to_clipboard=True,
-                                                       purpose=f"Run tool {tool.stem}")
+                                display_content_to_copy(
+                                    final_cmd, is_copy_to_clipboard=True, purpose=f"Run tool {tool.stem}")
                         return 0
         except Exception as e:
             LOG_EXCEPTION(e)

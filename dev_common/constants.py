@@ -36,7 +36,7 @@ AVAILABLE_TOOLS_PATH = REPO_PATH / "available_tools"
 CREDENTIALS_FILE_PATH = REPO_PATH / ".my_credentials.env"
 OW_SW_PATH = Path.home() / "ow_sw_tools"
 CORE_REPOS_PATH = Path.home() / "workspace" / "intellian_core_repos/"
-
+TEMP_FOLDER_PATH = REPO_PATH / "temp"
 
 INSENSE_SDK_REPO_PATH = CORE_REPOS_PATH / IESA_INSENSE_SDK_REPO_NAME
 DOWNLOADS_PATH = Path.home() / "downloads"
@@ -52,15 +52,15 @@ IESA_MANIFEST_FILE_PATH = OW_SW_PATH / IESA_MANIFEST_RELATIVE_PATH
 OW_MAIN_BRANCHES = ["manpack_master", "master"]
 
 # WSL COMMANDS
-CMD_WSLPATH = 'wslpath'
-CMD_EXPLORER = 'explorer.exe'
-CMD_GITINGEST = 'gitingest'
-CMD_GIT = 'git'
-WSL_SELECT_FLAG = '/select,'
+CMD_WSLPATH = "wslpath"
+CMD_EXPLORER = "explorer.exe"
+CMD_GITINGEST = "gitingest"
+CMD_GIT = "git"
+WSL_SELECT_FLAG = "/select,"
 
 # SYMBOLS
-UNDERSCORE = '_'
-HYPHEN = '-'
+UNDERSCORE = "_"
+HYPHEN = "-"
 
 
 JIRA_API_TOKEN_KEY_NAME = "JIRA_API_TOKEN"
@@ -73,9 +73,9 @@ BUILD_TYPE_IESA = "iesa"
 BUILD_TYPE_BINARY = "binary"
 
 # File extensions and suffixes
-FILE_PREFIX = 'file_'
+FILE_PREFIX = "file_"
 GIT_SUFFIX = ".git"
-TXT_EXTENSION = '.txt'
+TXT_EXTENSION = ".txt"
 
 # Argument name constants
 ARGUMENT_LONG_PREFIX = "--"
@@ -91,10 +91,11 @@ ARG_PATHS_LONG = f"{ARGUMENT_LONG_PREFIX}paths"
 ARG_PATH_SHORT = f"{ARGUMENT_SHORT_PREFIX}p"
 ARG_PATHS_SHORT = f"{ARGUMENT_SHORT_PREFIX}p"
 ARG_TICKET_URL_LONG = f"{ARGUMENT_LONG_PREFIX}jira_url"
-ARG_OUTPUT_DIR_LONG = '--output_dir'
-ARG_OUTPUT_DIR_SHORT = '-o'
-ARG_NO_OPEN_EXPLORER = '--no-open-explorer'
-ARG_MAX_FOLDERS = '--max-folders'
+ARG_OUTPUT_DIR_LONG = f"{ARGUMENT_LONG_PREFIX}output_dir"
+ARG_OUTPUT_DIR_SHORT = f"{ARGUMENT_SHORT_PREFIX}o"
+ARG_NO_OPEN_EXPLORER = f"{ARGUMENT_LONG_PREFIX}no-open-explorer"
+ARG_MAX_FOLDERS = f"{ARGUMENT_LONG_PREFIX}max-folders"
+ARG_IS_GEN_CODING_TASK_LONG = F"{ARGUMENT_LONG_PREFIX}is_gen_coding_task"
 
 # New common argument names for Inertial Sense tools
 ARG_UPDATE_FW = f"{ARGUMENT_LONG_PREFIX}update_fw"
@@ -108,8 +109,8 @@ FAILURE_EMOJI = "❌"
 CELEBRATION_EMOJI = "🎉"
 
 # Messages
-LOG_PREFIX_MSG_INFO = '[INFO]'
-LOG_PREFIX_MSG_SUCCESS = '[SUCCESS]'
-LOG_PREFIX_MSG_ERROR = '[ERROR]'
-LOG_PREFIX_MSG_WARNING = '[WARNING]'
-LOG_PREFIX_MSG_FATAL = '[FATAL]'
+LOG_PREFIX_MSG_INFO = "[INFO]"
+LOG_PREFIX_MSG_SUCCESS = "[SUCCESS]"
+LOG_PREFIX_MSG_ERROR = "[ERROR]"
+LOG_PREFIX_MSG_WARNING = "[WARNING]"
+LOG_PREFIX_MSG_FATAL = "[FATAL]"

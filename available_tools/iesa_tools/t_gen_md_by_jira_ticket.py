@@ -1,8 +1,21 @@
 #!/home/vien/local_tools/MyVenvFolder/bin/python
 import re
 import argparse
-from typing import Optional
+from typing import Optional, List
 from dev_common import *
+
+
+def get_tool_templates() -> List[ToolTemplate]:
+    """Get tool templates."""
+    return [
+        ToolTemplate(
+            name="Gen Content by Jira Ticket",
+            # extra_description="Generate coding task markdown from a Jira ticket URL.",
+            args={
+                "--jira_url": f"{JIRA_COMPANY_URL}/browse/FPA-3",
+            },
+        )
+    ]
 
 
 def extract_key_from_jira_url(url: str) -> Optional[str]:
@@ -13,27 +26,37 @@ def extract_key_from_jira_url(url: str) -> Optional[str]:
     return None
 
 
-def gen_coding_task_markdown(ticket: JiraTicket, main_branch: str) -> str:
+class CodingTaskInfo:
+    main_ow_branch: str
+
+
+def gen_content_markdown(ticket: JiraTicket, coding_task_content: Optional[CodingTaskInfo]) -> str:
     """Generate the code task markdown content from Jira ticket data."""
     manifest: IesaManifest = parse_local_iesa_manifest()
     repos = manifest.get_all_repo_names()
     # 1. Generate the list of repos as a string first
     repo_list_str = "".join([f"- [ ] {repo}\n" for repo in repos if (CORE_REPOS_PATH / repo).is_dir()])
 
-    # 2. Now, create the template using that variable
-    template = (
+    # 2. Create the template using that variable
+    template: str = (
         f"# Jira Ticket reference\n\n"
-        f"- Ticket Link: {ticket.ticket_url}\n"
-        f"- Ticket Title: {ticket.title}\n"
-        f"- Ticket Description:\n"
+        f"- **Ticket Link**: {ticket.ticket_url}\n"
+        f"- **Ticket Summary**: {ticket.title}\n"
+        f"### Ticket Description:\n\n"
         f"{ticket.description if ticket.description else 'No Jira description available'}\n\n"
-        f"# Repos to make change:\n\n"
-        f"{repo_list_str}\n\n"
-        f"# Create branch command:\n"
-        f"```bash\n"
-        f"{gen_checkout_command(ticket, main_branch)}\n"
-        f"```"
     )
+
+    if coding_task_content:
+        template += (
+            f"# Repos to make change:\n\n"
+            f"{repo_list_str}\n\n"
+            f"# Create branch command:\n"
+            f"```bash\n"
+            f"{gen_checkout_command(ticket, coding_task_content.main_ow_branch)}\n"
+            f"```"
+        )
+
+    # Return the generated template
     return template
 
 
@@ -86,10 +109,15 @@ def get_repo_manifest(main_manifest_branch: str) -> IesaManifest:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Generate coding task markdown from a Jira ticket.")
+    parser = argparse.ArgumentParser(
+        description="Generate coding task markdown from a Jira ticket.",
+        formatter_class=argparse.RawTextHelpFormatter,
+        epilog=build_examples_epilog(get_tool_templates(), Path(__file__))
+    )
     parser.add_argument(ARG_TICKET_URL_LONG, type=str, required=False, help="The full URL of the Jira ticket.")
     parser.add_argument(ARG_OW_MANIFEST_BRANCH_LONG, type=str, required=False,
                         help="The manifest branch to use for generating checkout commands.")
+    parser.add_argument(f"{ARG_IS_GEN_CODING_TASK_LONG}", action="store_true", help="Generate coding task content.")
     args = parser.parse_args()
 
     jira_url = get_arg_value(args, ARG_TICKET_URL_LONG)
@@ -107,18 +135,21 @@ if __name__ == "__main__":
     client = create_new_jira_client()
     ticket: JiraTicket = client.get_ticket_by_key(ticket_key)
 
-    print(f"\nTicket info for {ticket_key}:")
-    print(f"Summary: {ticket.title}")
-    print(f"Description: {ticket.description}")
+    # print(f"\nTicket info for {ticket_key}:")
+    # print(f"Summary: {ticket.title}")
+    # print(f"Description: {ticket.description}")
 
-    main_branch = get_arg_value(args, ARG_OW_MANIFEST_BRANCH_LONG)
-    if not main_branch:
-        main_branch = prompt_input_with_options(
-            "\nSelect the main branch for ow_sw_tools", OW_MAIN_BRANCHES, default_option=OW_MAIN_BRANCHES[0])
+    is_gen_coding_task = get_arg_value(args, ARG_IS_GEN_CODING_TASK_LONG)
+    if is_gen_coding_task:
+        main_branch = get_arg_value(args, ARG_OW_MANIFEST_BRANCH_LONG)
+        if not main_branch:
+            main_branch = prompt_input_with_options(
+                "\nSelect the main branch for ow_sw_tools", OW_MAIN_BRANCHES, default_input=OW_MAIN_BRANCHES[0])
+        coding_task_content = CodingTaskInfo(main_ow_branch=main_branch)
+    else:
+        coding_task_content = None
 
     # Generate and print the markdown content
-    markdown_content = gen_coding_task_markdown(ticket, main_branch)
-    print("\n" + "="*50)
-    print("GENERATED CODE TASK MARKDOWN:")
-    print("="*50)
-    print(markdown_content)
+    markdown_content = gen_content_markdown(ticket, coding_task_content)
+    display_content_to_copy(markdown_content,  purpose="Use this for markdown content",
+                            is_copy_to_clipboard=True)

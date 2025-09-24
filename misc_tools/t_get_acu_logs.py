@@ -58,7 +58,7 @@ def fetch_logs_for_ip(user: str, remote: str, log_types: List[str], ip: str, tim
             try:
                 os.makedirs(dest_dir, exist_ok=True)
             except OSError as e:
-                print(f"[ERROR] Could not create directory '{dest_dir}': {e}", file=sys.stderr)
+                print(f"{LOG_PREFIX_MSG_ERROR} Could not create directory '{dest_dir}': {e}", file=sys.stderr)
                 all_ok = False
                 continue
 
@@ -68,7 +68,7 @@ def fetch_logs_for_ip(user: str, remote: str, log_types: List[str], ip: str, tim
                 subprocess.check_call(cmd)
             except subprocess.CalledProcessError as e:
                 print(
-                    f"[ERROR] scp failed for {ip} ({log_type_prefix}* logs, date {date_filter}): exit code {e.returncode}", file=sys.stderr)
+                    f"{LOG_PREFIX_MSG_ERROR} Scp failed for {ip} ({log_type_prefix}* logs, date {date_filter}): exit code {e.returncode}", file=sys.stderr)
                 all_ok = False
     return all_ok, ip
 

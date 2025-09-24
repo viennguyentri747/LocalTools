@@ -107,7 +107,7 @@ def main() -> None:
             LOG(f"Find output IESA here (WSL path): {new_iesa_output_abs_path}")
             # run_shell(f"sudo chmod 644 {new_iesa_output_abs_path}")
             # original_md5 = md5sum(new_iesa_output_abs_path)
-            
+
             command = (
                 f'output_path="{new_iesa_output_abs_path}" '
                 '&& read -e -i "192.168.10" -p "Enter source IP address: " source_ip '
@@ -116,7 +116,7 @@ def main() -> None:
                 '&& scp -rJ root@$source_ip "$output_path" root@192.168.100.254:/home/root/download/ && { original_md5=$(md5sum "$output_path" | cut -d" " -f1); noti "SCP copy completed successfully"; echo -e "IESA copied completed. Install on target UT $source_ip with this below command:\\n"; } || { noti "SCP copy failed"; } '
                 f'&& echo "original_md5=\\"$original_md5\\"; actual_md5=\\$(md5sum /home/root/download/{new_iesa_name} | cut -d\\\" \\\" -f1); echo \\\"original md5sum: \\$original_md5\\\"; echo \\\"actual md5sum: \\$actual_md5\\\"; if [ \\\"\\$original_md5\\\" = \\\"\\$actual_md5\\\" ]; then read -r -p \\\"MD5 match! Install (y/n)?: \\\" confirm; [ \\\"\\$confirm\\\" = \\\"y\\\" -o \\\"\\$confirm\\\" = \\\"Y\\\" ] && iesa_umcmd install pkg {new_iesa_name} && tail -F /var/log/upgrade_log; else echo \\\"MD5 MISMATCH! Not installing.\\\"; fi"'
             )
-            display_command_to_use(command, is_copy_to_clipboard=True, purpose="Copy IESA to target IP")
+            display_content_to_copy(command, purpose="Copy IESA to target IP", is_copy_to_clipboard=True)
         else:
             LOG(
                 f"ERROR: Expected IESA artifact not found at '{OW_OUTPUT_IESA_PATH}' or it's not a file.", file=sys.stderr)
@@ -126,21 +126,21 @@ def main() -> None:
         LOG(f"Find output binary files in '{OW_BUILD_BINARY_OUTPUT_PATH}'")
         LOG(f"{LINE_SEPARATOR}")
         command = (f'sudo chmod -R 755 {OW_BUILD_BINARY_OUTPUT_PATH} && '
-            f'while true; do '
-            f'read -e -p "Enter binary path: " -i "{OW_BUILD_BINARY_OUTPUT_PATH}/" BIN_PATH && '
-            f'if [ -f "$BIN_PATH" ]; then break; else echo "Error: File $BIN_PATH does not exist. Please try again."; fi; '
-            f'done && '
-            f'BIN_NAME=$(basename "$BIN_PATH") && '
-            f'read -e -p "Enter destination name: " -i "$BIN_NAME" DEST_NAME && '
-            f'original_md5=$(md5sum "$BIN_PATH" | cut -d" " -f1) && '
-            f'read -e -p "Enter target IP: " -i "192.168.10" TARGET_IP && '
-            f'scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -rJ root@$TARGET_IP "$BIN_PATH" root@192.168.100.254:/home/root/download/"$DEST_NAME" && '
-            f'{{ echo "SCP copy completed successfully"; '
-            f'echo -e "Binary copied completed. Setup symlink on target UT $TARGET_IP with this below command:\\n"; '
-            f'echo "actual_md5=\\$(md5sum /home/root/download/$DEST_NAME | cut -d\\\" \\\" -f1) && if [ \\\"$original_md5\\\" = \"$actual_md5\\\" ]; then echo \\\"MD5 match! Proceeding...\\\" && cp /opt/bin/$BIN_NAME /home/root/download/backup_$BIN_NAME && ln -sf /home/root/download/$DEST_NAME /opt/bin/$BIN_NAME && echo \\\"Backup created and symlink updated: /opt/bin/$BIN_NAME -> /home/root/download/$DEST_NAME\\\"; else echo \\\"MD5 MISMATCH! Aborting.\\\"; fi"; '
-            f'}} || {{ echo "SCP copy failed"; }}'
-        )
-        display_command_to_use(command, is_copy_to_clipboard=True, purpose="Copy BINARY to target IP")
+                   f'while true; do '
+                   f'read -e -p "Enter binary path: " -i "{OW_BUILD_BINARY_OUTPUT_PATH}/" BIN_PATH && '
+                   f'if [ -f "$BIN_PATH" ]; then break; else echo "Error: File $BIN_PATH does not exist. Please try again."; fi; '
+                   f'done && '
+                   f'BIN_NAME=$(basename "$BIN_PATH") && '
+                   f'read -e -p "Enter destination name: " -i "$BIN_NAME" DEST_NAME && '
+                   f'original_md5=$(md5sum "$BIN_PATH" | cut -d" " -f1) && '
+                   f'read -e -p "Enter target IP: " -i "192.168.10" TARGET_IP && '
+                   f'scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -rJ root@$TARGET_IP "$BIN_PATH" root@192.168.100.254:/home/root/download/"$DEST_NAME" && '
+                   f'{{ echo "SCP copy completed successfully"; '
+                   f'echo -e "Binary copied completed. Setup symlink on target UT $TARGET_IP with this below command:\\n"; '
+                   f'echo "actual_md5=\\$(md5sum /home/root/download/$DEST_NAME | cut -d\\\" \\\" -f1) && if [ \\\"$original_md5\\\" = \"$actual_md5\\\" ]; then echo \\\"MD5 match! Proceeding...\\\" && cp /opt/bin/$BIN_NAME /home/root/download/backup_$BIN_NAME && ln -sf /home/root/download/$DEST_NAME /opt/bin/$BIN_NAME && echo \\\"Backup created and symlink updated: /opt/bin/$BIN_NAME -> /home/root/download/$DEST_NAME\\\"; else echo \\\"MD5 MISMATCH! Aborting.\\\"; fi"; '
+                   f'}} || {{ echo "SCP copy failed"; }}'
+                   )
+        display_content_to_copy(command, purpose="Copy BINARY to target IP", is_copy_to_clipboard=True)
 
         # LOG(f'sudo chmod -R 755 {BUILD_BINARY_OUTPUT_PATH} && read -e -p "Enter target IP: " -i "192.168.10" TARGET_IP && scp -rJ root@$TARGET_IP {BUILD_BINARY_OUTPUT_PATH}/<bin> root@192.168.100.254:/home/root/download/', show_time=False)
 
@@ -577,4 +577,3 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         LOG("\nAborted by user.", file=sys.stderr)
         sys.exit(1)
-

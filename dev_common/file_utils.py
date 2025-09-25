@@ -23,6 +23,10 @@ def expand_and_check_path(path_str: str) -> Tuple[bool, str]:
 def copy_file(src_path, dst_path):
     shutil.copy(src_path, dst_path)
 
+def remove_file(file_path):
+    if os.path.exists(file_path):
+        os.remove(file_path)
+
 def get_file_md5sum(file_path):
     with open(file_path, 'rb') as f:
         md5 = hashlib.md5(f.read()).hexdigest()

@@ -7,6 +7,9 @@ from dev_common.core_utils import read_value_from_credential_file
 LINE_SEPARATOR = f"\n{'=' * 70}\n"
 LINE_SEPARATOR_NO_ENDLINE = f"{'=' * 70}"
 
+# Obsidian
+OBSIDIAN_VAULT_NAME = "ObsidianWorkVault"  # The exact name of your Obsidian vault.
+OBSIDIAN_VAULT_PATH = f"{Path.home()}/obsidian_work_vault"  # The full local path to your vault.
 
 # GL
 GL_BASE_URL = "https://gitlab.com"
@@ -97,7 +100,9 @@ ARG_NO_OPEN_EXPLORER = f"{ARGUMENT_LONG_PREFIX}no-open-explorer"
 ARG_MAX_FOLDERS = f"{ARGUMENT_LONG_PREFIX}max-folders"
 ARG_IS_GEN_CODING_TASK_LONG = F"{ARGUMENT_LONG_PREFIX}is_gen_coding_task"
 ARG_TEMPLATE_PATH = f"{ARGUMENT_LONG_PREFIX}template_path"
-ARG_DIR_TO_COPY_TO = f"{ARGUMENT_LONG_PREFIX}dir_to_copy_to"
+ARG_VAULT_PATH = f"{ARGUMENT_LONG_PREFIX}vault_path"
+ARG_NOTE_REL_PATH = f"{ARGUMENT_LONG_PREFIX}dir_to_copy_to"
+ARG_NOTE_REL_PATHS_TO_ADD_CONTENT = f"{ARGUMENT_LONG_PREFIX}paths_to_link_from"
 
 # New common argument names for Inertial Sense tools
 ARG_UPDATE_FW = f"{ARGUMENT_LONG_PREFIX}update_fw"

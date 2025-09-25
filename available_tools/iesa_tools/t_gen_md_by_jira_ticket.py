@@ -1,12 +1,15 @@
 #!/home/vien/local_tools/MyVenvFolder/bin/python
 import re
 import argparse
-import shutil
 from typing import Optional, List
 from dev_common import *
 from dev_common.input_utils import prompt_confirmation
 
-#cmd.exe /c curl -X GET "http://127.0.0.1:27123/commands/" -H "accept: application/json" -H "Authorization: Bearer 647569e74ba327766ebee74be157d37cdeda23f6b8b4b8b36ff8011b90c56fb4"
+# cmd.exe /c curl -X GET "http://127.0.0.1:27123/commands/" -H "accept: application/json" -H "Authorization: Bearer 647569e74ba327766ebee74be157d37cdeda23f6b8b4b8b36ff8011b90c56fb4"
+
+PATH_TO_WORKING_NOTES = f"Notes/_Root/Productivity/CurrentWorking/Diary/Working\ Company/Intellian\ Working\ \(Link,\ How\ to…\)/Intellian\ Note\ working,\ diary\ \(work\ log\)/"
+
+
 def get_tool_templates() -> List[ToolTemplate]:
     """Get tool templates."""
     return [
@@ -14,9 +17,11 @@ def get_tool_templates() -> List[ToolTemplate]:
             name="Gen content by Company Jira Ticket",
             # extra_description="Generate coding task markdown from a Jira ticket URL.",
             args={
-                ARG_TEMPLATE_PATH: f"{Path.home()}/obsidian_work_vault/Dev/templates_container/page_tmpl_default.md",
-                ARG_DIR_TO_COPY_TO: f"{Path.home()}/obsidian_work_vault/Notes/_Root/Productivity/CurrentWorking/Diary/Working\ Company/Intellian\ Working\ \(Link,\ How\ to…\)/",
+                ARG_VAULT_PATH: f"{Path.home()}/obsidian_work_vault/",
+                ARG_NOTE_REL_PATH: f"{PATH_TO_WORKING_NOTES}",
                 ARG_TICKET_URL_LONG: f"{JIRA_COMPANY_URL}/browse/FPA-3",
+                ARG_NOTE_REL_PATHS_TO_ADD_CONTENT: [
+                    f"{PATH_TO_WORKING_NOTES}/_Intellian\ Note\ working,\ diary\ \(work\ log\).md"]
             },
         )
     ]
@@ -34,7 +39,7 @@ class CodingTaskInfo:
     main_ow_branch: str
 
 
-def gen_content_markdown(ticket: JiraTicket, coding_task_content: Optional[CodingTaskInfo], template_path: Optional[str] = None) -> str:
+def gen_content_markdown(ticket: JiraTicket, coding_task_content: Optional[CodingTaskInfo]) -> str:
     """Generate the code task markdown content from Jira ticket data."""
     manifest: IesaManifest = parse_local_iesa_manifest()
     repos = manifest.get_all_repo_names()
@@ -61,13 +66,7 @@ def gen_content_markdown(ticket: JiraTicket, coding_task_content: Optional[Codin
             f"```"
         )
 
-    if template_path:
-        with open(template_path, 'r') as f:
-            template = f.read()
-        md_content_to_gen = template + md_content_to_gen
-        return md_content_to_gen
-    else:
-        return md_content_to_gen
+    return md_content_to_gen
 
 
 def gen_checkout_command(ticket: JiraTicket, main_manifest_branch: str) -> str:
@@ -124,17 +123,25 @@ if __name__ == "__main__":
         formatter_class=argparse.RawTextHelpFormatter,
         epilog=build_examples_epilog(get_tool_templates(), Path(__file__))
     )
+
     parser.add_argument(ARG_TICKET_URL_LONG, type=str, required=False, help="The full URL of the Jira ticket.")
     parser.add_argument(ARG_OW_MANIFEST_BRANCH_LONG, type=str, required=False,
                         help="The manifest branch to use for generating checkout commands.")
     parser.add_argument(f"{ARG_IS_GEN_CODING_TASK_LONG}", action="store_true", help="Generate coding task content.")
-    parser.add_argument(ARG_TEMPLATE_PATH, type=str, required=False, default=None, help="The path to a template markdown file.")
-    parser.add_argument(ARG_DIR_TO_COPY_TO, type=str, required=False, default=None, help="The destination directory for the generated file.")
+    parser.add_argument(ARG_VAULT_PATH, type=str, required=False, default=None,
+                        help="The destination directory for the generated file.")
+    parser.add_argument(ARG_NOTE_REL_PATH, type=str, required=False, default=None,
+                        help="The relative path (vs vault) to note that need to fill with content.")
+    parser.add_argument(ARG_NOTE_REL_PATHS_TO_ADD_CONTENT, nargs='+', default=[], required=False,
+                        help="The relative paths (vs vault) to add note (with filled content)'s link.")
+
     args = parser.parse_args()
 
     jira_url = get_arg_value(args, ARG_TICKET_URL_LONG)
-    template_path = get_arg_value(args, ARG_TEMPLATE_PATH)
-    dir_to_copy_to = get_arg_value(args, ARG_DIR_TO_COPY_TO)
+    rel_note_dir = get_arg_value(args, ARG_NOTE_REL_PATH)
+    vault_dir_str = get_arg_value(args, ARG_VAULT_PATH)
+    rel_paths_to_add_link = get_arg_value(args, ARG_NOTE_REL_PATHS_TO_ADD_CONTENT)
+
     # Request user input for Jira URL
     if not jira_url:
         jira_url = input(f"Input jira url (Ex: \"{JIRA_COMPANY_URL}/browse/FPA-3\"): ").strip()
@@ -142,16 +149,12 @@ if __name__ == "__main__":
     # Validate and extract ticket key
     ticket_key = extract_key_from_jira_url(jira_url)
     if not ticket_key:
-        print("Error: Invalid Jira URL format. Please provide a valid Jira URL.")
+        LOG("Error: Invalid Jira URL format. Please provide a valid Jira URL.")
         exit(1)
 
     # Get Jira ticket data
     client = create_new_jira_client()
     ticket: JiraTicket = client.get_ticket_by_key(ticket_key)
-
-    # print(f"\nTicket info for {ticket_key}:")
-    # print(f"Summary: {ticket.title}")
-    # print(f"Description: {ticket.description}")
 
     is_gen_coding_task = get_arg_value(args, ARG_IS_GEN_CODING_TASK_LONG)
     if is_gen_coding_task:
@@ -163,53 +166,71 @@ if __name__ == "__main__":
     else:
         coding_task_content = None
 
-    # Generate and print the markdown content
-    markdown_content = gen_content_markdown(ticket, coding_task_content, template_path)
-    
+    # Generate and LOG the markdown content
+    markdown_content = gen_content_markdown(ticket, coding_task_content)
+
     # Save the generated markdown content to a file
     file_prefix = f"{ticket.key}_"
     file_name = f"{file_prefix}{str_to_slug(ticket.title)}.md"
     file_path = TEMP_FOLDER_PATH / file_name
-    with open(file_path, "w") as f:
-        f.write(markdown_content)
-    LOG(f"Generated markdown file: {file_path}")
-
-    if dir_to_copy_to:
-        destination_dir = Path(strip_quotes(dir_to_copy_to))  # Clean the path first
-        proceed_with_copy = True
-
-        # Check if destination directory exists
-        if not destination_dir.exists():
-            LOG(f"Destination directory does not exist: {destination_dir}")
-            proceed_with_copy = False
+    if vault_dir_str and rel_note_dir:
+        should_create_note = True
+        destination_dir_path = Path(strip_quotes(vault_dir_str)) / strip_quotes(rel_note_dir)  # Clean the path first
+        # breakpoint()
+        if not destination_dir_path.exists():
+            LOG(f"{LOG_PREFIX_MSG_ERROR} Destination directory does not exist: {destination_dir_path}")
+            should_create_note = False
         else:
             # 1. Check if exact file already exists
-            destination_path = destination_dir / file_name
+            destination_path = destination_dir_path / file_name
             if destination_path.exists():
                 if prompt_confirmation(f"Warning: File '{file_name}' already exists in destination. Overwrite?"):
-                    backup_path = TEMP_FOLDER_PATH / f"{file_name}.bak"
+                    backup_path = TEMP_FOLDER_PATH / f"{file_name}.backup"
                     copy_file(destination_path, backup_path)
-                    print(f"Backed up existing file to {backup_path}")
+                    LOG(f"Backed up existing file to {backup_path}")
                 else:
-                    print("Copy operation cancelled by user.")
-                    proceed_with_copy = False
-            
+                    LOG("Copy operation cancelled by user.")
+                    should_create_note = False
             # 2. Check for files with same prefix (only if exact file doesn't exist)
             else:
-                existing_files_with_prefix = list(destination_dir.glob(f"{file_prefix}*"))
+                existing_files_with_prefix = list(destination_dir_path.glob(f"{file_prefix}*"))
                 if existing_files_with_prefix:
                     file_list_str = "\n".join([f"- {f.name}" for f in existing_files_with_prefix])
-                    if not prompt_confirmation(
-                        f"Found existing file(s) with prefix '{file_prefix}' in destination:\n{file_list_str}\n\nCreate new file anyway?"
-                    ):
+                    if not prompt_confirmation(f"Found existing file(s) with prefix '{file_prefix}' in destination:\n{file_list_str}\n\nCreate new file anyway?"):
                         LOG("Copy operation cancelled by user.")
-                        proceed_with_copy = False
+                        should_create_note = False
 
-        # 3. Execute copy if all checks pass
-        if proceed_with_copy:
-            output_dir_path = get_arg_value(args, ARG_DIR_TO_COPY_TO, for_shell=True)
-            original_file_path_str = str(file_path)
-            command_to_copy = f"cp {quote(original_file_path_str)} {output_dir_path} && noti \"File copied to destination\""
-            display_content_to_copy(command_to_copy, purpose="To copy generated file")
+        # 3. Create note
+        if should_create_note:
+            # Optional alias: use the JIRA key prefix (e.g., "MANP-268")
+            # alias = file_prefix.rstrip("_")
+            # Build the wikilink list item
+            wikilink_line = f"\n- [ ] {to_wikilink(Path(file_name))}\n"
+            # Regex to match the exact heading line
+            heading_regex = r"^#\s*Common\s*\+\s*Log daily\s*$"
+            for path_to_add_link_str in rel_paths_to_add_link:
+                # Call YOUR helper (pass vault_path explicitly)
+                insert_success = insert_content_after_regex(
+                    note_vault_rel_path=Path(path_to_add_link_str),
+                    prefix_regex=heading_regex,
+                    content_to_insert=wikilink_line,
+                    vault_path=Path(vault_dir_str),
+                    flags=re.MULTILINE,
+                    insert_all=False,
+                    prevent_duplicate=True,
+                )
+
+                if insert_success:
+                    LOG(f"Successfully inserted link to {path_to_add_link_str}")
+                else:
+                    LOG(f"Failed to insert link to {path_to_add_link_str}")
+            # output_dir_path = get_arg_value(args, ARG_DIR_TO_COPY_TO, for_shell=True)
+            rel_destination_path = Path(strip_quotes(rel_note_dir)) / file_name
+            success = create_obsidian_note_with_template(note_vault_rel_path=str(
+                rel_destination_path), markdown_content=markdown_content)
+            if success:
+                LOG(f"Successfully created note at {destination_path}")
+            else:
+                LOG(f"❌ Failed to create note at {destination_path}")
     else:
         display_content_to_copy(markdown_content, purpose="Use for markdown content", is_copy_to_clipboard=True)

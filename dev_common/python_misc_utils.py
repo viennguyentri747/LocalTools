@@ -8,9 +8,9 @@ def get_arg_value(args, arg_name: str, for_shell: bool = False):
     dest_key = arg_name.lstrip('-').replace('-', '_')
     try:
         value = getattr(args, dest_key)
-        PATH_ARGS = [ARG_PATHS_LONG, ARG_OUTPUT_DIR_LONG, ARG_TEMPLATE_PATH, ARG_DIR_TO_COPY_TO]
+        FULL_PATH_ARGS = [ARG_PATHS_LONG, ARG_OUTPUT_DIR_LONG, ARG_TEMPLATE_PATH, ARG_VAULT_PATH]
         
-        if isinstance(value, str) and arg_name in PATH_ARGS:
+        if isinstance(value, str) and arg_name in FULL_PATH_ARGS:
             resolve_path = str(Path(value).expanduser().resolve())
             # print(f"Resolved path: {resolve_path} vs original: {value}")
             if for_shell and needs_quoting(resolve_path):

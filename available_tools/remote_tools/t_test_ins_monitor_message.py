@@ -83,7 +83,7 @@ def main() -> None:
     remote_run = " ".join(parts)
 
     # 3) Build the SCP + remote-run one-liner
-    one_liner = create_scp_and_run_cmd(local_path=local_script_path, run_cmd_on_remote=remote_run)
+    one_liner = create_scp_ut_and_run_cmd(local_path=local_script_path, run_cmd_on_remote=remote_run)
 
     run_now: bool = get_arg_value(args, ARG_RUN_NOW)
     if run_now:

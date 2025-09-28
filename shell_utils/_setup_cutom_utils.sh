@@ -11,6 +11,7 @@ loaded_str=""
 for script in "$SCRIPT_DIR"/*.sh; do
     # Skip if this is the current script
     if [[ "$script" != "$THIS_SCRIPT" && -f "$script" ]]; then
+        dos2unix --quiet "$script"
         if source "$script"; then
             script_name=$(basename "$script")
             if [[ -z "$loaded_str" ]]; then # first

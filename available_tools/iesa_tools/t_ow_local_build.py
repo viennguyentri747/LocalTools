@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, Union
 import argparse
 from dev_common import *
 import yaml
+import traceback
 
 GITLAB_CI_YML_PATH = OW_SW_PATH / ".gitlab-ci.yml"
 # Need to put this here because we will go into docker environment from OW_SW_PATH
@@ -47,6 +48,8 @@ def main() -> None:
                         help="Use the current branch of ow_sw_tools repo (true or false). Defaults to true.")
     parser.add_argument("--make_clean", type=lambda x: x.lower() == 'true', default=True,
                         help="Run make clean before building (true or false). Defaults to true.")
+    parser.add_argument("--is_debug_build", type=lambda x: x.lower() == 'true', default=False,
+                        help="Enable debug build (true or false). Defaults to false.")
     args = parser.parse_args()
     LOG(
         textwrap.dedent(
@@ -65,6 +68,7 @@ def main() -> None:
     sync: bool = args.sync
     use_current_ow_branch: bool = args.use_current_ow_branch
     make_clean: bool = args.make_clean
+    is_debug_build: bool = args.is_debug_build
     # Update overwrite repos no git suffix
     overwrite_repos = [get_path_no_suffix(r, GIT_SUFFIX) for r in overwrite_repos]
     LOG(f"Parsed args: {args}")
@@ -93,8 +97,9 @@ def main() -> None:
                    overwrite_repos, use_current_ow_branch, current_branch)
     pre_build_setup(build_type, manifest_source, manifest_branch,
                     tisdk_ref, overwrite_repos, force_reset_tmp_build, sync)
-    run_build(build_type, args.interactive, make_clean)
+    run_build(build_type, args.interactive, make_clean, is_debug_build)
 
+    # TODO: improve handling on interactive mode (check it actually success before print copy commands)
     if build_type == BUILD_TYPE_IESA:
         LOG(f"{MAIN_STEP_LOG_PREFIX} IESA build finished. Renaming artifact...")
         if OW_OUTPUT_IESA_PATH.is_file():
@@ -108,13 +113,12 @@ def main() -> None:
             # run_shell(f"sudo chmod 644 {new_iesa_output_abs_path}")
             # original_md5 = md5sum(new_iesa_output_abs_path)
 
-            command = (
-                f'output_path="{new_iesa_output_abs_path}" '
-                '&& read -e -i "192.168.10" -p "Enter source IP address: " source_ip '
-                # '&& rmh '
-                '&& sudo chmod 644 "$output_path" '
-                '&& scp -rJ root@$source_ip "$output_path" root@192.168.100.254:/home/root/download/ && { original_md5=$(md5sum "$output_path" | cut -d" " -f1); noti "SCP copy completed successfully"; echo -e "IESA copied completed. Install on target UT $source_ip with this below command:\\n"; } || { noti "SCP copy failed"; } '
-                f'&& echo "original_md5=\\"$original_md5\\"; actual_md5=\\$(md5sum /home/root/download/{new_iesa_name} | cut -d\\\" \\\" -f1); echo \\\"original md5sum: \\$original_md5\\\"; echo \\\"actual md5sum: \\$actual_md5\\\"; if [ \\\"\\$original_md5\\\" = \\\"\\$actual_md5\\\" ]; then read -r -p \\\"MD5 match! Install (y/n)?: \\\" confirm; [ \\\"\\$confirm\\\" = \\\"y\\\" -o \\\"\\$confirm\\\" = \\\"Y\\\" ] && iesa_umcmd install pkg {new_iesa_name} && tail -F /var/log/upgrade_log; else echo \\\"MD5 MISMATCH! Not installing.\\\"; fi"'
+            command = create_scp_ut_and_run_cmd(
+                local_path=new_iesa_output_abs_path,
+                remote_host="root@192.168.100.254",
+                remote_dir="/home/root/download/",
+                run_cmd_on_remote=f"iesa_umcmd install pkg {new_iesa_name} && tail -F /var/log/upgrade_log",
+                is_prompt_before_execute=True
             )
             display_content_to_copy(command, purpose="Copy IESA to target IP", is_copy_to_clipboard=True)
         else:
@@ -125,24 +129,27 @@ def main() -> None:
         LOG(f"{MAIN_STEP_LOG_PREFIX} Binary build finished.")
         LOG(f"Find output binary files in '{OW_BUILD_BINARY_OUTPUT_PATH}'")
         LOG(f"{LINE_SEPARATOR}")
-        command = (f'sudo chmod -R 755 {OW_BUILD_BINARY_OUTPUT_PATH} && '
-                   f'while true; do '
-                   f'read -e -p "Enter binary path: " -i "{OW_BUILD_BINARY_OUTPUT_PATH}/" BIN_PATH && '
-                   f'if [ -f "$BIN_PATH" ]; then break; else echo "Error: File $BIN_PATH does not exist. Please try again."; fi; '
-                   f'done && '
-                   f'BIN_NAME=$(basename "$BIN_PATH") && '
-                   f'read -e -p "Enter destination name: " -i "$BIN_NAME" DEST_NAME && '
-                   f'original_md5=$(md5sum "$BIN_PATH" | cut -d" " -f1) && '
-                   f'read -e -p "Enter target IP: " -i "192.168.10" TARGET_IP && '
-                   f'scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -rJ root@$TARGET_IP "$BIN_PATH" root@192.168.100.254:/home/root/download/"$DEST_NAME" && '
-                   f'{{ echo "SCP copy completed successfully"; '
-                   f'echo -e "Binary copied completed. Setup symlink on target UT $TARGET_IP with this below command:\\n"; '
-                   f'echo "actual_md5=\\$(md5sum /home/root/download/$DEST_NAME | cut -d\\\" \\\" -f1) && if [ \\\"$original_md5\\\" = \"$actual_md5\\\" ]; then echo \\\"MD5 match! Proceeding...\\\" && cp /opt/bin/$BIN_NAME /home/root/download/backup_$BIN_NAME && ln -sf /home/root/download/$DEST_NAME /opt/bin/$BIN_NAME && echo \\\"Backup created and symlink updated: /opt/bin/$BIN_NAME -> /home/root/download/$DEST_NAME\\\"; else echo \\\"MD5 MISMATCH! Aborting.\\\"; fi"; '
-                   f'}} || {{ echo "SCP copy failed"; }}'
-                   )
+        command = (
+            f'sudo chmod -R 755 {OW_BUILD_BINARY_OUTPUT_PATH} && '
+            f'while true; do '
+            f'read -e -p "Enter binary path: " -i "{OW_BUILD_BINARY_OUTPUT_PATH}/" BIN_PATH && '
+            f'if [ -f "$BIN_PATH" ]; then break; else echo "Error: File $BIN_PATH does not exist. Please try again."; fi; '
+            f'done && '
+            f'BIN_NAME=$(basename "$BIN_PATH") && '
+            f'read -e -p "Enter destination name: " -i "$BIN_NAME" DEST_NAME && '
+            f'original_md5=$(md5sum "$BIN_PATH" | cut -d" " -f1) && '
+            f'read -e -p "Enter target IP: " -i "192.168.10" TARGET_IP && '
+            f'ping_acu_ip "$TARGET_IP" --mute && '
+            f'scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -rJ root@$TARGET_IP "$BIN_PATH" root@192.168.100.254:/home/root/download/"$DEST_NAME" && '
+            f'{{ '
+            f'echo "SCP copy completed successfully"; '
+            f'echo -e "Binary copied completed. Setup symlink on target UT $TARGET_IP with this below command:\\n"; '
+            f'echo "actual_md5=\\$(md5sum /home/root/download/$DEST_NAME | cut -d\\" \\" -f1) && if [ \\"$original_md5\\" = \\"\\$actual_md5\\" ]; then echo \\"MD5 match! Proceeding...\\" && cp /opt/bin/$BIN_NAME /home/root/download/backup_$BIN_NAME && ln -sf /home/root/download/$DEST_NAME /opt/bin/$BIN_NAME && echo \\"Backup created and symlink updated: /opt/bin/$BIN_NAME -> /home/root/download/$DEST_NAME\\"; else echo \\"MD5 MISMATCH! Aborting.\\"; fi"; '
+            f'}} || {{ '
+            f'echo "SCP copy failed"; '
+            f'}}'
+        )
         display_content_to_copy(command, purpose="Copy BINARY to target IP", is_copy_to_clipboard=True)
-
-        # LOG(f'sudo chmod -R 755 {BUILD_BINARY_OUTPUT_PATH} && read -e -p "Enter target IP: " -i "192.168.10" TARGET_IP && scp -rJ root@$TARGET_IP {BUILD_BINARY_OUTPUT_PATH}/<bin> root@192.168.100.254:/home/root/download/', show_time=False)
 
 # ───────────────────────────  helpers / actions  ─────────────────────── #
 
@@ -248,7 +255,7 @@ def pre_build_setup(build_type: str, manifest_source: str, ow_manifest_branch: s
         prepare_iesa_bsp(tisdk_ref)
 
 
-def run_build(build_type: str, interactive: bool, make_clean: bool = True) -> None:
+def run_build(build_type: str, interactive: bool, make_clean: bool = True, is_debug_build: bool = False) -> None:
     if build_type == BUILD_TYPE_BINARY:
         make_target = "arm"
     elif build_type == BUILD_TYPE_IESA:
@@ -256,8 +263,10 @@ def run_build(build_type: str, interactive: bool, make_clean: bool = True) -> No
     else:
         throw_exception(f"Unknown build type: {build_type}, expected {BUILD_TYPE_BINARY} or {BUILD_TYPE_IESA}")
 
+    docker_image = get_docker_image_from_gitlab_yml()
+    LOG(f"Using Docker image: {docker_image}")
     docker_cmd_base = (
-        f"docker run -it --rm -v {OW_SW_PATH}:{OW_SW_PATH} -w {OW_SW_PATH} oneweb_sw "
+        f"docker run -it --rm -v {OW_SW_PATH}:{OW_SW_PATH} -w {OW_SW_PATH} {docker_image}"
     )
 
     # Command to find and convert script files to Unix format
@@ -270,32 +279,67 @@ def run_build(build_type: str, interactive: bool, make_clean: bool = True) -> No
     chmod_cmd = f"chmod -R +x {OW_SW_PATH.absolute()}/"
 
     time_start = datetime.now()
+    bash_cmd_prefix = f"bash -c"
     make_clean_cmd = "make clean"
+    debug_suffix = " DEBUG=1" if is_debug_build else ""
     if interactive:
         show_noti(title="Interactive Mode", message="Starting interactive mode...")
         LOG(f"{LINE_SEPARATOR}Entering interactive mode.")
 
         # Build the command sequence based on make_clean flag
+        keep_interactive_shell = "exec bash"  # Keep container alive with an interactive shell after setup
         if make_clean:
-            bash_setup = f"""/bin/bash -c "echo 'Cleaning build' && {make_clean_cmd} && echo 'Running dos2unix on script files...' && {dos2unix_cmd} && echo 'Granting execute permissions to script files...' && {chmod_cmd} && echo -e '\\nRun make {make_target} to start {build_type} building.\\n\\nType exit or press Ctrl+D to leave interactive mode.' && exec bash" """
+            bash_cmd = f"""{bash_cmd_prefix} "echo 'Cleaning build' && {make_clean_cmd} && echo 'Running dos2unix on script files...' && {dos2unix_cmd} && echo 'Granting execute permissions to script files...' && {chmod_cmd} && echo -e '\\nTo start the {build_type} build, run the command below:\\n\\nmake {make_target}{debug_suffix}\\n\\nType exit or press Ctrl+D to leave interactive mode.' && {keep_interactive_shell}" """
         else:
-            bash_setup = f"""/bin/bash -c "echo 'Running dos2unix on script files...' && {dos2unix_cmd} && echo 'Granting execute permissions to script files...' && {chmod_cmd} && echo -e '\\nRun make {make_target} to start {build_type} building.\\n\\nType exit or press Ctrl+D to leave interactive mode.' && exec bash" """
+            bash_cmd = f"""{bash_cmd_prefix} "echo 'Running dos2unix on script files...' && {dos2unix_cmd} && echo 'Granting execute permissions to script files...' && {chmod_cmd} && echo -e '\\nTo start the {build_type} build, run the command below:\\n\\nmake {make_target}{debug_suffix}\\n\\nType exit or press Ctrl+D to leave interactive mode.' && {keep_interactive_shell}" """
 
-        run_shell(docker_cmd_base + bash_setup, check_throw_exception_on_exit_code=False)
+        run_shell(f"{docker_cmd_base} {bash_cmd}", check_throw_exception_on_exit_code=False)
         LOG(f"Exiting interactive mode...")
     else:
         LOG("Running dos2unix on script files and build command...")
 
         # Build the command sequence based on make_clean flag
         if make_clean:
-            combined_cmd = f"{make_clean_cmd} && {dos2unix_cmd} && {chmod_cmd} && make {make_target}"
+            bash_cmd = f"{bash_cmd_prefix} '{make_clean_cmd} && {dos2unix_cmd} && {chmod_cmd} && make {make_target}{debug_suffix}'"
         else:
-            combined_cmd = f"{dos2unix_cmd} && {chmod_cmd} && make {make_target}"
+            bash_cmd = f"{bash_cmd_prefix} '{dos2unix_cmd} && {chmod_cmd} && make {make_target}{debug_suffix}'"
 
-        run_shell(docker_cmd_base + f"bash -c '{combined_cmd}'")
+        run_shell(f"{docker_cmd_base} {bash_cmd}")
         elapsed_time = (datetime.now() - time_start).total_seconds()
         LOG(f"Build finished in {elapsed_time} seconds", show_time=True)
         show_noti(title="Build finished", message=f"Build finished in {elapsed_time} seconds")
+
+
+def get_docker_image_from_gitlab_yml() -> str:
+    gitlab_yml_path = OW_SW_PATH / ".gitlab-ci.yml"
+    if not gitlab_yml_path.exists():
+        throw_exception(f".gitlab-ci.yml not found at {gitlab_yml_path}")
+
+    docker_image = None
+    with open(gitlab_yml_path, "r") as f:
+        for line in f:
+            stripped = line.strip()
+            if stripped.startswith("image:"):
+                docker_image = stripped.split("image:")[1].strip()
+                break
+
+    if not docker_image:
+        throw_exception("Docker image not found in .gitlab-ci.yml")
+
+    # Check if Docker image exists locally
+    check_cmd = f"docker image inspect {docker_image} > /dev/null 2>&1"
+    result = os.system(check_cmd)
+
+    if result != 0:
+        LOG(f"Docker image {docker_image} not found locally. Pulling...")
+        pull_result = os.system(f"docker pull {docker_image}")
+        if pull_result != 0:
+            throw_exception(f"Failed to pull Docker image: {docker_image}")
+        LOG(f"Successfully pulled Docker image: {docker_image}")
+    else:
+        LOG(f"Docker image found locally: {docker_image}")
+
+    return docker_image
 
 
 def reset_or_create_tmp_build(force_reset_tmp_build: bool) -> None:
@@ -397,12 +441,12 @@ def choose_repos(manifest: IesaManifest) -> List[str]:
 
 
 def sync_local_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
-    repo_info: Optional[IesaLocalRepoInfo] = LOCAL_REPO_MAPPING.get_by_name(repo_name)
-    if not repo_info:
+    local_repo_info: Optional[IesaLocalRepoInfo] = LOCAL_REPO_MAPPING.get_by_name(repo_name)
+    if not local_repo_info:
         LOG(f"ERROR: Could not find repo info for '{repo_name}'", file=sys.stderr)
         throw_exception(f"Could not find repo info for '{repo_name}'")
 
-    src_path = repo_info.repo_local_path
+    src_path = local_repo_info.repo_local_path
     dest_root_path = OW_BUILD_FOLDER_PATH / repo_rel_path_vs_tmp_build
 
     if not src_path.is_dir() or not dest_root_path.is_dir():
@@ -417,8 +461,8 @@ def sync_local_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
 
     if src_overwrite_commit == dest_orig_commit:
         LOG("Source and destination are at the same commit. No history check needed.")
-    elif not is_ancestor(dest_orig_commit, src_overwrite_commit, cwd=repo_info.repo_git_path):
-        LOG(f"ERROR: Source (override) commit ({str(repo_info.repo_git_path)}: {src_overwrite_commit}) is not a descendant of destination ({str(dest_root_path)}: {dest_orig_commit}).\nMake sure check out correct branch +  force push local branch to remote (as it fetched dest remotely via repo sync)!", file=sys.stderr)
+    elif not is_ancestor(dest_orig_commit, src_overwrite_commit, cwd=local_repo_info.repo_local_path):
+        LOG(f"ERROR: Source (override) commit ({str(local_repo_info.repo_local_path)}: {src_overwrite_commit}) is not a descendant of destination ({str(dest_root_path)}: {dest_orig_commit}).\nMake sure check out correct branch +  force push local branch to remote (as it fetched dest remotely via repo sync)!", file=sys.stderr)
         throw_exception(
             f"Source commit {src_overwrite_commit} is not a descendant of destination commit {dest_orig_commit}.")
     else:
@@ -546,6 +590,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 "--interactive": False,
                 "--make_clean": True,
                 "--force_reset_tmp_build": True,
+                "--is_debug_build": True,
                 "--overwrite_repos": ["intellian_pkg", "insensesdk", "adc_lib"],  # "upgrade", "submodule_spibeam"
             }
         ),
@@ -559,6 +604,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 "--interactive": False,
                 "--force_reset_tmp_build": False,
                 "--make_clean": False,
+                "--is_debug_build": True,
                 "--overwrite_repos": ["intellian_pkg", "insensesdk", "adc_lib"],  # "upgrade", "submodule_spibeam",
             }
         ),

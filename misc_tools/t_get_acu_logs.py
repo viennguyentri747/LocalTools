@@ -1,10 +1,11 @@
+#!/home/vien/local_tools/MyVenvFolder/bin/python
 import os
 import sys
 import datetime
-import typing
 from typing import List, Tuple
 from pathlib import Path
 import argparse
+from dev_common.constants import TEMP_FOLDER_PATH
 
 from dev_common import *
 
@@ -53,7 +54,7 @@ def fetch_logs_for_ip(user: str, remote: str, log_types: List[str], ip: str, tim
             dest_dir_suffix = f"_{log_type_prefix}"
             if date_filter:
                 dest_dir_suffix += f"_{date_filter}"
-            dest_dir = f"{ip}_{timestamp}"
+            dest_dir = TEMP_FOLDER_PATH / f"{ip}_{timestamp}"
 
             try:
                 os.makedirs(dest_dir, exist_ok=True)
@@ -78,7 +79,7 @@ def get_tool_templates() -> List[ToolTemplate]:
         ToolTemplate(
             name="Get ACU Logs",
             extra_description="Copy flash log files from remote",
-            args={"--type": ["P", "T", "E"], "--ips": ["192.168.100.52"], "--date": ["20250625"], }
+            args={"--type": ["P", "T", "E"], "--ips": ["192.168.100.57"], "--date": ["20250625", "20250627"], }
         ),
     ]
 
@@ -86,7 +87,7 @@ def get_tool_templates() -> List[ToolTemplate]:
 def main() -> None:
     args = parse_args()
     # timestamp format YYYYMMDD_HHMMSS
-    now = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    now = datetime.now().strftime('%Y%m%d_%H%M%S')
 
     failures = []
     for ip in args.ips:

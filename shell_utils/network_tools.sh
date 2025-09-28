@@ -69,33 +69,33 @@ login_permanent() {
     sshpass -p $ut_pass ssh-copy-id -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${ip_prefix}.$last_octet
 }
 
-ping_acu() {
-    SECONDS=0 # reset timer
-    local area=$1
-    local last_octet=$2
+ping_acu_ip() {
+    SECONDS=0
+    local ip=""
+    local mute=0
     local user="${ut_user:-root}"
-    
-    # Get IP prefix using the same function as ssh_acu
-    local ip_prefix=$(get_ip "$area")
-    [ $? -ne 0 ] && return 1 # Check if get_ip failed
-    
-    if [[ -z "$last_octet" ]]; then
-        echo "Usage: ping_acu <area (nor/lab/roof)> <last-octet-of-IP (70)>."
-        echo "Ex: ping_acu nor 70"
+    local target="192.168.100.254"
+
+    # Parse args
+    for arg in "$@"; do
+        case "$arg" in
+            --mute) mute=1 ;;
+            *) ip="$arg" ;;
+        esac
+    done
+
+    if [[ -z "$ip" ]]; then
+        echo "Usage: ping_acu_ip <ip> [--mute]"
+        echo "Ex: ping_acu_ip 192.168.100.70 --mute"
         return 1
     fi
-    
-    local ip="${ip_prefix}.${last_octet}"
-    local target="192.168.100.254"
-    
-    # 1) Wait until the gateway IP is pingable
+
     while ! ping -c1 -W1 "$ip" >/dev/null 2>&1; do
         echo -ne "\r[$SECONDS s] Waiting for $ip to be reachable..."
         sleep 1
     done
     echo -e "\r[$SECONDS s] ✅ $ip is reachable!"
-    
-    # 2) Wait until SSH works AND ping target from gateway succeeds
+
     while ! sshpass -p "$ut_pass" ssh \
         -o ConnectTimeout=2 \
         -o StrictHostKeyChecking=no \
@@ -106,9 +106,35 @@ ping_acu() {
         echo -ne "\r[$SECONDS s] Waiting for ACU $target ($ip) to be reachable..."
         sleep 1
     done
-    
+
     echo "[$SECONDS s] ✅ $target is reachable from $ip (SSH working)"
-    noti
+
+    if [[ "$mute" -ne 1 ]]; then
+        noti
+    else
+        echo "✅ Task complete (no notification)"
+    fi
+}
+
+ping_acu() {
+    local area=$1
+    local last_octet=$2
+    shift 2
+
+    if [[ -z "$last_octet" ]]; then
+        echo "Usage: ping_acu <area> <last-octet> [--mute]"
+        echo "Ex: ping_acu nor 70 --mute"
+        return 1
+    fi
+
+    local ip_prefix
+    ip_prefix=$(get_ip "$area")
+    [ $? -ne 0 ] && return 1
+
+    local ip="${ip_prefix}.${last_octet}"
+
+    # Pass all remaining args (e.g. --mute) to ping_acu_ip
+    ping_acu_ip "$ip" "$@"
 }
 
 # Wrapper for scp: run real scp with all args, then echo a completion message. Note: if use sshpass -p $ut_pass scp ... it does work but will not show progress -> Avoid for now

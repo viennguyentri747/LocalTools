@@ -7,7 +7,7 @@ import argparse
 from pathlib import Path
 from typing import List
 from dev_common import *
-from dev_common.remote_utils import create_scp_and_run_cmd
+from dev_common.remote_utils import create_scp_ut_and_run_cmd
 from dev_common.tools_utils import display_content_to_copy
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_LOCAL_FILE = SCRIPT_DIR / "src" / "helloworld.py"
@@ -38,7 +38,7 @@ def main() -> None:
 
     # 2) Build the SCP + remote-run one-liner
     remote_run = f"python3 /home/root/download/{out_path.name}"
-    one_liner = create_scp_and_run_cmd(local_path=out_path, run_cmd_on_remote=remote_run)
+    one_liner = create_scp_ut_and_run_cmd(local_path=out_path, run_cmd_on_remote=remote_run)
 
     display_content_to_copy(one_liner,  purpose="Paste the following command in your local shell",
                             is_copy_to_clipboard=True)

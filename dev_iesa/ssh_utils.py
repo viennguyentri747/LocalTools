@@ -1,16 +1,9 @@
 from pathlib import Path
 from typing import Optional, Union
+from dev_common.constants import *
 
 
-def _escape_for_echo_script(s: str) -> str:
-    """
-    Escape a script string to be safely embedded inside: echo " ... "
-    - Escape backslashes, double quotes, and dollar signs to avoid premature expansion.
-    """
-    return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("$", "\\$")
-
-
-def create_scp_ut_and_run_cmd(local_path: Union[str, Path], remote_host: str = "root@192.168.100.254", remote_dir: str = "/home/root/download/", run_cmd_on_remote: Optional[str] = None, is_prompt_before_execute: bool = True) -> str:
+def create_scp_ut_and_run_cmd(local_path: Union[str, Path], remote_host: str = f"{ACU_USER}@{ACU_IP}", remote_dir: str = "/home/root/download/", run_cmd_on_remote: Optional[str] = None, is_prompt_before_execute: bool = True) -> str:
     """
     Constructs a one-liner shell command that prompts for a source_ip (jump host), securely copies a local file to a remote host using scp -rJ, prints a ready-to-paste UT-side command that verifies MD5 before executing a specified command.
     """

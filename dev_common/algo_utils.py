@@ -4,6 +4,9 @@ import os
 from thefuzz import fuzz
 from pathlib import Path
 from typing import List
+import re
+from dev_common.custom_structures import MatchInfo
+
 
 @dataclass
 class PathSearchConfig:
@@ -67,3 +70,23 @@ def fuzzy_find_paths(query: str, config: PathSearchConfig) -> List[Path]:
     # Sort and return top results
     candidates.sort(key=lambda x: (-x[0], len(x[2])))
     return [path for score, path, _ in candidates[:config.max_results]]
+
+
+def get_match_info(content: str, patterns_to_match: list, separator: str) -> MatchInfo:
+    """
+    Finds all matches for a given list of regex patterns in a string of content and returns a MatchInfo object.
+
+    Args:
+        content: The string content to search within.
+        patterns_to_match: A list of regex patterns to match.
+        separator: The separator to use for splitting the content into lines.
+
+    Returns:
+        A MatchInfo object populated with the found matches.
+    """
+    match_info = MatchInfo(patterns_to_match=patterns_to_match, separator=separator)
+    for line in content.split(separator):
+        for pattern in patterns_to_match:
+            if re.search(pattern, line):
+                match_info.add_match(pattern, line)
+    return match_info

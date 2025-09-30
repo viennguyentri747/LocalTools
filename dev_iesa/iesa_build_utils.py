@@ -1,13 +1,10 @@
 from pathlib import Path
-import re
 import sys
 from typing import Dict, List, Optional, Tuple
 from dev_common.constants import GIT_SUFFIX, IESA_MANIFEST_FILE_PATH
 from dev_common.core_utils import LOG
 from dev_common.format_utils import get_path_no_suffix
 import xml.etree.ElementTree as ElementTree
-
-
 
 class IesaManifest:
     """A class to represent the manifest data and provide helper functions."""

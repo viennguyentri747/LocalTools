@@ -10,7 +10,6 @@ from gitlab.v4.objects import *
 from gitlab import *
 from typing import Union
 from dev_common import *
-from dev_common.custom_structures import IesaLocalRepoInfo
 # from dev_common.core_utils import LOG, LOG_EXCEPTION, read_value_from_credential_file
 # from dev_common.custom_structures import *
 

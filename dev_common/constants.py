@@ -1,7 +1,5 @@
 from pathlib import Path
-import re
 
-from dev_common.core_utils import read_value_from_credential_file
 
 # FORMATS
 LINE_SEPARATOR = f"\n{'=' * 70}\n"
@@ -32,6 +30,17 @@ GL_ADC_LIB_TOKEN_KEY_NAME = "GITLAB_ADC_LIB_TOKEN"
 GL_INTELLIAN_PKG_TOKEN_KEY_NAME = "GITLAB_INTELLIAN_PKG_TOKEN"
 GL_SPIBEAM_TOKEN_KEY_NAME = "GITLAB_SPIBEAM_TOKEN"
 
+# NETWORKS
+SSM_IP_PREFIX = "192.168"
+ACU_IP = "192.168.100.254"
+ACU_USER = "root"
+ACU_VAR_LOG_PATH = Path("/var/log")
+ACU_FLASH_LOGS_PATH = Path("/home") / ACU_USER / "flash_logs/"
+LIST_MP_IPS = [F"{SSM_IP_PREFIX}.100.54", F"{SSM_IP_PREFIX}.100.56", F"{SSM_IP_PREFIX}.100.57", F"{SSM_IP_PREFIX}.100.60",
+               F"{SSM_IP_PREFIX}.100.61", F"{SSM_IP_PREFIX}.100.62", F"{SSM_IP_PREFIX}.100.64"]
+LIST_FD_IPS = [F"{SSM_IP_PREFIX}.101.79", F"{SSM_IP_PREFIX}.101.126"]
+LIST_HD_IPS = [F"{SSM_IP_PREFIX}.101.65", F"{SSM_IP_PREFIX}.100.70",
+               F"{SSM_IP_PREFIX}.100.85", F"{SSM_IP_PREFIX}.101.97"]
 # PATHS
 DOWNLOAD_FOLDER_PATH = Path.home() / "downloads"
 REPO_PATH = Path.home() / "local_tools/"
@@ -40,6 +49,7 @@ CREDENTIALS_FILE_PATH = REPO_PATH / ".my_credentials.env"
 OW_SW_PATH = Path.home() / "ow_sw_tools"
 CORE_REPOS_PATH = Path.home() / "workspace" / "intellian_core_repos/"
 TEMP_FOLDER_PATH = REPO_PATH / "temp"
+ACU_LOG_PATH = TEMP_FOLDER_PATH / "acu_logs/"
 
 INSENSE_SDK_REPO_PATH = CORE_REPOS_PATH / IESA_INSENSE_SDK_REPO_NAME
 DOWNLOADS_PATH = Path.home() / "downloads"

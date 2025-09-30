@@ -1,10 +1,7 @@
-
-
 from pathlib import Path
 import re
-import sys
-from dev_common.constants import *
-from dev_common.core_utils import LOG
+from typing import Dict, List
+from dev_common import *
 
 
 class IesaLocalRepoInfo:
@@ -99,3 +96,20 @@ LOCAL_REPO_MAPPING: LocalReposMapping = LocalReposMapping(
         token_key_name=GL_SPIBEAM_TOKEN_KEY_NAME
     ),
 )
+
+
+class MatchInfo:
+    def __init__(self, patterns_to_match, separator):
+        self._patterns_to_match = patterns_to_match
+        self._separator = separator
+        self._match_map: Dict[str, List[str]] = {pattern: [] for pattern in patterns_to_match}
+
+    def add_match(self, pattern, matched_line: str):
+        if pattern in self._match_map:
+            self._match_map[pattern].append(matched_line)
+
+    def get_matched_lines(self, pattern:str) -> List[str]:
+        return self._match_map.get(pattern, [])
+
+    def get_patterns(self)-> List[str]:
+        return self._patterns_to_match

@@ -9,7 +9,7 @@ import argparse
 from pathlib import Path
 from typing import List
 from dev_common import *
-from dev_common.tools_utils import display_content_to_copy
+from dev_iesa import *
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_LOCAL_FILE = SCRIPT_DIR / "src" / "test_ins_monitor_messages.py"

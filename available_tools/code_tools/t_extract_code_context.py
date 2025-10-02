@@ -15,6 +15,8 @@ if not already_in_sys_path:
     sys.path.insert(0, str(script_dir))
 
 
+
+
 def get_tool_templates() -> List[ToolTemplate]:
     """Get tool templates for both extraction modes."""
     return get_diff_tool_templates() + get_paths_tool_templates() + get_mr_tool_templates()
@@ -57,6 +59,8 @@ def parse_args() -> argparse.Namespace:
 
     # --- Arguments for 'gitlab_mr' mode ---
     parser.add_argument(ARG_GITLAB_MR_URL_LONG, help='[gitlab_mr mode] The URL of the GitLab Merge Request.')
+    parser.add_argument(ARG_SHOULD_INCLUDE_FILE_CONTENT, type=lambda x: x.lower() == 'true', default=True,
+                        help="Run make clean before building (true or false). Defaults to true.")
 
     # Build and set epilog with examples
     parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))

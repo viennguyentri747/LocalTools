@@ -6,13 +6,14 @@ from dev_common.core_utils import LOG
 from dev_common.format_utils import get_path_no_suffix
 import xml.etree.ElementTree as ElementTree
 
+
 class IesaManifest:
     """A class to represent the manifest data and provide helper functions."""
 
     def __init__(self, mapping: Dict[str, Tuple[str, str, str]]):
         self._mapping = mapping
-    def get_repo_relative_path_vs_tmp_build(self, repo_name: str) -> Optional[str]:
 
+    def get_repo_relative_path_vs_tmp_build(self, repo_name: str) -> Optional[str]:
         """Returns the relative path of a repository vs the tmp_build folder."""
         if repo_name in self._mapping:
             return self._mapping[repo_name][0]
@@ -44,6 +45,26 @@ def parse_local_iesa_manifest(manifest_file: Path = IESA_MANIFEST_FILE_PATH) -> 
     tree = ElementTree.parse(manifest_file)
     mapping: Dict[str, Tuple[str, str, str]] = {}
     for proj in tree.getroot().iterfind("project"):
+        name = proj.attrib.get("name")
+        name = get_path_no_suffix(name, GIT_SUFFIX)
+        path = proj.attrib.get("path")
+        revision = proj.attrib.get("revision")
+        remote = proj.attrib.get("remote")
+
+        if name and path and revision and remote:
+            if name in mapping:
+                LOG(f"ERROR: duplicate project name \"{name}\" in manifest", file=sys.stderr)
+                sys.exit(1)
+
+            mapping[name] = (path, revision, remote)
+    return IesaManifest(mapping)
+
+
+def parse_remote_iesa_manifest(manifest_content: str) -> IesaManifest:
+    """Return a Manifest object from the manifest XML string content."""
+    root = ElementTree.fromstring(manifest_content)
+    mapping: Dict[str, Tuple[str, str, str]] = {}
+    for proj in root.iterfind("project"):
         name = proj.attrib.get("name")
         name = get_path_no_suffix(name, GIT_SUFFIX)
         path = proj.attrib.get("path")

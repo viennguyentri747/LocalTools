@@ -1,6 +1,7 @@
 import time
 import gitlab
 import os
+import base64
 import sys
 import re
 from pathlib import Path
@@ -8,11 +9,68 @@ from urllib.parse import urlparse
 import zipfile  # Needed for extracting artifacts
 from gitlab.v4.objects import *
 from gitlab import *
-from typing import Union
+from typing import Union, List
 from dev_common import *
+from gitlab.exceptions import GitlabError
 # from dev_common.core_utils import LOG, LOG_EXCEPTION, read_value_from_credential_file
 # from dev_common.custom_structures import *
 
+
+class MrFileChange:
+    """
+    Represents a single file change within a GitLab Merge Request.
+    """
+
+    def __init__(self, change_data: dict, project: Project, mr: ProjectMergeRequest):
+        self._change_data = change_data
+        self._project = project
+        self._mr = mr
+
+    @property
+    def old_file_path_before_change(self) -> str:
+        return self._change_data.get('old_path')
+
+    @property
+    def new_file_path_after_change(self) -> str:
+        return self._change_data.get('new_path')
+
+    @property
+    def filePath(self) -> str:
+        """A convenience property to get the most relevant file path."""
+        return self.new_file_path_after_change or self.old_file_path_before_change
+
+    def GetDiff(self) -> str:
+        """Returns the diff string for this specific file."""
+        return self._change_data.get('diff', '')
+
+    def GetFileContent(self) -> Union[str, None]:
+        """
+        Retrieves the full content of the file from the MR.
+
+        This version is more robust and works even if the source branch has been
+        deleted by fetching content from a specific commit SHA instead of the
+        branch name.
+        """
+        # If the file was deleted in the MR, it has no "new" content.
+        if self._change_data.get('deleted_file', False):
+            return None
+            
+        # --- 1. Primary Method: Use the MR's head commit SHA ---
+        # This is the most accurate ref for the file's state within the MR itself.
+        # It's found in the 'diff_refs' dictionary.
+        ref_to_try = self._mr.diff_refs.get('head_sha')
+        
+        if ref_to_try:
+            try:
+                # Fetch the file using the specific commit SHA
+                file_obj = self._project.files.get(file_path=self.filePath, ref=ref_to_try)
+                return file_obj.decode().decode('utf-8')
+            except GitlabError as e:
+                LOG(f"Could not retrieve '{self.filePath}' using head_sha '{ref_to_try}'. Error: {e}")
+
+
+        LOG(f"All attempts to retrieve file content for '{self.filePath}' have failed.")
+        return None
 
 def main():
     # --- Configuration ---
@@ -42,19 +100,35 @@ def main():
     if paths:
         print(f"Artifacts extracted to: {artifacts_dir}")
 
+    # --- Example usage of the new function ---
+    # example_mr_url = "https://gitlab.com/your_group/your_project/-/merge_requests/123"
+    # file_changes = get_mr_diff_from_url(example_mr_url)
+    # if file_changes:
+    #     print(f"\nFound {len(file_changes)} changed files in the MR.")
+    #     for change in file_changes:
+    #         print(f"\n--- File: {change.filePath} ---")
+    #         print("--- Diff ---")
+    #         print(change.GetDiff())
+    #         print("--- Content (first 100 chars) ---")
+    #         content = change.GetFileContent()
+    #         if content:
+    #             print(content[:100] + "...")
+    #         else:
+    #             print("File was deleted or content not available.")
 
-def get_gl_project(gl_private_token: str, project_path: str) -> Project:
+
+def get_gl_project(gl_private_token: str, gl_project_path: str) -> Project:
     """
     Connects to GitLab API and retrieves the target project.
     """
     gl: Gitlab = gitlab.Gitlab(GL_BASE_URL, private_token=gl_private_token)
 
     try:
-        target_project: Project = gl.projects.get(project_path)
-        print(f"Successfully connected to GitLab and retrieved project '{project_path}'.")
+        target_project: Project = gl.projects.get(gl_project_path)
+        print(f"Successfully connected to GitLab and retrieved project '{gl_project_path}'.")
         return target_project
     except Exception as e:
-        LOG(f"Error connecting to GitLab or retrieving project '{project_path}': {e}")
+        LOG(f"Error connecting to GitLab or retrieving project '{gl_project_path}': {e}")
         LOG_EXCEPTION(e)
 
 
@@ -62,6 +136,7 @@ def get_gl_project(gl_private_token: str, project_path: str) -> Project:
 class InfoFromMrUrl:
     gl_project_path: str
     mr_iid: str
+
 
 def get_info_from_mr_url(mr_url: str) -> InfoFromMrUrl | None:
     """
@@ -83,55 +158,92 @@ def get_info_from_mr_url(mr_url: str) -> InfoFromMrUrl | None:
         else:
             # URL doesn't match expected GitLab MR pattern
             return None
-            
+
     except Exception as e:
         # Handle any parsing errors (invalid URL, etc.)
         return None
 
 
-def get_mr_diff_from_url(mr_url: str) -> Union[str, None]:
+def get_diff_from_mr_file_changes(mr_file_changes: List[MrFileChange]) -> str:
     """
-    Retrieves the diff content from a GitLab Merge Request URL. Ex: https://gitlab.com/intellian_adc/prototyping/insensesdk/-/merge_requests/164
+    Aggregates diffs from a list of MrFileChange objects into a single string.
+
+    Returns:
+        A single string containing the concatenated diffs for all files.
+    """
+    full_diff_lines = []
+    for change in mr_file_changes:
+        diff_content = change.GetDiff()
+        # Only add an entry for a file if there is an actual diff content
+        if diff_content:
+            # To make this function work optimally, the MrFileChange class
+            # should expose `old_path` and `new_path`. See recommended
+            # class improvement below.
+            full_diff_lines.append(f"--- a/{change.old_file_path_before_change}")
+            full_diff_lines.append(f"+++ b/{change.new_file_path_after_change}")
+            full_diff_lines.append(diff_content)
+
+    return '\n'.join(full_diff_lines)
+
+
+def get_file_from_remote(gl_project, file_path_str: str, ref):
+    """
+    Given a gitlab project, file path and ref, get the content of the file
+    """
+    file = gl_project.files.get(file_path=file_path_str, ref=ref)
+    return base64.b64decode(file.content).decode("utf-8")
+
+
+def get_project_remotes(gl_project):
+    """
+    Given a gitlab project, get the remotes
+    """
+    return gl_project.remotes.list()
+
+
+def get_file_changes_from_url(mr_url: str) -> Union[List[MrFileChange], None]:
+    """
+    Retrieves a list of file changes from a GitLab Merge Request URL.
+    Ex: https://gitlab.com/intellian_adc/prototyping/insensesdk/-/merge_requests/164
+
+    Returns:
+        A list of MrFileChange objects, where each object represents one changed file.
+        Returns None if an error occurs.
     """
     try:
         info: InfoFromMrUrl = get_info_from_mr_url(mr_url)
-        gl_project_path = info.gl_project_path
-        if not gl_project_path:
+        if not info:
             return None
 
-        # Extract MR IID from URL
+        gl_project_path = info.gl_project_path
         mr_iid = info.mr_iid
 
+        # This part for getting credentials remains the same, assuming it's configured
         repoInfo: IesaLocalRepoInfo = LOCAL_REPO_MAPPING.get_by_gl_project_path(gl_project_path)
         gl_private_token = repoInfo.gl_access_token
+
         # Get project and MR objects
         project = get_gl_project(gl_private_token, gl_project_path)
         mr: ProjectMergeRequest = project.mergerequests.get(mr_iid)
 
-        # Get the diff - this returns the changes between source and target branches
-        diff_content = mr.changes()
+        # Get the changes, which includes the diff for each file
+        change_details = mr.changes()
 
-        # The changes() method returns a dict with 'changes' key containing the actual diff
-        # Structure: {'changes': [{'old_path': 'file1.py', 'new_path': 'file1.py', 'diff': '@@ -1,3 +1,3 @@...'}]}
-        if isinstance(diff_content, dict) and 'changes' in diff_content:
-            # Format the diff as a readable string
-            diff_lines = []
-            for change in diff_content['changes']:
-                if 'diff' in change:
-                    # --- indicates the orig file path (before). Ex: --- packaging/systemd/system/fan_on.sh
-                    diff_lines.append(f"--- {change.get('old_path', 'unknown_old_file_path')}")
-                    # +++ indicates the modified file path (after). Ex: +++ packaging/systemd/system/fan_on.sh
-                    diff_lines.append(f"+++ {change.get('new_path', 'unknown_new_file_path')}")
-                    # Add the actual diff content which includes:
-                    # - @@ line numbers @@
-                    # - lines starting with '-' (removed)
-                    # - lines starting with '+' (added)
-                    # - lines with no prefix (unchanged context)
-                    diff_lines.append(change['diff'])
-            return '\n'.join(diff_lines)
+        # The 'changes' key contains a list of dictionaries, one for each file
+        if isinstance(change_details, dict) and 'changes' in change_details:
+
+            file_changes_list = []
+            for change in change_details['changes']:
+                # Create an instance of our new class for each file change
+                # Pass the project and mr objects so it can fetch file content later
+                file_change_obj = MrFileChange(change_data=change, project=project, mr=mr)
+                file_changes_list.append(file_change_obj)
+
+            return file_changes_list
         else:
-            # If changes() returns the diff directly as a string
-            return str(diff_content)
+            # The API response was not in the expected format
+            LOG(f"Unexpected format from mr.changes() for MR !{mr_iid} in project {gl_project_path}")
+            return None
 
     except Exception as e:
         LOG_EXCEPTION(e)

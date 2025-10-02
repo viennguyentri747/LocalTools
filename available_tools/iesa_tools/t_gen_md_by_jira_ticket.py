@@ -18,9 +18,10 @@ def get_tool_templates() -> List[ToolTemplate]:
             args={
                 ARG_VAULT_PATH: f"{Path.home()}/obsidian_work_vault/",
                 ARG_NOTE_REL_PATH: f"{PATH_TO_WORKING_NOTES}",
-                ARG_TICKET_URL_LONG: f"{JIRA_COMPANY_URL}/browse/FPA-3",
                 ARG_NOTE_REL_PATHS_TO_ADD_CONTENT: [
-                    f"{PATH_TO_WORKING_NOTES}/_Intellian\ Note\ working,\ diary\ \(work\ log\).md"]
+                    f"{PATH_TO_WORKING_NOTES}/_Intellian\ Note\ working,\ diary\ \(work\ log\).md"],
+                ARG_IS_GEN_CODING_TASK_LONG: True,  
+                ARG_TICKET_URL_LONG: f"{JIRA_COMPANY_URL}/browse/FPA-3",
             },
         )
     ]
@@ -36,11 +37,13 @@ def extract_key_from_jira_url(url: str) -> Optional[str]:
 
 class CodingTaskInfo:
     main_ow_branch: str
+    def __init__(self, main_ow_branch: str) -> None:
+        self.main_ow_branch = main_ow_branch
 
 
 def gen_content_markdown(ticket: JiraTicket, coding_task_content: Optional[CodingTaskInfo]) -> str:
     """Generate the code task markdown content from Jira ticket data."""
-    manifest: IesaManifest = parse_local_iesa_manifest()
+    manifest: IesaManifest = get_repo_manifest_from_remote(coding_task_content.main_ow_branch)
     repos = manifest.get_all_repo_names()
     # 1. Generate the list of repos as a string first
     repo_list_str = "".join([f"- [ ] {repo}\n" for repo in repos if (CORE_REPOS_PATH / repo).is_dir()])
@@ -59,7 +62,7 @@ def gen_content_markdown(ticket: JiraTicket, coding_task_content: Optional[Codin
         md_content_to_gen += (
             f"# Repos to make change:\n\n"
             f"{repo_list_str}\n\n"
-            f"# Create branch command:\n"
+            f"# Create branch command:\n\n"
             f"```bash\n"
             f"{gen_checkout_command(ticket, coding_task_content.main_ow_branch)}\n"
             f"```"
@@ -71,7 +74,7 @@ def gen_content_markdown(ticket: JiraTicket, coding_task_content: Optional[Codin
 def gen_checkout_command(ticket: JiraTicket, main_manifest_branch: str) -> str:
     """Generate the checkout command for a given Jira ticket and main branch."""
     feature_branch = f"feat/{ticket.key.lower()}-{str_to_slug(ticket.title)}"
-    repo_manifest: IesaManifest = get_repo_manifest(main_manifest_branch)
+    repo_manifest: IesaManifest = get_repo_manifest_from_remote(main_manifest_branch)
 
     # Build the case statement for repo info resolution
     case_statement = "case $repo_name in "
@@ -102,17 +105,20 @@ def gen_checkout_command(ticket: JiraTicket, main_manifest_branch: str) -> str:
     return command
 
 
-def get_repo_manifest(main_manifest_branch: str) -> IesaManifest:
-    # Checkout + pull from main branch
-    checkout_main_branch = f"git -C {OW_SW_PATH} checkout {main_manifest_branch}"
-    run_shell(checkout_main_branch)
-    remotes = get_git_remotes(OW_SW_PATH)
-    if (len(remotes) == 1):
-        remote = remotes[0]
-    else:
-        remote = prompt_input_with_options(f"Select remote", remotes)
-    run_shell(f"git -C {OW_SW_PATH} pull {remote} {main_manifest_branch}")
-    manifest: IesaManifest = parse_local_iesa_manifest()
+def get_repo_manifest_from_remote(main_manifest_branch: str) -> IesaManifest:
+    """Gets the repo manifest from the remote GitLab repository."""
+    # Use get_gl_project to get the manifest project object
+    token = read_value_from_credential_file(CREDENTIALS_FILE_PATH, GL_OW_SW_TOOLS_TOKEN_KEY_NAME)
+    gl_project_path = LOCAL_REPO_MAPPING.get_by_name(f"{IESA_OW_SW_TOOLS_REPO_NAME}").gl_project_path
+    ow_sw_tools_project = get_gl_project(token, gl_project_path)
+
+    LOG(f"Fetching manifest from branch '{main_manifest_branch}' of project '{gl_project_path}', path '{IESA_MANIFEST_FILE_PATH}'...")
+    # Use get_file_from_remote to fetch the manifest content
+    manifest_content = get_file_from_remote(ow_sw_tools_project, str(IESA_MANIFEST_RELATIVE_PATH), main_manifest_branch)
+
+    # Use parse_remote_iesa_manifest to parse the content
+    manifest = parse_remote_iesa_manifest(manifest_content)
+
     return manifest
 
 
@@ -126,7 +132,8 @@ if __name__ == "__main__":
     parser.add_argument(ARG_TICKET_URL_LONG, type=str, required=False, help="The full URL of the Jira ticket.")
     parser.add_argument(ARG_OW_MANIFEST_BRANCH_LONG, type=str, required=False,
                         help="The manifest branch to use for generating checkout commands.")
-    parser.add_argument(f"{ARG_IS_GEN_CODING_TASK_LONG}", action="store_true", help="Generate coding task content.")
+    parser.add_argument(f"{ARG_IS_GEN_CODING_TASK_LONG}", type=lambda x: x.lower() == 'true', default=True,
+                        help="Is generating coding task content. Defaults to true.")
     parser.add_argument(ARG_VAULT_PATH, type=str, required=False, default=None,
                         help="The destination directory for the generated file.")
     parser.add_argument(ARG_NOTE_REL_PATH, type=str, required=False, default=None,
@@ -188,7 +195,7 @@ if __name__ == "__main__":
                     copy_file(destination_path, backup_path)
                     LOG(f"Backed up existing file to {backup_path}")
                 else:
-                    LOG("Copy operation cancelled by user.")
+                    LOG(f"Copy operation cancelled by user.")
                     should_create_note = False
             # 2. Check for files with same prefix (only if exact file doesn't exist)
             else:
@@ -196,7 +203,7 @@ if __name__ == "__main__":
                 if existing_files_with_prefix:
                     file_list_str = "\n".join([f"- {f.name}" for f in existing_files_with_prefix])
                     if not prompt_confirmation(f"Found existing file(s) with prefix '{file_prefix}' in destination:\n{file_list_str}\n\nCreate new file anyway?"):
-                        LOG("Copy operation cancelled by user.")
+                        LOG(f"Copy operation cancelled by user.")
                         should_create_note = False
 
         # 3. Create note

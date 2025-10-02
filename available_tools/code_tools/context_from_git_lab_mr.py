@@ -5,6 +5,8 @@ import tiktoken
 from available_tools.code_tools.common_utils import *
 from dev_common import *
 
+ARG_SHOULD_INCLUDE_FILE_CONTENT = f"{ARGUMENT_LONG_PREFIX}should_include_file_content"
+
 
 def get_mr_tool_templates() -> List[ToolTemplate]:
     return [
@@ -12,6 +14,7 @@ def get_mr_tool_templates() -> List[ToolTemplate]:
             name="[git_mr_diff] Context from Git Diff of a GitLab MR",
             args={
                 ARG_EXTRACT_MODE: EXTRACT_MODE_GIT_MR,
+                ARG_SHOULD_INCLUDE_FILE_CONTENT: True,
                 ARG_GITLAB_MR_URL_LONG: f"{GL_BASE_URL}/intellian_adc/gerrit_mirror/oneweb/intellian_pkg/-/merge_requests/324"
             }
         ),
@@ -24,12 +27,14 @@ def main_git_mr(args: argparse.Namespace) -> None:
     output_dir = get_arg_value(args, ARG_OUTPUT_DIR_LONG)
     no_open_explorer = get_arg_value(args, ARG_NO_OPEN_EXPLORER)
     max_folders = get_arg_value(args, ARG_MAX_FOLDERS)
+    should_include_file_content: bool = get_arg_value(args, ARG_SHOULD_INCLUDE_FILE_CONTENT)
 
     if not mr_url:
         LOG(f"Error: --mr_url argument is required for '{EXTRACT_MODE_GIT_MR}' mode.", file=sys.stderr)
         sys.exit(1)
 
-    mr_diff: str | None = get_mr_diff_from_url(mr_url)
+    file_changes: List[MrFileChange] | None = get_file_changes_from_url(mr_url)
+    mr_diff: str | None = get_diff_from_mr_file_changes(file_changes)
     if not mr_diff:
         LOG(f"Error: Could not retrieve MR diff from URL '{mr_url}'.", file=sys.stderr)
         sys.exit(1)
@@ -55,11 +60,28 @@ def main_git_mr(args: argparse.Namespace) -> None:
     is_success = True
     try:
         with open(output_path, 'w', encoding='utf-8') as f:
+            # --- Part 1: Writing the MR Diff ---
             f.write(f"# CONTEXT: Diff from MR '{mr_url}'\n")
             f.write(f"# MR ID: {mr_id}\n")
             f.write(f"# GENERATED AT: {datetime.now().isoformat()}\n")
             f.write(f"{'='*60}\n\n")
             f.write(mr_diff)
+
+            if should_include_file_content:
+                # --- Part 2: Writing the full file contents ---
+                f.write("\n\n")  # Add some spacing for readability
+                f.write(f"# CONTEXT: Files after diff from MR '{mr_url}'\n")
+                f.write(f"# CONTEXT: Full content of all changed files from MR '{mr_url}'\n")
+                f.write(f"{'='*60}\n\n")
+
+                # Iterate through each file change object to write its content
+                for change in file_changes:
+                    content = change.GetFileContent()
+                    # if content is not None:
+                    f.write(f"{'-'*20} START OF FILE: {change.filePath} {'-'*20}\n")
+                    f.write(content)
+                    f.write(f"\n{'-'*20} END OF FILE: {change.filePath} {'-'*20}\n\n")
+
         LOG(f"Diff content saved to '{output_path}'.")
     except IOError as e:
         LOG(f"Failed to write to output file '{output_path}': {e}", file=sys.stderr)

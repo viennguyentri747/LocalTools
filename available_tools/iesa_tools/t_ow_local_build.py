@@ -12,6 +12,7 @@ import textwrap
 from typing import Dict, List, Optional, Union
 import argparse
 from dev_common import *
+from dev_common.gitlab_utils import *
 from dev_iesa import *
 import yaml
 import traceback
@@ -527,9 +528,9 @@ def sync_local_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
     if src_overwrite_commit == dest_orig_commit:
         LOG("Source and destination are at the same commit. No history check needed.")
     elif not is_ancestor(dest_orig_commit, src_overwrite_commit, cwd=local_repo_info.repo_local_path):
-        LOG(f"ERROR: Source (override) commit ({str(local_repo_info.repo_local_path)}: {src_overwrite_commit}) is not a descendant of destination ({str(dest_root_path)}: {dest_orig_commit}).\nMake sure check out correct branch +  force push local branch to remote (as it fetched dest remotely via repo sync)!", file=sys.stderr)
+        LOG(f"ERROR: Source (override) commit ({str(local_repo_info.repo_local_path)}: {src_overwrite_commit}) is not a descendant of destination ({str(dest_root_path)}: {dest_orig_commit}).\nMake sure check out correct branch + force push local branch to remote (as it fetched dest remotely via repo sync)!", file=sys.stderr)
         throw_exception(
-            f"Source commit {src_overwrite_commit} is not a descendant of destination commit {dest_orig_commit}.")
+            f"Source commit {src_overwrite_commit} is not a descendant of destination (to be overwritten) commit {dest_orig_commit}.")
     else:
         LOG(f"Common ancestor for '{repo_name}' found. Proceeding with sync.")
 
@@ -590,19 +591,16 @@ def get_manifest_repo_url(manifest_source: str) -> Optional[str]:
 
 def prepare_iesa_bsp(tisdk_ref: str):
     LOG(f"{MAIN_STEP_LOG_PREFIX} Preparing IESA BSP for release, TISDK ref: {tisdk_ref}...")
-    # Logic to read token from file if not in env
-    private_token = read_value_from_credential_file(CREDENTIALS_FILE_PATH, GL_TISDK_TOKEN_KEY_NAME)
 
     # Details of the target project and job
-    target_project_path = "intellian_adc/tisdk_tools"
     target_job_name = "sdk_create_tarball_release"
     target_ref = tisdk_ref
-
+    repo_info: IesaLocalRepoInfo = get_repo_info_by_name(IESA_TISDK_TOOLS_REPO_NAME)
     # Get the target project using the new function
-    target_project = get_gl_project(private_token, target_project_path)
+    target_project = get_gl_project(repo_info=repo_info)
 
     # For robust fetching of branch names, consider get_all=True here too if you're not sure the default is sufficient.
-    LOG(f"Target project: {target_project_path}, instance: {target_project.branches.list(get_all=True)[0].name}")
+    LOG(f"Target project: {repo_info.gl_project_path}, instance: {target_project.branches.list(get_all=True)[0].name}")
 
     pipeline_id = get_latest_successful_pipeline_id(target_project, target_job_name, target_ref)
     if not pipeline_id:
@@ -639,7 +637,7 @@ def throw_exception(message: str):
     """
     Helper function to throw an error with a message.
     """
-    raise Exception(message)
+    LOG_EXCEPTION(exception=Exception(message), exit=True)
 
 
 # ───────────────────────  module entry-point  ────────────────────────── #

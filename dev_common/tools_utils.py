@@ -17,6 +17,7 @@ class ToolFolderPriority(IntEnum):
     TOP = 0
     code_tool = auto()
     iesa_tool = auto()
+    content_tool = auto()
     inertial_sense_tool = auto()
     remote_tool = auto()
     # TODO: Add more priorities

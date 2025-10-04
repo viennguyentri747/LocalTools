@@ -1,18 +1,23 @@
+import re
 import requests
 from collections import defaultdict
 from typing import List, Dict, Optional, Any
 from datetime import datetime
 
 from dev_common.constants import *
-from dev_common.core_utils import read_value_from_credential_file
+from dev_common.core_utils import LOG_EXCEPTION, read_value_from_credential_file
+from dev_common.format_utils import get_stripped_paragraph
 
 JIRA_USERNAME = read_value_from_credential_file(CREDENTIALS_FILE_PATH, JIRA_USERNAME_KEY_NAME)
 JIRA_COMPANY_URL = read_value_from_credential_file(CREDENTIALS_FILE_PATH, JIRA_COMPANY_URL_KEY_NAME)
 API_TOKEN = read_value_from_credential_file(CREDENTIALS_FILE_PATH, JIRA_API_TOKEN_KEY_NAME)
+jira_client: 'JiraClient' = None
 
 
-def create_new_jira_client() -> 'JiraClient':
-    jira_client = JiraClient(JIRA_COMPANY_URL, JIRA_USERNAME, API_TOKEN)
+def get_company_jira_client() -> 'JiraClient':
+    global jira_client
+    if jira_client is None:
+        jira_client = JiraClient(JIRA_COMPANY_URL, JIRA_USERNAME, API_TOKEN)
     return jira_client
 
 
@@ -68,21 +73,21 @@ def parse_jira_description(description: dict) -> str:
 class JiraTicket:
     """A wrapper class for JIRA ticket data"""
 
-    def __init__(self, jira_url: str, ticket_data: Dict[str, Any]):
+    def __init__(self, base_jira_url: str, ticket_data: Dict[str, Any]):
         """
         Initialize Ticket from JIRA API response data
 
         Args:
             ticket_data: Raw ticket data from JIRA API
         """
+        self.base_jira_url = base_jira_url.rstrip('/')  # Remove trailing slash if present
         self.raw_data = ticket_data
-        self.key = ticket_data.get("key", "")
+        self.key: str = ticket_data.get("key", "").upper()
+        # self.internal_id: str = ticket_data.get("id", "")
         self.fields = ticket_data.get("fields", {})
-        self.id = ticket_data.get("id", "")
 
         # Core properties
-        self.ticket_url = f"{jira_url.rstrip('/')}/browse/{self.key}"
-        self.title = self.fields.get("summary", "")
+        self.title: str = self.fields.get("summary", "")
 
         # Project information
         project_data = self.fields.get("project", {})
@@ -131,7 +136,6 @@ class JiraTicket:
         self.components = [comp.get("name", "") for comp in self.fields.get("components", [])]
 
         # self.development = self.fields.get("development", {})
-
 
     def parse_jira_description(self, description: dict) -> str:
         """
@@ -182,6 +186,15 @@ class JiraTicket:
         return "".join(text_parts).strip().replace('\n\n\n', '\n\n')
 
     @property
+    def minimal_description(self) -> str:
+        """Get a minimal Jiradescription without  extra lines, attachments (image), etc."""
+        result = self.description
+        # Remove patterns like [image - filename.png]
+        result = re.sub(r'^\s*\[image\s*-\s*.*?\]\s*$', '', result, flags=re.MULTILINE)
+        result = get_stripped_paragraph(result)
+        return result
+
+    @property
     def is_resolved(self) -> bool:
         """Check if the ticket is resolved"""
         return self.resolution_name is not None
@@ -195,7 +208,7 @@ class JiraTicket:
     def url(self) -> str:
         """Get the JIRA URL for this ticket (requires base URL to be set externally)"""
         # This would need the base JIRA URL to construct the full URL
-        return f"/browse/{self.key}"
+        return f"{self.base_jira_url}/browse/{self.key}"
 
     def get_field(self, field_name: str) -> Any:
         """
@@ -246,7 +259,7 @@ class JiraClient:
             username: Your JIRA username
             api_token: Your JIRA API token
         """
-        self.jira_url = jira_url.rstrip('/')  # Remove trailing slash if present
+        self.base_jira_url = jira_url.rstrip('/')  # Remove trailing slash if present
         self.username = username
         self.api_token = api_token
         self.auth = (username, api_token)
@@ -264,7 +277,7 @@ class JiraClient:
         """
         print("\n=== Testing JIRA Connection ===")
 
-        url = f"{self.jira_url}/rest/api/3/myself"
+        url = f"{self.base_jira_url}/rest/api/3/myself"
         headers = {"Accept": "application/json"}
 
         try:
@@ -293,7 +306,7 @@ class JiraClient:
         Returns:
             Number of tickets matching the query, -1 on error
         """
-        url = f"{self.jira_url}/rest/api/3/search/jql"
+        url = f"{self.base_jira_url}/rest/api/3/search/jql"
         payload = {
             "jql": jql_query,
             "maxResults": 0,  # Just get the count
@@ -332,7 +345,7 @@ class JiraClient:
                 "duedate", "description", "labels", "components"
             ]
 
-        url = f"{self.jira_url}/rest/api/3/search/jql"
+        url = f"{self.base_jira_url}/rest/api/3/search/jql"
         payload = {
             "jql": jql_query,
             "maxResults": max_results,
@@ -358,7 +371,7 @@ class JiraClient:
 
             # Get tickets from response and convert to Ticket objects
             tickets_data = data.get("issues", [])
-            tickets = [JiraTicket(self.jira_url, ticket_data) for ticket_data in tickets_data]
+            tickets = [JiraTicket(self.base_jira_url, ticket_data) for ticket_data in tickets_data]
 
             print(f"DEBUG: Number of tickets in response: {len(tickets)}")
 
@@ -457,18 +470,18 @@ class JiraClient:
         Returns:
             Ticket object if found, None otherwise
         """
-        url = f"{self.jira_url}/rest/api/3/issue/{ticket_key}"
+        url = f"{self.base_jira_url}/rest/api/3/issue/{ticket_key}"
 
         try:
             response = requests.get(url, headers=self.headers, auth=self.auth)
             if response.status_code == 200:
                 ticket_data = response.json()
-                return JiraTicket(self.jira_url, ticket_data)
+                return JiraTicket(self.base_jira_url, ticket_data)
             else:
                 print(f"DEBUG: Failed to get ticket {ticket_key}: {response.text}")
                 return None
         except Exception as e:
-            print(f"DEBUG: Exception getting ticket {ticket_key}: {e}")
+            LOG_EXCEPTION(exception=e, msg=f"DEBUG: Exception getting ticket {ticket_key}")
             return None
 
 

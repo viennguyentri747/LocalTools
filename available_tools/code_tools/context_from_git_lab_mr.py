@@ -24,7 +24,7 @@ def get_mr_tool_templates() -> List[ToolTemplate]:
 def main_git_mr(args: argparse.Namespace) -> None:
     """Main function for 'gitlab_mr' extraction mode."""
     mr_url = get_arg_value(args, ARG_GITLAB_MR_URL_LONG)
-    output_dir = get_arg_value(args, ARG_OUTPUT_DIR_LONG)
+    output_dir = get_arg_value(args, ARG_OUTPUT_DIR)
     no_open_explorer = get_arg_value(args, ARG_NO_OPEN_EXPLORER)
     max_folders = get_arg_value(args, ARG_MAX_FOLDERS)
     should_include_file_content: bool = get_arg_value(args, ARG_SHOULD_INCLUDE_FILE_CONTENT)
@@ -47,11 +47,15 @@ def main_git_mr(args: argparse.Namespace) -> None:
     final_output_dir = output_dir / final_output_dir_name
     final_output_dir.mkdir(parents=True, exist_ok=True)
 
-    LOG(f"Output directory: {final_output_dir}")
-    LOG()
     # Create output filename based on MR URL
     mr_id = mr_url.rstrip('/').split('/')[-1]
     info: InfoFromMrUrl = get_info_from_mr_url(mr_url)
+    repo_info: IesaLocalRepoInfo = get_repo_info_by_project_path(info.gl_project_path)
+    gl_project = get_gl_project(repo_info)
+    mr: ProjectMergeRequest = get_gl_mr_by_iid(gl_project, info.mr_iid)
+    mr_title = mr.title
+    mr_description: str = get_stripped_paragraph(mr.description)
+
     gl_project_path: str = info.gl_project_path
     project_name = gl_project_path.split('/')[-1]
     output_filename = f"mr_diff_{project_name}_{mr_id}{TXT_EXTENSION}"
@@ -61,8 +65,12 @@ def main_git_mr(args: argparse.Namespace) -> None:
     try:
         with open(output_path, 'w', encoding='utf-8') as f:
             # --- Part 1: Writing the MR Diff ---
-            f.write(f"# CONTEXT: Diff from MR '{mr_url}'\n")
-            f.write(f"# MR ID: {mr_id}\n")
+            f.write(f"# CONTEXT: Diff from GitLab MR'\n")
+            f.write(f"#     MR URL: {mr_url}\n")
+            f.write(f"#     MR TITLE: {mr_title}\n")
+            f.write(f"#     MR DESCRIPTION:\n")
+            f.write(f"{mr_description}\n")
+            f.write(f"#     END OF MR DESCRIPTION\n")
             f.write(f"# GENERATED AT: {datetime.now().isoformat()}\n")
             f.write(f"{'='*60}\n\n")
             f.write(mr_diff)
@@ -70,8 +78,7 @@ def main_git_mr(args: argparse.Namespace) -> None:
             if should_include_file_content:
                 # --- Part 2: Writing the full file contents ---
                 f.write("\n\n")  # Add some spacing for readability
-                f.write(f"# CONTEXT: Files after diff from MR '{mr_url}'\n")
-                f.write(f"# CONTEXT: Full content of all changed files from MR '{mr_url}'\n")
+                f.write(f"# CONTEXT: Full content of files after diff from MR '{mr_url}'\n")
                 f.write(f"{'='*60}\n\n")
 
                 # Iterate through each file change object to write its content

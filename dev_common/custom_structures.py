@@ -2,6 +2,7 @@ from pathlib import Path
 import re
 from typing import Dict, List
 from dev_common import *
+from dev_common.constants import *
 
 
 class IesaLocalRepoInfo:
@@ -95,6 +96,13 @@ LOCAL_REPO_MAPPING: LocalReposMapping = LocalReposMapping(
         gl_project_path=f"{INTELLIAN_ADC_GROUP}/{IESA_SPIBEAM_REPO_NAME}",
         token_key_name=GL_SPIBEAM_TOKEN_KEY_NAME
     ),
+
+    IesaLocalRepoInfo(
+        IESA_UPGRADE_REPO_NAME,
+        repo_local_path=CORE_REPOS_PATH / IESA_UPGRADE_REPO_NAME,
+        gl_project_path=f"{INTELLIAN_ADC_GROUP}/{GERRIT_OW}/{IESA_UPGRADE_REPO_NAME}",
+        token_key_name=GL_UPGRADE_TOKEN_KEY_NAME
+    ),
 )
 
 
@@ -108,8 +116,8 @@ class MatchInfo:
         if pattern in self._match_map:
             self._match_map[pattern].append(matched_line)
 
-    def get_matched_lines(self, pattern:str) -> List[str]:
+    def get_matched_lines(self, pattern: str) -> List[str]:
         return self._match_map.get(pattern, [])
 
-    def get_patterns(self)-> List[str]:
+    def get_patterns(self) -> List[str]:
         return self._patterns_to_match

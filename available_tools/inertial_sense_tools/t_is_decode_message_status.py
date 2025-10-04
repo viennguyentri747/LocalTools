@@ -17,6 +17,33 @@ from inertial_sense_tools.decode_ins_status_utils import (
 
 SUPPORTED_TYPES: Tuple[str, ...] = ("gps", "hdw", "ins")
 
+def get_tool_templates() -> List[ToolTemplate]:
+    return [
+        ToolTemplate(
+            name="Decode INS Status",
+            extra_description="Decode INS status integer",
+            args={
+                "--type": "ins",
+                "--status": "0x00031000",
+            },
+        ),
+        ToolTemplate(
+            name="Decode GPS Status",
+            extra_description="Decode GPS status integer",
+            args={
+                "--type": "gps",
+                "--status": "0x312",
+            },
+        ),
+        ToolTemplate(
+            name="Decode HDW Status",
+            extra_description="Decode hardware status integer",
+            args={
+                "--type": "hdw",
+                "--status": "0x2088010",
+            },
+        ),
+    ]
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -69,35 +96,6 @@ def decode_message(message_type: str, raw_status: str, status_value: int) -> Non
         return
 
     raise SystemExit(f"Unsupported message type: {message_type}")
-
-
-def get_tool_templates() -> List[ToolTemplate]:
-    return [
-        ToolTemplate(
-            name="Decode INS Status",
-            extra_description="Decode INS status integer",
-            args={
-                "--type": "ins",
-                "--status": "0x00031000",
-            },
-        ),
-        ToolTemplate(
-            name="Decode GPS Status",
-            extra_description="Decode GPS status integer",
-            args={
-                "--type": "gps",
-                "--status": "0x312",
-            },
-        ),
-        ToolTemplate(
-            name="Decode HDW Status",
-            extra_description="Decode hardware status integer",
-            args={
-                "--type": "hdw",
-                "--status": "0x2088010",
-            },
-        ),
-    ]
 
 
 if __name__ == "__main__":

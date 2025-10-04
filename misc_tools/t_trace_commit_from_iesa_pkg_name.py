@@ -3,22 +3,37 @@
 trace_commit_from_iesa_pkg_name.py – Locate a record in /version/history by its `version_string`.
 
 Examples:
-  python trace_commit_from_iesa_pkg_name.py 29.9.1.6
-  python trace_commit_from_iesa_pkg_name.py 29.9.1.6 --base-url http://10.1.26.170:8765 --page-size 100
+    ~/local_tools/misc_tools/trace_commit_from_iesa_pkg_name.py --version 29.9.1.6
+    ~/local_tools/misc_tools/t_trace_commit_from_iesa_pkg_name.py --version 29.9.1.6 --base-url http://10.1.26.170:8765 --page-size 100
 """
 
 from __future__ import annotations
-
 import argparse
 import json
 from pathlib import Path
 import sys
-from typing import Optional, Tuple
-
+from typing import List, Optional, Tuple
 import requests
 
 
 from dev_common.tools_utils import ToolTemplate, build_examples_epilog
+
+
+def get_tool_templates() -> List[ToolTemplate]:
+    return [
+        ToolTemplate(
+            name="Basic Search",
+            extra_description="Search for version with default settings",
+            args={
+                "version": "29.9.1.6",
+            }
+        ),
+        ToolTemplate(
+            name="Search with Custom URL",
+            extra_description="Search for version with custom base URL",
+            args={"version": "29.9.1.6", "--base-url": "http://10.1.26.170:8765", "--page-size": 100, }
+        ),
+    ]
 
 
 def clamp_page_size(n: int) -> int:
@@ -26,13 +41,7 @@ def clamp_page_size(n: int) -> int:
     return max(1, min(100, n))
 
 
-def fetch_page(
-    session: requests.Session,
-    base_url: str,
-    page: int,
-    size: int,
-    timeout: int,
-) -> Tuple[list[dict], int]:
+def fetch_page(session: requests.Session, base_url: str, page: int, size: int, timeout: int, ) -> Tuple[list[dict], int]:
     """
     Fetch one page. Returns (items, pages_count).
 
@@ -40,12 +49,8 @@ def fetch_page(
     - pages_count: integer from the API's 'pages' field (0 if missing)
     """
     url = f"{base_url.rstrip('/')}/version/history"
-    resp = session.get(
-        url,
-        params={"page": page, "size": size},
-        headers={"accept": "application/json"},
-        timeout=timeout,
-    )
+    resp = session.get(url, params={"page": page, "size": size}, headers={
+                       "accept": "application/json"}, timeout=timeout, )
     resp.raise_for_status()
     data = resp.json()
     items = data.get("items", [])
@@ -53,13 +58,7 @@ def fetch_page(
     return items, pages
 
 
-def find_version(
-    base_url: str,
-    target_version: str,
-    page_size: int = 100,
-    timeout: int = 10,
-    quiet: bool = False,
-) -> Optional[dict]:
+def find_version(base_url: str, target_version: str, page_size: int = 100, timeout: int = 10, quiet: bool = False, ) -> Optional[dict]:
     """
     Scan pages 1..pages (from API metadata) for an exact version_string match.
     Returns the matching item dict, or None if not found.
@@ -93,66 +92,24 @@ def find_version(
                 return None
 
 
-def get_tool_templates() -> List[ToolTemplate]:
-    return [
-        ToolTemplate(
-            name="Basic Search",
-            extra_description="Search for version with default settings",
-            args={
-                "version": "29.9.1.6",
-            }
-        ),
-        ToolTemplate(
-            name="Search with Custom URL",
-            extra_description="Search for version with custom base URL",
-            args={
-                "version": "29.9.1.6",
-                "--base-url": "http://10.1.26.170:8765",
-                "--page-size": 100,
-            }
-        ),
-    ]
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Search /version/history for a given version_string."
     )
     # Fill help epilog from templates
     parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
-    parser.add_argument("version", help="Exact version_string to search for")
-    parser.add_argument(
-        "--base-url",
-        default="http://10.1.26.170:8765",
-        help="Base server URL (default: %(default)s)",
-    )
-    parser.add_argument(
-        "--page-size",
-        type=int,
-        default=100,
-        help="Page size (1..100). Default: %(default)s",
-    )
-    parser.add_argument(
-        "--timeout",
-        type=int,
-        default=10,
-        help="HTTP timeout in seconds (default: %(default)s)",
-    )
-    parser.add_argument(
-        "--quiet",
-        action="store_true",
-        help="Suppress progress logs; print only JSON result on success",
-    )
+    parser.add_argument("--version",  help="Exact version_string to search for")
+    parser.add_argument("--base-url", default="http://10.1.26.170:8765",
+                        help="Base server URL (default: %(default)s)", )
+    parser.add_argument("--page-size", type=int, default=100, help="Page size (1..100). Default: %(default)s", )
+    parser.add_argument("--timeout", type=int, default=10, help="HTTP timeout in seconds (default: %(default)s)", )
+    parser.add_argument("--quiet", action="store_true",
+                        help="Suppress progress logs; print only JSON result on success", )
     args = parser.parse_args()
 
     try:
-        result = find_version(
-            base_url=args.base_url,
-            target_version=args.version,
-            page_size=args.page_size,
-            timeout=args.timeout,
-            quiet=args.quiet,
-        )
+        result = find_version(base_url=args.base_url, target_version=args.version,
+                              page_size=args.page_size, timeout=args.timeout, quiet=args.quiet, )
     except requests.RequestException as e:
         sys.exit(f"API request failed: {e}")
     except json.JSONDecodeError as e:

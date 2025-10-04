@@ -15,6 +15,18 @@ SSH_KEY_TYPE_RSA = 'rsa'
 KEY_TYPE_ED25519 = 'ed25519'
 
 
+def get_tool_templates() -> List[ToolTemplate]:
+    # ~/local_tools/misc_tools/t_get_acu_logs.py --type "E" "P" --ips "192.168.100.57" --date "20250928" "20250927"
+    return [
+        ToolTemplate(
+            name="Get ACU Logs",
+            extra_description="Copy flash log files from remote",
+            args={"--type": ["P", "T", "E"], "--ips": ["192.168.100.57"],
+                  "--date": ["20250625", "20250627"]},
+        ),
+    ]
+
+
 class AcuLogInfo:
     """Holds information about the log fetch operation."""
 
@@ -166,7 +178,7 @@ def setup_passwordless_ssh(user: str, jump_host: str, remote_host: str,
 
 
 def build_scp_log_cmd(user: str, jump_ip: str, log_types: List[str],
-                             dest_path_str: str, date_filters: List[str] = None, should_has_var_log: bool = False) -> List[str]:
+                      dest_path_str: str, date_filters: List[str] = None, should_has_var_log: bool = False) -> List[str]:
     """Build a single scp command to fetch multiple files in one go."""
     remote_paths = []
     dates_to_process = date_filters if date_filters else [None]
@@ -209,7 +221,8 @@ def fetch_acu_logs(ut_ip: str, log_types: List[str], dest_folder_path: str | Pat
         if clear_dest_folder:
             clear_directory_content(dest_folder_path)
         start_time = time.time()
-        cmd = build_scp_log_cmd(ACU_USER, ut_ip, log_types, str(dest_folder_path), date_filters, should_has_var_log=should_has_var_log)
+        cmd = build_scp_log_cmd(ACU_USER, ut_ip, log_types, str(dest_folder_path),
+                                date_filters, should_has_var_log=should_has_var_log)
         LOG(f"{LOG_PREFIX_MSG_INFO} Fetching all logs for {ut_ip} into '{dest_folder_path}' in batch...")
         LOG(f"Running command: {' '.join(cmd)}")
         subprocess.check_call(cmd)
@@ -228,18 +241,6 @@ def fetch_acu_logs(ut_ip: str, log_types: List[str], dest_folder_path: str | Pat
         return AcuLogInfo(is_valid=False, ip=ut_ip)
 
 
-def get_tool_templates() -> List[ToolTemplate]:
-    # ~/local_tools/misc_tools/t_get_acu_logs.py --type "E" "P" --ips "192.168.100.57" --date "20250928" "20250927"
-    return [
-        ToolTemplate(
-            name="Get ACU Logs",
-            extra_description="Copy flash log files from remote",
-            args={"--type": ["P", "T", "E"], "--ips": ["192.168.100.57"],
-                  "--date": ["20250625", "20250627"]},
-        ),
-    ]
-
-
 def main() -> None:
     args = parse_args()
 
@@ -248,7 +249,7 @@ def main() -> None:
         # Try batch method first (single scp command for all files)
         LOG(f"{LOG_PREFIX_MSG_INFO} Attempting batch download for {ip}...")
         result: AcuLogInfo = fetch_acu_logs(log_types=args.type, ut_ip=ip,
-                                                 date_filters=args.date, dest_folder_path=ACU_LOG_PATH/ip)
+                                            date_filters=args.date, dest_folder_path=ACU_LOG_PATH/ip)
         if not result.is_valid:
             failures.append(result.ut_ip)
 

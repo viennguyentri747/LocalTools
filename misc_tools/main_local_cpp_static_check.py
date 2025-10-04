@@ -86,7 +86,7 @@ def generate_compile_commands_from_cmake(cmake_path: str) -> bool:
 
     extra_cmake_args = []
     cmake_dir_name = os.path.basename(cmake_dir)
-    if cmake_dir_name == "adc_lib" or cmake_dir_name == "intellian_pkg":
+    if cmake_dir_name == IESA_ADC_LIB_REPO_NAME or cmake_dir_name == IESA_INTELLIAN_PKG_REPO_NAME:
         extra_cmake_args = [
             f"-DEXTERNAL_DIRS=/home/vien/ow_sw_tools/external/",
             f"-DOUTPUT_DIR=/home/vien/ow_sw_tools/tmp_build/out/",

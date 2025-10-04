@@ -33,66 +33,6 @@ SERVICE_NAME = "ins_monitor"
 RESTART_DELAY = 2.0
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Show SCP+run command to copy and execute test_ins_monitor_messages.py on target UT.",
-        formatter_class=argparse.RawTextHelpFormatter,
-    )
-    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
-
-    parser.add_argument(ARG_PATH_LONG, ARG_PATH_SHORT, type=Path, default=DEFAULT_LOCAL_FILE,
-                        help="Local path to the remote script to copy (default: remote_tools/src/test_ins_monitor_messages.py)", )
-    parser.add_argument(ARG_IS_RESTART_INS_LONG, type=lambda x: x.lower() == 'true', default=False,
-                        help="Restart the service before monitoring (true or false). Defaults to false.", )
-    parser.add_argument(ARG_CFG_OVERRIDE_MESSAGES_LONG, type=str, default=None,
-                        help="Optional: Comma-separated message names to detect, overriding ins_config.json", )
-    parser.add_argument(ARG_DURATION_LONG, ARG_DURATION_SHORT, type=int, default=DEFAULT_DURATION,
-                        help=f"Duration in seconds to monitor for messages (default: {DEFAULT_DURATION})", )
-    parser.add_argument(ARG_INS_CONFIG_PATH_LONG, type=str, default=DEFAULT_INS_CONFIG_PATH,
-                        help=f"Path to ins_config.json on target (default: {DEFAULT_INS_CONFIG_PATH})", )
-    parser.add_argument(ARG_LOG_FILE_LONG, type=str, default=DEFAULT_LOG_FILE,
-                        help=f"Path to ins_monitor log on target (default: {DEFAULT_LOG_FILE})", )
-    parser.add_argument(ARG_RUN_NOW, type=lambda x: x.lower() == 'true', default=False,
-                        help="Run the generated command now (true or false). Defaults to false.", )
-    args = parser.parse_args()
-    local_script_path: Path = get_arg_value(args, ARG_PATH_LONG)
-
-    # 1) Validate local script file
-    if not local_script_path.exists():
-        LOG(f"❌ Local script not found: {local_script_path}")
-        return
-    LOG(f"Using local script: {local_script_path}")
-
-    # 2) Build the remote python command with quoted args
-    remote_script_path = f"/home/root/download/{local_script_path.name}"
-    parts: List[str] = ["python3", quote(remote_script_path),
-                        ARG_DURATION_LONG, str(int(get_arg_value(args, ARG_DURATION_LONG))),
-                        "--service", quote_arg_value_if_need(SERVICE_NAME),
-                        "--restart_delay", str(float(RESTART_DELAY)),
-                        ARG_INS_CONFIG_PATH_LONG, quote_arg_value_if_need(
-                            get_arg_value(args, ARG_INS_CONFIG_PATH_LONG)),
-                        ARG_LOG_FILE_LONG, quote_arg_value_if_need(get_arg_value(args, ARG_LOG_FILE_LONG)),
-                        ]
-    if (override_messages := get_arg_value(args, ARG_CFG_OVERRIDE_MESSAGES_LONG)) is not None:
-        parts.extend([ARG_CFG_OVERRIDE_MESSAGES_LONG, quote_arg_value_if_need(override_messages)])
-
-    is_restart_service: bool = get_arg_value(args, ARG_IS_RESTART_INS_LONG)
-    if is_restart_service:
-        parts.append("--restart")
-
-    remote_run = " ".join(parts)
-
-    # 3) Build the SCP + remote-run one-liner
-    one_liner = create_scp_ut_and_run_cmd(local_path=local_script_path, run_cmd_on_remote=remote_run)
-
-    run_now: bool = get_arg_value(args, ARG_RUN_NOW)
-    if run_now:
-        LOG("Running command now...", highlight=True)
-        run_shell(one_liner, shell=True, executable='/bin/bash')
-    else:
-        display_content_to_copy(one_liner, is_copy_to_clipboard=True, purpose="Copy and run INS message test")
-
-
 def get_tool_templates() -> List[ToolTemplate]:
     return [
         ToolTemplate(
@@ -134,6 +74,66 @@ def get_tool_templates() -> List[ToolTemplate]:
             no_need_live_edit=True,
         ),
     ]
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Show SCP+run command to copy and execute test_ins_monitor_messages.py on target UT.",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
+
+    parser.add_argument(ARG_PATH_LONG, ARG_PATH_SHORT, type=Path, default=DEFAULT_LOCAL_FILE,
+                        help="Local path to the remote script to copy (default: remote_tools/src/test_ins_monitor_messages.py)", )
+    parser.add_argument(ARG_IS_RESTART_INS_LONG, type=lambda x: x.lower() == TRUE_STR_VALUE, default=False,
+                        help="Restart the service before monitoring (true or false). Defaults to false.", )
+    parser.add_argument(ARG_CFG_OVERRIDE_MESSAGES_LONG, type=str, default=None,
+                        help="Optional: Comma-separated message names to detect, overriding ins_config.json", )
+    parser.add_argument(ARG_DURATION_LONG, ARG_DURATION_SHORT, type=int, default=DEFAULT_DURATION,
+                        help=f"Duration in seconds to monitor for messages (default: {DEFAULT_DURATION})", )
+    parser.add_argument(ARG_INS_CONFIG_PATH_LONG, type=str, default=DEFAULT_INS_CONFIG_PATH,
+                        help=f"Path to ins_config.json on target (default: {DEFAULT_INS_CONFIG_PATH})", )
+    parser.add_argument(ARG_LOG_FILE_LONG, type=str, default=DEFAULT_LOG_FILE,
+                        help=f"Path to ins_monitor log on target (default: {DEFAULT_LOG_FILE})", )
+    parser.add_argument(ARG_RUN_NOW, type=lambda x: x.lower() == TRUE_STR_VALUE, default=False,
+                        help="Run the generated command now (true or false). Defaults to false.", )
+    args = parser.parse_args()
+    local_script_path: Path = get_arg_value(args, ARG_PATH_LONG)
+
+    # 1) Validate local script file
+    if not local_script_path.exists():
+        LOG(f"❌ Local script not found: {local_script_path}")
+        return
+    LOG(f"Using local script: {local_script_path}")
+
+    # 2) Build the remote python command with quoted args
+    remote_script_path = f"/home/root/download/{local_script_path.name}"
+    parts: List[str] = ["python3", quote(remote_script_path),
+                        ARG_DURATION_LONG, str(int(get_arg_value(args, ARG_DURATION_LONG))),
+                        "--service", quote_arg_value_if_need(SERVICE_NAME),
+                        "--restart_delay", str(float(RESTART_DELAY)),
+                        ARG_INS_CONFIG_PATH_LONG, quote_arg_value_if_need(
+                            get_arg_value(args, ARG_INS_CONFIG_PATH_LONG)),
+                        ARG_LOG_FILE_LONG, quote_arg_value_if_need(get_arg_value(args, ARG_LOG_FILE_LONG)),
+                        ]
+    if (override_messages := get_arg_value(args, ARG_CFG_OVERRIDE_MESSAGES_LONG)) is not None:
+        parts.extend([ARG_CFG_OVERRIDE_MESSAGES_LONG, quote_arg_value_if_need(override_messages)])
+
+    is_restart_service: bool = get_arg_value(args, ARG_IS_RESTART_INS_LONG)
+    if is_restart_service:
+        parts.append("--restart")
+
+    remote_run = " ".join(parts)
+
+    # 3) Build the SCP + remote-run one-liner
+    one_liner = create_scp_ut_and_run_cmd(local_path=local_script_path, run_cmd_on_remote=remote_run)
+
+    run_now: bool = get_arg_value(args, ARG_RUN_NOW)
+    if run_now:
+        LOG("Running command now...", highlight=True)
+        run_shell(one_liner, shell=True, executable='/bin/bash')
+    else:
+        display_content_to_copy(one_liner, is_copy_to_clipboard=True, purpose="Copy and run INS message test")
 
 
 if __name__ == "__main__":

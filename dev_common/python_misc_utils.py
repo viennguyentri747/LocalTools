@@ -8,7 +8,7 @@ def get_arg_value(args, arg_name: str, for_shell: bool = False):
     dest_key = arg_name.lstrip('-').replace('-', '_')
     try:
         value = getattr(args, dest_key)
-        FULL_PATH_ARGS = [ARG_PATHS_LONG, ARG_OUTPUT_DIR_LONG, ARG_TEMPLATE_PATH, ARG_VAULT_PATH]
+        FULL_PATH_ARGS = [ARG_PATHS_LONG, ARG_OUTPUT_DIR, ARG_TEMPLATE_PATH, ARG_VAULT_PATH]
         
         if isinstance(value, str) and arg_name in FULL_PATH_ARGS:
             resolve_path = str(Path(value).expanduser().resolve())

@@ -27,7 +27,7 @@ def main_git_diff(args: argparse.Namespace) -> None:
     repo_path = get_arg_value(args, ARG_PATH_LONG)
     base = get_arg_value(args, ARG_BASE_REF_LONG)
     target = get_arg_value(args, ARG_TARGET_REF_LONG)
-    output_dir = get_arg_value(args, ARG_OUTPUT_DIR_LONG)
+    output_dir = get_arg_value(args, ARG_OUTPUT_DIR)
     no_open_explorer = get_arg_value(args, ARG_NO_OPEN_EXPLORER)
     max_folders = get_arg_value(args, ARG_MAX_FOLDERS)
 
@@ -46,9 +46,6 @@ def main_git_diff(args: argparse.Namespace) -> None:
     final_output_dir_name = f"{CONTEXT_FOLDER_PREFIX_DIFF}{timestamp}"
     final_output_dir = output_dir / final_output_dir_name
     final_output_dir.mkdir(parents=True, exist_ok=True)
-
-    LOG(f"Output directory: {final_output_dir}")
-    LOG()
 
     diff_content = extract_git_diff(repo_path, base, target)
     is_success = diff_content is not None

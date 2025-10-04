@@ -8,6 +8,7 @@ REGEX_PATTERNS = ["MOTION DETECT", "INS-READY"]
 ACU_ELOG_PATH = TEMP_FOLDER_PATH / "acu_elogs/"
 EXTRA_DAYS_BEFORE_TODAY = 2
 
+
 def main():
     """
     Main function to fetch and analyze ACU E-logs for motion detection events.

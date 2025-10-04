@@ -31,7 +31,7 @@ def main_paths(args: argparse.Namespace) -> None:
     """Main function for 'paths' extraction mode."""
     timestamp = get_time_stamp_now()
     paths = get_arg_value(args, ARG_PATHS_LONG)
-    output_dir = get_arg_value(args, ARG_OUTPUT_DIR_LONG)
+    output_dir = get_arg_value(args, ARG_OUTPUT_DIR)
     max_folders = get_arg_value(args, ARG_MAX_FOLDERS)
     max_workers = get_arg_value(args, ARG_MAX_WORKERS)
     include_paths_pattern = get_arg_value(args, ARG_INCLUDE_PATHS_PATTERN)

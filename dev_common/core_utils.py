@@ -104,31 +104,31 @@ def read_value_from_credential_file(credentials_file_path: str, key_to_read: str
     return None
 
 
-def LOG_EXCEPTION(e: Exception, msg=None, exit: bool = True):
+def LOG_EXCEPTION(exception: Exception, msg=None, exit: bool = True):
     """Log error with essential info to stderr."""
     timestamp = datetime.now().strftime("%H:%M:%S")
-    
+
     # One-line header with key info
-    print(f"[{timestamp}] {type(e).__name__}: {e}", file=sys.stderr)
+    print(f"[{timestamp}] {type(exception).__name__}: {exception}", file=sys.stderr)
     if msg:
-        print(f"Context: {msg}", file=sys.stderr)
-    
+        print(f"- Context: {msg}", file=sys.stderr)
+
     # Exception-specific critical info only
-    if isinstance(e, subprocess.CalledProcessError):
-        print(f"Command: {e.cmd} (exit {e.returncode})", file=sys.stderr)
-        if hasattr(e, 'stderr') and e.stderr:
-            print(f"Error: {e.stderr.strip()}", file=sys.stderr)
-        if hasattr(e, 'stdout') and e.stdout:
-            print(f"Output: {e.stdout.strip()}", file=sys.stderr)
-    elif isinstance(e, (FileNotFoundError, PermissionError, OSError)):
-        if hasattr(e, 'filename') and e.filename:
-            print(f"File: {e.filename}", file=sys.stderr)
-    
+    if isinstance(exception, subprocess.CalledProcessError):
+        print(f"Command: {exception.cmd} (exit {exception.returncode})", file=sys.stderr)
+        if hasattr(exception, 'stderr') and exception.stderr:
+            print(f"Error: {exception.stderr.strip()}", file=sys.stderr)
+        if hasattr(exception, 'stdout') and exception.stdout:
+            print(f"Output: {exception.stdout.strip()}", file=sys.stderr)
+    elif isinstance(exception, (FileNotFoundError, PermissionError, OSError)):
+        if hasattr(exception, 'filename') and exception.filename:
+            print(f"File: {exception.filename}", file=sys.stderr)
+
     # Compact traceback (just the relevant line)
-    tb = traceback.extract_tb(e.__traceback__)
+    tb = traceback.extract_tb(exception.__traceback__)
     if tb:
         last_frame = tb[-1]
-        print(f"Location: {last_frame.filename}:{last_frame.lineno} in {last_frame.name}()", file=sys.stderr)
-    
+        print(f"- Location: {last_frame.filename}:{last_frame.lineno} in {last_frame.name}()", file=sys.stderr)
+
     if exit:
         sys.exit(1)

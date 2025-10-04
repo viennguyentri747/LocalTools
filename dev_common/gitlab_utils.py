@@ -4,16 +4,15 @@ import os
 import base64
 import sys
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
 import zipfile  # Needed for extracting artifacts
 from gitlab.v4.objects import *
 from gitlab import *
-from typing import Union, List
+from typing import Optional, Union, List
 from dev_common import *
 from gitlab.exceptions import GitlabError
-# from dev_common.core_utils import LOG, LOG_EXCEPTION, read_value_from_credential_file
-# from dev_common.custom_structures import *
 
 
 class MrFileChange:
@@ -54,12 +53,12 @@ class MrFileChange:
         # If the file was deleted in the MR, it has no "new" content.
         if self._change_data.get('deleted_file', False):
             return None
-            
+
         # --- 1. Primary Method: Use the MR's head commit SHA ---
         # This is the most accurate ref for the file's state within the MR itself.
         # It's found in the 'diff_refs' dictionary.
         ref_to_try = self._mr.diff_refs.get('head_sha')
-        
+
         if ref_to_try:
             try:
                 # Fetch the file using the specific commit SHA
@@ -68,59 +67,32 @@ class MrFileChange:
             except GitlabError as e:
                 LOG(f"Could not retrieve '{self.filePath}' using head_sha '{ref_to_try}'. Error: {e}")
 
-
         LOG(f"All attempts to retrieve file content for '{self.filePath}' have failed.")
         return None
 
-def main():
-    # --- Configuration ---
-    credentials_file = CREDENTIALS_FILE_PATH
 
-    # Logic to read token from file if not in env
-    private_token = read_value_from_credential_file(credentials_file, GL_TISDK_TOKEN_KEY_NAME)
+def get_repo_info_by_name(repo_name: str) -> Optional[IesaLocalRepoInfo]:
+    """Retrieve repository information by its name."""
+    repo_info = LOCAL_REPO_MAPPING.get_by_name(repo_name)
+    if not repo_info:
+        LOG(f"{LOG_PREFIX_MSG_ERROR} Unknown repository '{repo_name}'.")
+        return None
+    return repo_info
 
-    # Details of the target project and job
-    target_project_path = f"{INTELLIAN_ADC_GROUP}/{IESA_TISDK_TOOLS_REPO_NAME}"
-    target_job_name = "sdk_create_tarball_release"
-    target_ref = "manpack_master"
+def get_repo_info_by_project_path(gl_project_path: str) -> Optional[IesaLocalRepoInfo]:
+    """Retrieve repository information by its GitLab project path."""
+    repo_info = LOCAL_REPO_MAPPING.get_by_gl_project_path(gl_project_path)
+    if not repo_info:
+        LOG(f"{LOG_PREFIX_MSG_ERROR} Unknown repository for project path '{gl_project_path}'.")
+        return None
+    return repo_info
 
-    # Get the target project using the new function
-    target_project = get_gl_project(private_token, target_project_path)
-
-    # For robust fetching of branch names, consider get_all=True here too if you're not sure the default is sufficient.
-    print(f"Target project: {target_project_path}, instance: {target_project.branches.list(get_all=True)[0].name}")
-
-    pipeline_id = get_latest_successful_pipeline_id(target_project, target_job_name, target_ref)
-    if not pipeline_id:
-        print(f"No successful pipeline found for job '{target_job_name}' on ref '{target_ref}'.")
-        sys.exit(1)
-
-    artifacts_dir = os.path.join(os.path.dirname(__file__), 'artifacts')
-    paths: List[str] = download_job_artifacts(target_project, artifacts_dir, pipeline_id, target_job_name)
-    if paths:
-        print(f"Artifacts extracted to: {artifacts_dir}")
-
-    # --- Example usage of the new function ---
-    # example_mr_url = "https://gitlab.com/your_group/your_project/-/merge_requests/123"
-    # file_changes = get_mr_diff_from_url(example_mr_url)
-    # if file_changes:
-    #     print(f"\nFound {len(file_changes)} changed files in the MR.")
-    #     for change in file_changes:
-    #         print(f"\n--- File: {change.filePath} ---")
-    #         print("--- Diff ---")
-    #         print(change.GetDiff())
-    #         print("--- Content (first 100 chars) ---")
-    #         content = change.GetFileContent()
-    #         if content:
-    #             print(content[:100] + "...")
-    #         else:
-    #             print("File was deleted or content not available.")
-
-
-def get_gl_project(gl_private_token: str, gl_project_path: str) -> Project:
+def get_gl_project(repo_info: IesaLocalRepoInfo) -> Project:
     """
     Connects to GitLab API and retrieves the target project.
     """
+    gl_private_token = repo_info.gl_access_token
+    gl_project_path = repo_info.gl_project_path
     gl: Gitlab = gitlab.Gitlab(GL_BASE_URL, private_token=gl_private_token)
 
     try:
@@ -132,10 +104,31 @@ def get_gl_project(gl_private_token: str, gl_project_path: str) -> Project:
         LOG_EXCEPTION(e)
 
 
+def is_gl_branch_exists(gl_project: Project, branch_name: str) -> bool:
+    """Return True when the branch exists in the project."""
+    if not branch_name:
+        return False
+
+    try:
+        gl_project.branches.get(branch_name)
+        return True
+    except Exception as exc:
+        LOG_EXCEPTION(exception=exc, exit=False)
+        return False
+
+
 @dataclass
 class InfoFromMrUrl:
     gl_project_path: str
     mr_iid: str
+
+
+@dataclass
+class GitlabRepoContext:
+    """Bundle project metadata commonly reused across GitLab helpers."""
+
+    repo_info: IesaLocalRepoInfo
+    project: Project
 
 
 def get_info_from_mr_url(mr_url: str) -> InfoFromMrUrl | None:
@@ -161,6 +154,54 @@ def get_info_from_mr_url(mr_url: str) -> InfoFromMrUrl | None:
 
     except Exception as e:
         # Handle any parsing errors (invalid URL, etc.)
+        return None
+
+
+def get_gl_mrs_of_branch(gl_project: Project, source_branch: str, target_branch: Optional[str] = None, include_closed: bool = True, ) -> List[ProjectMergeRequest]:
+    """List merge requests matching the provided source/target branch filters."""
+    params = {
+        'source_branch': source_branch,
+        'get_all': True,
+    }
+    if target_branch:
+        params['target_branch'] = target_branch
+    if not include_closed:
+        params['state'] = 'opened'
+
+    try:
+        return gl_project.mergerequests.list(**params)
+    except GitlabError as exc:
+        LOG_EXCEPTION(exception=exc, exit=False)
+        return []
+
+
+def get_gl_mr_by_iid(gl_project: Project, mr_iid: str) -> Optional[ProjectMergeRequest]:
+    """Fetch a specific merge request by its IID."""
+    try:
+        return gl_project.mergerequests.get(mr_iid)
+    except GitlabError as exc:
+        LOG_EXCEPTION(exception=exc, exit=False)
+        return None
+
+
+def create_gl_mr( gl_project: Project, *, source_branch: str, target_branch: str, title: str, description: str, remove_source_branch: bool = False, draft: bool = False, ) -> Optional[ProjectMergeRequest]:
+    """Create a GitLab merge request with sane defaults and error handling."""
+    mr_title = title
+    if draft and not mr_title.lower().startswith('draft:'):
+        mr_title = f"Draft: {mr_title}"
+
+    payload = {
+        'source_branch': source_branch,
+        'target_branch': target_branch,
+        'title': mr_title,
+        'remove_source_branch': remove_source_branch,
+        'description': description,
+    }
+
+    try:
+        return gl_project.mergerequests.create(payload)
+    except GitlabError as exc:
+        LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to create merge request: {exc}")
         return None
 
 
@@ -212,18 +253,14 @@ def get_file_changes_from_url(mr_url: str) -> Union[List[MrFileChange], None]:
     """
     try:
         info: InfoFromMrUrl = get_info_from_mr_url(mr_url)
-        if not info:
-            return None
-
         gl_project_path = info.gl_project_path
         mr_iid = info.mr_iid
 
         # This part for getting credentials remains the same, assuming it's configured
         repoInfo: IesaLocalRepoInfo = LOCAL_REPO_MAPPING.get_by_gl_project_path(gl_project_path)
-        gl_private_token = repoInfo.gl_access_token
 
         # Get project and MR objects
-        project = get_gl_project(gl_private_token, gl_project_path)
+        project = get_gl_project(repoInfo)
         mr: ProjectMergeRequest = project.mergerequests.get(mr_iid)
 
         # Get the changes, which includes the diff for each file
@@ -343,7 +380,3 @@ def download_job_artifacts(gl_project: Project, artifacts_dir_path: str, pipelin
         print(f"An unexpected error occurred during artifact download or extraction: {e}")
         sys.exit(1)
         return False  # Added return False for error case
-
-
-if __name__ == "__main__":
-    main()

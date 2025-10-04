@@ -3,7 +3,7 @@ from tabulate import tabulate
 
 from dev_common.constants import *
 from dev_common.core_utils import read_value_from_credential_file
-from dev_common.jira_utils import JiraTicket, JiraClient, create_new_jira_client
+from dev_common.jira_utils import JiraTicket, JiraClient, get_company_jira_client
 
 # ---- User config: Set your details here ----
 # print("DEBUG: JIRA_URL read:", JIRA_URL)
@@ -100,8 +100,7 @@ def analyze_resolution_status(all_tickets):
 
 
 def main():
-    # Initialize JIRA client
-    jira_client = create_new_jira_client()
+    jira_client: JiraClient = get_company_jira_client()
 
     # Step 1: Test connection and get user info
     account_id = jira_client.test_connection()

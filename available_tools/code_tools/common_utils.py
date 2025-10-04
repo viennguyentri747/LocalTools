@@ -62,7 +62,7 @@ def create_log_file_paths(args: argparse.Namespace, output_dir: Path, timestamp:
         log_file.write(f"{'='*50}\n\n")
         log_file.write("Arguments:\n")
         log_file.write(f"  Paths: {get_arg_value(args, ARG_PATHS_LONG)}\n")
-        log_file.write(f"  Output directory: {get_arg_value(args, ARG_OUTPUT_DIR_LONG)}\n")
+        log_file.write(f"  Output directory: {get_arg_value(args, ARG_OUTPUT_DIR)}\n")
         log_file.write(f"  Include patterns: {get_arg_value(args, ARG_INCLUDE_PATHS_PATTERN)}\n")
         log_file.write(f"  Exclude patterns: {get_arg_value(args, ARG_EXCLUDE_PATHS_PATTERN)}\n")
         log_file.write(f"  Max workers: {get_arg_value(args, ARG_MAX_WORKERS)}\n")

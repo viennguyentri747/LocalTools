@@ -11,7 +11,7 @@ from typing import Optional
 from dev_common import *
 
 # --- Configuration ---
-SDK_INSTALL_DIR = INSENSE_SDK_REPO_PATH / "InsenseSDK"
+SDK_INSTALL_DIR = INSENSE_SDK_REPO_PATH / IESA_INSENSE_SDK_REPO_NAME
 LIBUSB_ZIP_PATH = Path.home() / "downloads" / "libusb-master-1-0.zip"
 NO_PROMPT: bool = False
 

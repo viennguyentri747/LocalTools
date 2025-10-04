@@ -20,8 +20,8 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_NOTE_REL_PATH: f"{PATH_TO_WORKING_NOTES}",
                 ARG_NOTE_REL_PATHS_TO_ADD_CONTENT: [
                     f"{PATH_TO_WORKING_NOTES}/_Intellian\ Note\ working,\ diary\ \(work\ log\).md"],
-                ARG_IS_GEN_CODING_TASK_LONG: True,  
-                ARG_TICKET_URL_LONG: f"{JIRA_COMPANY_URL}/browse/FPA-3",
+                ARG_IS_GEN_CODING_TASK: True,  
+                ARG_TICKET_URL: f"{JIRA_COMPANY_URL}/browse/FPA-3",
             },
         )
     ]
@@ -51,7 +51,7 @@ def gen_content_markdown(ticket: JiraTicket, coding_task_content: Optional[Codin
     # 2. Create the template using that variable
     spacing_between_line_around_headers = "\n\n"
     md_content_to_gen: str = (
-        f"REF: {ticket.ticket_url}{spacing_between_line_around_headers}"
+        f"REF: {ticket.url}{spacing_between_line_around_headers}"
         f"# Ticket Overview:{spacing_between_line_around_headers}"
         f"### Ticket Title:{spacing_between_line_around_headers} _ {ticket.title}{spacing_between_line_around_headers}"
         f"### Ticket Description:{spacing_between_line_around_headers}"
@@ -108,8 +108,10 @@ def gen_checkout_command(ticket: JiraTicket, main_manifest_branch: str) -> str:
 def get_repo_manifest_from_remote(main_manifest_branch: str) -> IesaManifest:
     """Gets the repo manifest from the remote GitLab repository."""
     # Use get_gl_project to get the manifest project object
-    token = read_value_from_credential_file(CREDENTIALS_FILE_PATH, GL_OW_SW_TOOLS_TOKEN_KEY_NAME)
-    gl_project_path = LOCAL_REPO_MAPPING.get_by_name(f"{IESA_OW_SW_TOOLS_REPO_NAME}").gl_project_path
+    # token = read_value_from_credential_file(CREDENTIALS_FILE_PATH, GL_OW_SW_TOOLS_TOKEN_KEY_NAME)
+    gl_repo_info: IesaLocalRepoInfo = get_repo_info_by_name(IESA_OW_SW_TOOLS_REPO_NAME)
+    gl_project_path = gl_repo_info.gl_project_path
+    token = gl_repo_info.gl_access_token
     ow_sw_tools_project = get_gl_project(token, gl_project_path)
 
     LOG(f"Fetching manifest from branch '{main_manifest_branch}' of project '{gl_project_path}', path '{IESA_MANIFEST_FILE_PATH}'...")
@@ -129,10 +131,10 @@ if __name__ == "__main__":
         epilog=build_examples_epilog(get_tool_templates(), Path(__file__))
     )
 
-    parser.add_argument(ARG_TICKET_URL_LONG, type=str, required=False, help="The full URL of the Jira ticket.")
-    parser.add_argument(ARG_OW_MANIFEST_BRANCH_LONG, type=str, required=False,
+    parser.add_argument(ARG_TICKET_URL, type=str, required=False, help="The full URL of the Jira ticket.")
+    parser.add_argument(ARG_DEFAULT_OW_MANIFEST_BRANCH, type=str, required=False,
                         help="The manifest branch to use for generating checkout commands.")
-    parser.add_argument(f"{ARG_IS_GEN_CODING_TASK_LONG}", type=lambda x: x.lower() == 'true', default=True,
+    parser.add_argument(f"{ARG_IS_GEN_CODING_TASK}", type=lambda x: x.lower() == TRUE_STR_VALUE, default=True,
                         help="Is generating coding task content. Defaults to true.")
     parser.add_argument(ARG_VAULT_PATH, type=str, required=False, default=None,
                         help="The destination directory for the generated file.")
@@ -143,7 +145,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    jira_url = get_arg_value(args, ARG_TICKET_URL_LONG)
+    jira_url = get_arg_value(args, ARG_TICKET_URL)
     rel_note_dir = get_arg_value(args, ARG_NOTE_REL_PATH)
     vault_dir_str = get_arg_value(args, ARG_VAULT_PATH)
     rel_paths_to_add_link = get_arg_value(args, ARG_NOTE_REL_PATHS_TO_ADD_CONTENT)
@@ -159,12 +161,12 @@ if __name__ == "__main__":
         exit(1)
 
     # Get Jira ticket data
-    client = create_new_jira_client()
+    client = get_company_jira_client()
     ticket: JiraTicket = client.get_ticket_by_key(ticket_key)
 
-    is_gen_coding_task = get_arg_value(args, ARG_IS_GEN_CODING_TASK_LONG)
+    is_gen_coding_task = get_arg_value(args, ARG_IS_GEN_CODING_TASK)
     if is_gen_coding_task:
-        main_branch = get_arg_value(args, ARG_OW_MANIFEST_BRANCH_LONG)
+        main_branch = get_arg_value(args, ARG_DEFAULT_OW_MANIFEST_BRANCH)
         if not main_branch:
             main_branch = prompt_input_with_options(
                 "\nSelect the main branch for ow_sw_tools", OW_MAIN_BRANCHES, default_input=OW_MAIN_BRANCHES[0])

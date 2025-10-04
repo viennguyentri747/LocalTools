@@ -15,10 +15,10 @@ from dev_common.core_utils import LOG
 
 class ToolFolderPriority(IntEnum):
     TOP = 0
-    code_tool= auto()
-    iesa_tool= auto()
-    inertial_sense_tool= auto()
-    remote_tool= auto()
+    code_tool = auto()
+    iesa_tool = auto()
+    inertial_sense_tool = auto()
+    remote_tool = auto()
     # TODO: Add more priorities
     LAST = 999
 
@@ -110,14 +110,6 @@ def is_tool_file(path: Path, prefix: str) -> bool:
     return os.access(str(path), os.X_OK)
 
 
-def get_tool_templates() -> List[ToolTemplate]:
-    """
-    Returns a list of common templates for the tool.
-    Each template contains preset arguments and their values.
-    """
-    return []
-
-
 def get_python_tool_help_output(tool: ToolEntry) -> Optional[str]:
     cmd = [sys.executable, str(tool.path), "-h"]
     try:
@@ -195,7 +187,7 @@ def load_tools_metadata(folder: Path) -> ToolFolderMetadata:
     raise TypeError(f"Unsupported metadata type {type(metadata)} for {folder.name}")
 
 
-def display_content_to_copy(content: str, purpose: str = "", is_copy_to_clipboard: bool = True):
+def display_content_to_copy(content: str, purpose: str = "", is_copy_to_clipboard: bool = True, extra_prefix_descriptions: Optional[str] = None) -> None:
     """
     Handles the final command display and clipboard copying.
     """
@@ -209,6 +201,9 @@ def display_content_to_copy(content: str, purpose: str = "", is_copy_to_clipboar
             clipboard_status = " (copied to clipboard)"
         except Exception as e:
             clipboard_status = f" (clipboard failed: {e})"
+    LOG(f"\n", show_time=False)
+    if extra_prefix_descriptions:
+        LOG(f"{extra_prefix_descriptions}", show_time=False)
     LOG(f"\n", show_time=False)
     LOG(f"✅ Content{purpose_text}{clipboard_status}:", show_time=False)
     LOG(f"{LINE_SEPARATOR}", show_time=False)

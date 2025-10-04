@@ -155,13 +155,12 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                     for i, t in enumerate(templates, 1):
                         # Build command preview for this template
                         preview_cmd = build_template_command(tool, t)
-                        title = f"[{i}] {t.name}: {t.extra_description}\n    → {preview_cmd}"
+                        title = f"[{i}] {t.name}. Note: {t.extra_description}\n    → {preview_cmd}"
                         option_data.append(OptionData(title=title, selectable=True, data=t))
                         option_data.append(OptionData(title="", selectable=False))  # Spacer
                     selected = interactive_select_with_arrows(option_data, menu_title=f"Choose a template")
                     if selected and selected.selectable:
                         selected_template: ToolTemplate = selected.data
-
                         # Build and run final command
                         cmd_line = build_template_command(tool, selected_template)
                         if selected_template.no_need_live_edit:
@@ -181,8 +180,10 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                                 LOG(f"Running template command now")
                                 run_shell(final_cmd)
                             else:
+                                LOG(f"Template selected: {selected_template.name}")
                                 display_content_to_copy(
-                                    final_cmd, is_copy_to_clipboard=True, purpose=f"Run tool {tool.stem}")
+                                    final_cmd, is_copy_to_clipboard=True, purpose=f"Run tool {tool.stem}", extra_prefix_descriptions=f"{selected_template.name}\n{selected_template.extra_description}"
+                                )
                         return 0
         except Exception as e:
             LOG_EXCEPTION(e)

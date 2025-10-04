@@ -91,3 +91,11 @@ def strip_quotes(path_str: str) -> str:
        (path_str.startswith("'") and path_str.endswith("'")):
         return path_str[1:-1]
     return path_str
+
+def get_stripped_paragraph(paragraph: str) -> str:
+    result = paragraph
+    # Remove consecutive blank lines
+    result = re.sub(r'^\n\s*\n', '\n', result)
+    # Remove leading and trailing newlines
+    result = result.strip('\n')
+    return result

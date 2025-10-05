@@ -10,7 +10,7 @@ NOTI_DURATION_LONG = "long"
 NOTI_DURATION_SHORT = "short"
 
 
-def show_noti(title="Notification", message="Notification Message", duration=NOTI_DURATION_LONG, app_name="Python App", silence_on_success: bool = False):
+def show_noti(title="Notification", message="Notification Message", duration=NOTI_DURATION_LONG, app_name="Python App", no_log_on_success: bool = False):
     snore_duration, duration_seconds = get_duration_info(duration)
     title = sanitize_string(title, max_length=100)  # Shorter limit for title
     message = sanitize_string(message, max_length=300)  # Longer limit for message
@@ -22,7 +22,7 @@ def show_noti(title="Notification", message="Notification Message", duration=NOT
     else:
         success = show_native_notification(title, message, duration_seconds, app_name)
 
-    if success and not silence_on_success:
+    if success and not no_log_on_success:
         LOG(
             f"📱 Notification sent success from {'wsl' if is_wsl_env else 'native' }: {title[:40]}{'...' if len(title) > 40 else ''}")
 

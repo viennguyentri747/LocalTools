@@ -3,19 +3,20 @@
 
 import argparse
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List, Optional
 
 from dev_common import *
 from dev_common.algo_utils import get_match_info
 from dev_common.custom_structures import MatchInfo
-from unit_tests.acu_log_tests.common import batch_fetch_acu_logs_for_days
-
+from available_tools.remote_tools.common import *
 
 MOTION_DETECT_PATTERN = r"MOTION DETECT"
 INS_MONITOR_START_PATTERN = r"INS-READY"
 DEFAULT_ELOG_OUTPUT_PATH = TEMP_FOLDER_PATH / "acu_elogs/"
 DEFAULT_EXTRA_DAYS_BEFORE_TODAY = 4
+DEFAULT_LOG_TYPES = ["E"]
 
 ARG_SEARCH_PATTERNS = f"{ARGUMENT_LONG_PREFIX}search_patterns"
 ARG_EXTRA_DAYS_BEFORE_TODAY = f"{ARGUMENT_LONG_PREFIX}extra_days_before_today"
@@ -46,7 +47,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         ARG_SEARCH_PATTERNS,
         nargs='+',
-        required=True,
+        default=[],
         help="List of regex patterns to search for in the fetched E-logs.",
     )
     parser.add_argument(
@@ -73,40 +74,56 @@ def parse_args() -> argparse.Namespace:
 
 @dataclass
 class IpSummaryData:
+    log_directory: Path = field(default_factory=Path)
     log_files: List[str] = field(default_factory=list)
+    missing_logs: List[str] = field(default_factory=list)
     match_info: Optional[MatchInfo] = None
 
 
-def summarize_single_ip(ip: str, log_files: List[str], match_info: Optional[MatchInfo]) -> None:
+def _generate_date_filters(extra_days_before_today: int) -> List[str]:
+    """Return date strings (YYYYMMDD) covering today and the prior N days."""
+    dates: List[str] = []
+    today = datetime.now()
+    for offset in range(extra_days_before_today + 1):
+        target_day = today - timedelta(days=offset)
+        dates.append(get_acu_log_datename_from_date(target_day))
+    return dates
+
+
+def summarize_single_ip(ip: str, summary: IpSummaryData) -> None:
     LOG(f"{LINE_SEPARATOR}", show_time=False)
     LOG(f"IP:{ip}")
+    if summary.log_directory:
+        LOG(f"Log Directory: {summary.log_directory}")
     LOG("Log Files Status:")
-    if log_files:
-        LOG(f"- ✓ Found: {log_files}")
-        LOG("- ✗ Missing: None")
+    if summary.log_files:
+        LOG(f"- ✓ Found: {summary.log_files}")
+        if summary.missing_logs:
+            LOG(f"- ✗ Missing: {summary.missing_logs}")
+        else:
+            LOG("- ✗ Missing: None")
     else:
         LOG("- ✓ Found: None")
-        # LOG("- ✗ Missing: ['No E-log files downloaded']")
+        LOG(f"- ✗ Missing: {summary.missing_logs or ['No E-log files downloaded']}")
         LOG("Pattern check skipped since no log files found")
         return
 
+    match_info = summary.match_info
     if match_info is None:
-        LOG("> Pattern check skipped - unable to create match info")
+        LOG("> Pattern check skipped since no match info")
         return
 
-    LOG("")
-    LOG("**Pattern Analysis:**")
+    LOG("Pattern Analysis:")
     for pattern in match_info.get_patterns():
         matched_lines = match_info.get_matched_lines(pattern)
-        LOG("")
-        LOG(f"**Pattern:** `{pattern}`")
-        LOG(f"- **Matches:** {len(matched_lines)}")
+        LOG(f"Pattern: `{pattern}`")
+        LOG(f"- Matches: {len(matched_lines)}")
         if matched_lines:
-            LOG("- **Lines:**")
+            LOG("- Lines:")
             for line in matched_lines:
                 LOG(f"  - {line}")
         else:
-            LOG("- **Lines:** None")
+            LOG("- Lines: None")
 
     LOG(f"{LINE_SEPARATOR}", show_time=False)
 
@@ -124,20 +141,22 @@ def main() -> None:
     LOG(f"Storing fetched E-logs under: {elog_output_dir}")
     LOG(f"Fetching logs for IPs: {list_ips}")
 
-    valid_fetch_infos = batch_fetch_acu_logs_for_days(
+    valid_fetch_infos: List[AcuLogInfo] = batch_fetch_acu_logs_for_days(
         list_ips=list_ips,
         extra_days_before_today=extra_days_before_today,
-        log_types=["E"],
+        log_types=DEFAULT_LOG_TYPES,
         parent_path=elog_output_dir,
-    )
+    ) or []
 
     summaries: Dict[str, IpSummaryData] = {
-        str(ip): IpSummaryData() for ip in list_ips
+        str(ip): IpSummaryData(log_directory=elog_output_dir / str(ip)) for ip in list_ips
     }
+
+    date_filters = _generate_date_filters(extra_days_before_today)
 
     for fetch_info in valid_fetch_infos:
         ip = str(fetch_info.ut_ip)
-        summary = summaries.setdefault(ip, IpSummaryData())
+        summary: IpSummaryData = summaries.setdefault(ip, IpSummaryData(log_directory=elog_output_dir / ip))
         all_logs_content = ""
         resolved_paths: List[str] = []
         for log_file in fetch_info.log_paths:
@@ -147,20 +166,29 @@ def main() -> None:
                 all_logs_content += read_file_content(log_file)
             except Exception as exc:
                 LOG(f"Error reading or processing file {log_file}: {exc}")
-        summary.log_files = resolved_paths
-        summary.match_info = get_match_info(all_logs_content, search_patterns, '\n')
-
-    LOG("")
-    ip_list_str = ", ".join(str(ip) for ip in list_ips)
-    LOG(f"# Log Analysis Summary for IPs [{ip_list_str}]")
-    LOG("")
+        summary.log_directory = Path(summary.log_directory) if summary.log_directory else Path(elog_output_dir) / ip
+        summary.log_files = sorted(Path(p).name for p in resolved_paths)
+        summary.missing_logs = calc_missing_logs(summary.log_files, DEFAULT_LOG_TYPES, date_filters)
+        summary.match_info = get_match_info(all_logs_content, search_patterns,
+                                            '\n') if all_logs_content and search_patterns else None
 
     for ip in list_ips:
         ip_str = str(ip)
-        summary = summaries.get(ip_str, IpSummaryData())
-        summarize_single_ip(ip_str, summary.log_files, summary.match_info)
-    
+        summary = summaries.setdefault(ip_str, IpSummaryData(log_directory=elog_output_dir / ip_str))
+        if not summary.missing_logs:
+            summary.missing_logs = calc_missing_logs(summary.log_files, DEFAULT_LOG_TYPES, date_filters)
+
+    ip_list_str = ", ".join(str(ip) for ip in list_ips)
+    LOG(f"{LINE_SEPARATOR}", show_time=False)
+    LOG(f"Log Analysis Summary for IPs [{ip_list_str}]")
+
+    for ip in list_ips:
+        ip_str = str(ip)
+        summary = summaries.get(ip_str, IpSummaryData(log_directory=elog_output_dir / ip_str))
+        summarize_single_ip(ip_str, summary)
+
     show_noti(title="ACU E-log pattern summary completed", message="Check console output for details.")
+
 
 if __name__ == "__main__":
     main()

@@ -55,7 +55,7 @@ def main() -> int:
     
     try:
         # Call the show_noti function directly
-        show_noti(title=title, message=message, duration="long", silence_on_success=True)
+        show_noti(title=title, message=message, duration="long", no_log_on_success=True)
     except Exception as e:
         print(f"❌ Failed to send notification: {e}")
         return 1

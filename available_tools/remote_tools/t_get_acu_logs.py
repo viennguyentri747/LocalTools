@@ -8,7 +8,6 @@ from dev_common import *
 
 
 def get_tool_templates() -> List[ToolTemplate]:
-    # ~/local_tools/misc_tools/t_get_acu_logs.py --type "E" "P" --ips "192.168.100.57" --date "20250928" "20250927"
     return [
         ToolTemplate(
             name="Get ACU Logs",
@@ -30,7 +29,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('-t', '--type', nargs='+', choices=['P', 'T', 'E'],
                         required=True, help='Log filename prefix(es) (P, T, or E).')
     parser.add_argument('-i', '--ips', nargs='+', required=True, help='UT IP address(es) to use as SSH jump host(s).')
-    parser.add_argument('-u', '--user', default='root', help='SSH username (default: root).')
     parser.add_argument('-d', '--date', nargs='+',
                         help='Date(s) to filter logs (YYYYMMDD format). If provided, only logs starting with these dates will be fetched.')
     return parser.parse_args()

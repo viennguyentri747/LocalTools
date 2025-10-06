@@ -9,7 +9,7 @@ from datetime import datetime
 import traceback
 
 
-def run_shell(cmd: Union[str, List[str]], cwd: Optional[Path] = None, check_throw_exception_on_exit_code: bool = True, stdout=None, stderr=None, text=None, capture_output: bool = False, encoding: str = 'utf-8', shell: bool = True, executable: Optional[str] = None) -> subprocess.CompletedProcess:
+def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[Path] = None, check_throw_exception_on_exit_code: bool = True, stdout=None, stderr=None, text=None, capture_output: bool = False, encoding: str = 'utf-8', shell: bool = True, executable: Optional[str] = None, timeout: Optional[int] = None) -> subprocess.CompletedProcess:
     """Echo + run a shell command"""
     if shell and isinstance(cmd, List):
         LOG(f"Shell mode but cmd is a list -> Converting to string...")
@@ -18,8 +18,9 @@ def run_shell(cmd: Union[str, List[str]], cwd: Optional[Path] = None, check_thro
         LOG(f"Non-shell mode but cmd is a string -> Converting to list...")
         cmd = shlex.split(cmd)
 
-    LOG(f">>> {cmd} (cwd={cwd or Path.cwd()})")
-    return subprocess.run(cmd, shell=shell, cwd=cwd, check=check_throw_exception_on_exit_code, stdout=stdout, stderr=stderr, text=text, capture_output=capture_output, encoding=encoding, executable=executable)
+    if show_cmd:
+        LOG(f">>> {cmd} (cwd={cwd or Path.cwd()})")
+    return subprocess.run(cmd, shell=shell, cwd=cwd, check=check_throw_exception_on_exit_code, stdout=stdout, stderr=stderr, text=text, capture_output=capture_output, encoding=encoding, executable=executable, timeout=timeout)
 
 
 def change_dir(path: str):

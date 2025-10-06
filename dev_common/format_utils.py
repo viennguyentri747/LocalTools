@@ -51,20 +51,29 @@ def get_time_stamp_now() -> str:
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
-def quote(s: Union[str, List[str], None]) -> str:
+def quote(s: Union[str, List[str], None]) -> Union[str, List[str]]:
     """Quote a string, list of strings, or None value for shell safety.
+    Ensures all values are wrapped in quotes for consistency.
     """
+    def ensure_quoted(value: str) -> str:
+        """Ensure a string is quoted, adding quotes if not present."""
+        quoted = shlex.quote(value)
+        # If shlex.quote didn't add quotes (safe string), add them manually
+        if quoted == value and not (quoted.startswith("'") or quoted.startswith('"')):
+            return f"'{value}'"
+        return quoted
+    
     if s is None:
         return '""'
     elif isinstance(s, list):
         # Quote each list item individually and return list
-        return [shlex.quote(str(item)) for item in s]
+        return [ensure_quoted(str(item)) for item in s]
     elif not isinstance(s, (str, bytes)):
         # Convert other types to string
         print(f"[WARNING] Converting {type(s)} to string")
         s = str(s)
-
-    return shlex.quote(s)
+    
+    return ensure_quoted(s)
 
 
 def quote_arg_value_if_need(arg_value) -> Union[str, List[str]]:

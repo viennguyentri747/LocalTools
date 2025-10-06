@@ -63,12 +63,15 @@ def discover_and_nest_tools(project_root: Path, folder_pattern: str, tool_prefix
 def build_template_command(tool, template: ToolTemplate):
     """Build command line for a template"""
     cmd_parts = [sys.executable, str(tool.path)]
-    for arg, value in template.args.items():
-        if isinstance(value, list):
-            cmd_parts.append(arg)
-            cmd_parts.extend(quote_arg_value_if_need(v) for v in value)  # cmd_parts.extend(str(v) for v in value)
+    for arg_key, arg_value in template.args.items():
+        if isinstance(arg_value, list):
+            cmd_parts.append(arg_key)
+            LOG(f"Arg list value for {arg_key}: {arg_value}")
+            # time.sleep(3)
+            # breakpoint()
+            cmd_parts.extend(quote_arg_value_if_need(v) for v in arg_value)  # cmd_parts.extend(str(v) for v in value)
         else:
-            cmd_parts.extend([arg, quote_arg_value_if_need(value)])
+            cmd_parts.extend([arg_key, quote_arg_value_if_need(arg_value)])
 
     quoted_parts = []
     LOG(f"Template command parts: {cmd_parts}")

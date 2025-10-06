@@ -3,8 +3,12 @@ from pathlib import Path
 from typing import Iterable, List
 from dev_common import *
 
-SSH_KEY_TYPE_RSA = 'rsa'
-KEY_TYPE_ED25519 = 'ed25519'
+
+ARG_LOG_OUTPUT_PATH = f"{ARGUMENT_LONG_PREFIX}log_output_path"
+ARG_LIST_IPS = f"{ARGUMENT_LONG_PREFIX}ips"
+E_LOG_PREFIX = "E"
+P_LOG_PREFIX = "P"
+T_LOG_PREFIX = "T"
 
 
 class AcuLogInfo:
@@ -107,6 +111,7 @@ def fetch_acu_logs(ut_ip: str, log_types: List[str], dest_folder_path: str | Pat
 
     return AcuLogInfo(is_valid=bool(new_log_paths), ip=ut_ip, log_paths=new_log_paths)
 
+
 def calc_missing_logs(found_files: Iterable[str], log_types: Iterable[str], date_filters: Iterable[str]) -> List[str]:
     """Determine expected log prefixes that were not downloaded."""
     found_names = [Path(path).name for path in found_files]
@@ -117,16 +122,6 @@ def calc_missing_logs(found_files: Iterable[str], log_types: Iterable[str], date
             if not any(name.startswith(expected_prefix) for name in found_names):
                 missing.append(f"{expected_prefix}*")
     return missing
-
-def remove_known_hosts_entries(hosts: List[str]) -> None:
-    """Remove known_hosts entries for given hosts to handle key changes."""
-    for host in hosts:
-        try:
-            LOG(f"{LOG_PREFIX_MSG_INFO} Removing known_hosts entry for {host}...")
-            subprocess.run(['ssh-keygen', '-R', host],
-                           capture_output=True, check=False)
-        except Exception as e:
-            LOG(f"[WARNING] Failed to remove known_hosts entry for {host}: {e}")
 
 
 def build_scp_log_cmd(user: str, jump_ip: str, log_types: List[str],
@@ -155,106 +150,3 @@ def build_scp_log_cmd(user: str, jump_ip: str, log_types: List[str],
 
     cmd.append(dest_path_str)
     return cmd
-
-
-def setup_passwordless_ssh(user: str, jump_host: str, remote_host: str,
-                           key_type: str = SSH_KEY_TYPE_RSA) -> bool:
-    """Set up passwordless SSH authentication."""
-    LOG(f"{LOG_PREFIX_MSG_INFO} Setting up passwordless SSH authentication...")
-
-    # Remove known_hosts entries first (in case of host key changes)
-    all_hosts = [jump_host] + [remote_host]
-    remove_known_hosts_entries(all_hosts)
-
-    # Generate SSH key if needed
-    if not generate_ssh_key(key_type):
-        return False
-
-    _, public_key_path = check_ssh_key_exists(key_type)
-
-    # Copy key to jump hosts first
-    if not copy_ssh_key_to_host(user, jump_host, public_key_path):
-        LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to setup SSH key for jump host {jump_host}")
-        return False
-
-    LOG(f"{LOG_PREFIX_MSG_INFO} Passwordless SSH setup completed successfully!")
-    return True
-
-
-def check_ssh_key_exists(key_type: str = SSH_KEY_TYPE_RSA) -> Tuple[bool, Path]:
-    """Check if SSH key pair already exists."""
-    ssh_dir = Path.home() / '.ssh'
-    if key_type == KEY_TYPE_ED25519:
-        private_key = ssh_dir / 'id_ed25519'
-        public_key = ssh_dir / 'id_ed25519.pub'
-    else:
-        private_key = ssh_dir / 'id_rsa'
-        public_key = ssh_dir / 'id_rsa.pub'
-
-    exists = private_key.exists() and public_key.exists()
-    return exists, public_key
-
-
-def generate_ssh_key(key_type: str = SSH_KEY_TYPE_RSA) -> bool:
-    """Generate SSH key pair if it doesn't exist."""
-    ssh_dir = Path.home() / '.ssh'
-    ssh_dir.mkdir(mode=0o700, exist_ok=True)
-
-    exists, pub_key_path = check_ssh_key_exists(key_type)
-
-    if exists:
-        LOG(f"{LOG_PREFIX_MSG_INFO} SSH key already exists: {pub_key_path}")
-        return True
-
-    LOG(f"{LOG_PREFIX_MSG_INFO} Generating {key_type.upper()} SSH key pair...")
-
-    if key_type == KEY_TYPE_ED25519:
-        key_path = ssh_dir / 'id_ed25519'
-        cmd = ['ssh-keygen', '-t', key_type, '-f', str(key_path), '-N', '']
-    else:
-        key_path = ssh_dir / 'id_rsa'
-        cmd = ['ssh-keygen', '-t', key_type, '-b', '4096', '-f', str(key_path), '-N', '']
-
-    try:
-        subprocess.check_call(cmd)
-        LOG(f"{LOG_PREFIX_MSG_INFO} SSH key generated successfully: {key_path}")
-        return True
-    except subprocess.CalledProcessError as e:
-        LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to generate SSH key: {e}", file=sys.stderr)
-        return False
-
-
-def copy_ssh_key_to_host(user: str, host: str, public_key_path: Path,
-                         via_jump: Optional[str] = None) -> bool:
-    """Copy SSH public key to remote host."""
-    LOG(f"{LOG_PREFIX_MSG_INFO} Copying SSH key to {user}@{host}...")
-
-    try:
-        # Read the public key
-        with open(public_key_path, 'r') as f:
-            public_key = f.read().strip()
-
-        # Build the command to add the key to authorized_keys
-        if via_jump:
-            # Copy via jump host
-            cmd = [
-                'ssh', '-o', f'ProxyJump={user}@{via_jump}',
-                '-o', 'StrictHostKeyChecking=no',
-                f'{user}@{host}',
-                f'mkdir -p ~/.ssh && echo "{public_key}" >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && chmod 700 ~/.ssh'
-            ]
-        else:
-            # Direct copy
-            cmd = [
-                'ssh', '-o', 'StrictHostKeyChecking=no',
-                f'{user}@{host}',
-                f'mkdir -p ~/.ssh && echo "{public_key}" >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && chmod 700 ~/.ssh'
-            ]
-
-        subprocess.check_call(cmd)
-        LOG(f"{LOG_PREFIX_MSG_INFO} SSH key successfully copied to {host}")
-        return True
-
-    except Exception as e:
-        LOG(f"{LOG_PREFIX_MSG_ERROR} Error copying SSH key to {host}: {e}", file=sys.stderr)
-        return False

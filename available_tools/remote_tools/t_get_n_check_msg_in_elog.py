@@ -17,11 +17,8 @@ INS_MONITOR_START_PATTERN = r"INS-READY"
 DEFAULT_ELOG_OUTPUT_PATH = TEMP_FOLDER_PATH / "acu_elogs/"
 DEFAULT_EXTRA_DAYS_BEFORE_TODAY = 4
 DEFAULT_LOG_TYPES = ["E"]
-
 ARG_SEARCH_PATTERNS = f"{ARGUMENT_LONG_PREFIX}search_patterns"
 ARG_EXTRA_DAYS_BEFORE_TODAY = f"{ARGUMENT_LONG_PREFIX}extra_days_before_today"
-ARG_ELOG_OUTPUT_PATH = f"{ARGUMENT_LONG_PREFIX}elog_output_path"
-ARG_LIST_IPS = f"{ARGUMENT_LONG_PREFIX}ips"
 
 
 def get_tool_templates() -> List[ToolTemplate]:
@@ -30,7 +27,7 @@ def get_tool_templates() -> List[ToolTemplate]:
             name="Summarize motion detection and INS readiness",
             args={
                 ARG_SEARCH_PATTERNS: ['"MOTION DETECT"', '"INS-READY"'],
-                ARG_ELOG_OUTPUT_PATH: str(DEFAULT_ELOG_OUTPUT_PATH),
+                ARG_LOG_OUTPUT_PATH: str(DEFAULT_ELOG_OUTPUT_PATH),
                 ARG_EXTRA_DAYS_BEFORE_TODAY: DEFAULT_EXTRA_DAYS_BEFORE_TODAY,
                 ARG_LIST_IPS: LIST_MP_IPS,
             },
@@ -57,7 +54,7 @@ def parse_args() -> argparse.Namespace:
         help=f"Number of extra days before today to fetch logs (default: {DEFAULT_EXTRA_DAYS_BEFORE_TODAY}).",
     )
     parser.add_argument(
-        ARG_ELOG_OUTPUT_PATH,
+        ARG_LOG_OUTPUT_PATH,
         type=str,
         default=str(DEFAULT_ELOG_OUTPUT_PATH),
         help="Directory where fetched E-logs will be stored.",
@@ -133,7 +130,7 @@ def main() -> None:
 
     search_patterns: List[str] = get_arg_value(args, ARG_SEARCH_PATTERNS)
     extra_days_before_today: int = get_arg_value(args, ARG_EXTRA_DAYS_BEFORE_TODAY)
-    elog_output_dir = Path(get_arg_value(args, ARG_ELOG_OUTPUT_PATH)).expanduser()
+    elog_output_dir = Path(get_arg_value(args, ARG_LOG_OUTPUT_PATH)).expanduser()
     list_ips: List[str] = get_arg_value(args, ARG_LIST_IPS)
 
     LOG(f"Using search patterns: {search_patterns}")

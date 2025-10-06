@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
 from available_tools.remote_tools.common import *
-from available_tools.remote_tools.t_get_n_check_msg_in_elog import INS_MONITOR_START_PATTERN
 from dev_common import *
 
 DEFAULT_LOG_TYPE_PREFIXES = [P_LOG_PREFIX, T_LOG_PREFIX, E_LOG_PREFIX]
@@ -18,6 +17,7 @@ ARG_LOG_OUTPUT_PATH = f"{ARGUMENT_LONG_PREFIX}log_output_path"
 ARG_PATTERNS = f"{ARGUMENT_LONG_PREFIX}patterns"
 ARG_MAX_THREAD_COUNT = f"{ARGUMENT_LONG_PREFIX}max_threads"
 MOTION_DETECT_PATTERN = r"MOTION DETECT"
+INS_MONITOR_START_PATTERN = r"INS-READY"
 DEFAULT_MAX_THREAD_COUNT = 20
 
 

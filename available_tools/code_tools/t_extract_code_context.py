@@ -17,7 +17,7 @@ if not already_in_sys_path:
 
 def get_tool_templates() -> List[ToolTemplate]:
     """Get tool templates for both extraction modes."""
-    return get_diff_tool_templates() + get_paths_tool_templates() + get_mr_tool_templates()
+    return get_paths_tool_templates() + get_diff_tool_templates() + get_mr_tool_templates()
 
 
 def parse_args() -> argparse.Namespace:

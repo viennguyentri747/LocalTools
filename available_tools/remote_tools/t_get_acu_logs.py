@@ -196,17 +196,7 @@ def _build_result_summaries(
     return summaries
 
 
-def _format_missing_text(summary: IpFetchSummary, has_date_filters: bool) -> str:
-    if not has_date_filters:
-        return "Unknown (no date filters provided)"
-    if summary.missing_logs:
-        return str(summary.missing_logs)
-    return "None"
-
-
-def _summarize_fetch_results(
-    ips: List[str], summaries: Dict[str, IpFetchSummary], has_date_filters: bool, log_output_dir: Path
-) -> None:
+def _summarize_fetch_results( ips: List[str], summaries: Dict[str, IpFetchSummary], has_date_filters: bool, log_output_dir: Path ) -> None:
     ip_list_str = ", ".join(str(ip) for ip in ips)
     LOG(f"Log Fetch Summary for IPs [{ip_list_str}]")
     LOG("", show_time=False)
@@ -233,6 +223,14 @@ def _summarize_fetch_results(
 
     LOG("", show_time=False)
     LOG(f"{LINE_SEPARATOR}", show_time=False)
+
+
+def _format_missing_text(summary: IpFetchSummary, has_date_filters: bool) -> str:
+    if not has_date_filters:
+        return "Unknown (no date filters provided)"
+    if summary.missing_logs:
+        return str(summary.missing_logs)
+    return "None"
 
 
 def _build_pattern_analysis_command(
@@ -283,11 +281,11 @@ def main() -> None:
         max_thread_count=max_thread_count,
     )
 
-    summaries = _build_result_summaries(results, log_types, date_filters, log_output_dir)
+    summaries: Dict[str, IpFetchSummary] = _build_result_summaries(results, log_types, date_filters, log_output_dir)
     _summarize_fetch_results(ips, summaries, bool(date_filters), log_output_dir)
 
     if pattern_inputs:
-        command = _build_pattern_analysis_command(summaries, pattern_inputs)
+        command: str = _build_pattern_analysis_command(summaries, pattern_inputs)
         if command:
             display_content_to_copy(command, purpose=f"capture patterns {pattern_inputs}", is_copy_to_clipboard=True)
 

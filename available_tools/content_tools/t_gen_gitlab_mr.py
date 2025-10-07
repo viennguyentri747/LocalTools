@@ -20,8 +20,8 @@ def get_tool_templates() -> List[ToolTemplate]:
             name="Generate GitLab MR for sample branch",
             args={
                 ARG_REPO_NAME: default_repo,
-                ARG_SOURCE_BRANCH: "ESA1W-6583_TEST_FIX_FTM_UPGRADE", #Branch name without remote prefix. Ex: feat, NOT origin/feat
-                ARG_TARGET_BRANCH: "manpack_master",
+                ARG_SOURCE_BRANCH: "ESA1W-6583_TEST_FIX_FTM_UPGRADE",  # Branch name without remote prefix. Ex: feat, NOT origin/feat
+                ARG_TARGET_BRANCH: BRANCH_MANPACK_MASTER,
             },
         )
     ]
@@ -62,10 +62,6 @@ def build_mr_description(
     return content
 
 
-def sanitize_filename(value: str) -> str:
-    return re.sub(r"[^A-Za-z0-9._-]", "_", value)
-
-
 def ensure_temp_directory() -> Path:
     TEMP_FOLDER_PATH.mkdir(parents=True, exist_ok=True)
     return TEMP_FOLDER_PATH
@@ -74,8 +70,8 @@ def ensure_temp_directory() -> Path:
 def write_markdown_file(content: str, repo_name: str, ticket_tag: Optional[str], source_branch: str) -> Path:
     temp_dir = ensure_temp_directory()
     ticket_part = ticket_tag or "no_ticket"
-    filename = f"mr_{sanitize_filename(ticket_part)}_{sanitize_filename(repo_name)}_{sanitize_filename(source_branch)}.md"
-    path = temp_dir / filename
+    filename = str_to_file_name(f"mr_{(ticket_part)}_{(repo_name)}_{(source_branch)}")
+    path = temp_dir / f"{filename}.md"
     path.write_text(content, encoding="utf-8")
     return path
 
@@ -110,11 +106,11 @@ def main() -> None:
     project_path = getattr(repo_gl_project, "path_with_namespace", repo_name)
 
     if not is_gl_branch_exists(repo_gl_project, source_branch):
-        LOG( f"{LOG_PREFIX_MSG_ERROR} Source branch '{source_branch}' does not exist in '{project_path}'." )
+        LOG(f"{LOG_PREFIX_MSG_ERROR} Source branch '{source_branch}' does not exist in '{project_path}'.")
         exit(1)
 
     if not is_gl_branch_exists(repo_gl_project, target_branch):
-        LOG( f"{LOG_PREFIX_MSG_ERROR} Target branch '{target_branch}' does not exist in '{project_path}'." )
+        LOG(f"{LOG_PREFIX_MSG_ERROR} Target branch '{target_branch}' does not exist in '{project_path}'.")
         exit(1)
 
     jira_client: JiraClient = get_company_jira_client()

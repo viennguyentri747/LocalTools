@@ -1,3 +1,4 @@
+from enum import Enum
 import re
 import requests
 from collections import defaultdict
@@ -110,9 +111,11 @@ class JiraTicket:
 
         # Ticket type
         tickettype_data = self.fields.get("issuetype", {})
-        self.ticket_type_name = tickettype_data.get("name", "")
+        ticket_type_name = tickettype_data.get("name", "")
+        self.ticket_type_name = ticket_type_name
         self.ticket_type_id = tickettype_data.get("id", "")
-
+        self.issue_type: JiraIssueType = JiraIssueType.from_string(ticket_type_name)
+        
         # Assignee and reporter
         assignee_data = self.fields.get("assignee")
         self.assignee_name = assignee_data.get("displayName", "") if assignee_data else None
@@ -520,3 +523,26 @@ if __name__ == "__main__":
     print(f"\nStatistics:")
     print(f"Resolved: {stats['resolved']}")
     print(f"Unresolved: {stats['unresolved']}")
+
+
+class JiraIssueType(Enum):
+    """Enumeration of common JIRA issue types."""
+    BUG = "Bug"
+    TASK = "Task"
+    STORY = "Story"
+    EPIC = "Epic"
+    SUBTASK = "Sub-task"
+    IMPROVEMENT = "Improvement"
+    INCIDENT = "Incident"
+    CHANGE_REQUEST = "Change Request"
+    TEST = "Test"
+    UNKNOWN = "Unknown"
+
+    @staticmethod
+    def from_string(name: str) -> "JiraIssueType":
+        """Convert string name to JiraIssueType, fallback to UNKNOWN."""
+        normalized = (name or "").strip().lower()
+        for issue_type in JiraIssueType:
+            if issue_type.value.lower() == normalized:
+                return issue_type
+        return JiraIssueType.UNKNOWN

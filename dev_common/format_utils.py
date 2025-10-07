@@ -3,6 +3,7 @@ from datetime import datetime
 import shlex
 from typing import List, Union
 from readable_number import ReadableNumber
+from pathvalidate import sanitize_filename
 
 
 def beautify_number(n, precision=2, use_shortform=True):
@@ -30,6 +31,14 @@ def str_to_slug(s: str):
     s = re.sub(r'[\s_-]+', '-', s)
     s = re.sub(r'^-+|-+$', '', s)
     return s
+
+
+def str_to_file_name(s: str):
+    """
+    Convert a string to a safe filename while preserving spaces and readability.
+    Removes/replaces invalid characters but keeps the name natural.
+    """
+    return sanitize_filename(s.strip())
 
 
 def get_path_no_suffix(path: str, suffix: str) -> str:
@@ -62,7 +71,7 @@ def quote(s: Union[str, List[str], None]) -> Union[str, List[str]]:
         if quoted == value and not (quoted.startswith("'") or quoted.startswith('"')):
             return f"'{value}'"
         return quoted
-    
+
     if s is None:
         return '""'
     elif isinstance(s, list):
@@ -72,7 +81,7 @@ def quote(s: Union[str, List[str], None]) -> Union[str, List[str]]:
         # Convert other types to string
         print(f"[WARNING] Converting {type(s)} to string")
         s = str(s)
-    
+
     return ensure_quoted(s)
 
 
@@ -93,6 +102,7 @@ def quote_arg_value_if_need(arg_value) -> Union[str, List[str]]:
     else:
         return str(arg_value)
 
+
 def strip_quotes(path_str: str) -> str:
     """Remove surrounding quotes from a path string."""
     path_str = path_str.strip()
@@ -100,6 +110,7 @@ def strip_quotes(path_str: str) -> str:
        (path_str.startswith("'") and path_str.endswith("'")):
         return path_str[1:-1]
     return path_str
+
 
 def get_stripped_paragraph(paragraph: str) -> str:
     result = paragraph

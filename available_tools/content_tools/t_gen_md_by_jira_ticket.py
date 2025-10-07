@@ -20,7 +20,8 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_NOTE_REL_PATH: f"{PATH_TO_WORKING_NOTES}",
                 ARG_NOTE_REL_PATHS_TO_ADD_CONTENT: [
                     f"{PATH_TO_WORKING_NOTES}/_Intellian\ Note\ working,\ diary\ \(work\ log\).md"],
-                ARG_IS_GEN_CODING_TASK: True,  
+                ARG_IS_GEN_CODING_TASK: True,
+                ARG_DEFAULT_OW_MANIFEST_BRANCH: BRANCH_MANPACK_MASTER,
                 ARG_TICKET_URL: f"{JIRA_COMPANY_URL}/browse/FPA-3",
             },
         )
@@ -37,6 +38,7 @@ def extract_key_from_jira_url(url: str) -> Optional[str]:
 
 class CodingTaskInfo:
     main_ow_branch: str
+
     def __init__(self, main_ow_branch: str) -> None:
         self.main_ow_branch = main_ow_branch
 
@@ -44,24 +46,24 @@ class CodingTaskInfo:
 def gen_content_markdown(ticket: JiraTicket, coding_task_content: Optional[CodingTaskInfo]) -> str:
     """Generate the code task markdown content from Jira ticket data."""
     manifest: IesaManifest = get_repo_manifest_from_remote(coding_task_content.main_ow_branch)
-    repos = manifest.get_all_repo_names()
+    repo_names = manifest.get_all_repo_names(include_ow_sw_repos=True)
     # 1. Generate the list of repos as a string first
-    repo_list_str = "".join([f"- [ ] {repo}\n" for repo in repos if (CORE_REPOS_PATH / repo).is_dir()])
+    repo_list_str = "".join([f"- [ ] {repo}\n" for repo in repo_names if (CORE_REPOS_PATH / repo).is_dir()])
 
     # 2. Create the template using that variable
     spacing_between_line_around_headers = "\n\n"
     md_content_to_gen: str = (
         f"REF: {ticket.url}{spacing_between_line_around_headers}"
         f"# Ticket Overview:{spacing_between_line_around_headers}"
-        f"### Ticket Title:{spacing_between_line_around_headers} _ {ticket.title}{spacing_between_line_around_headers}"
-        f"### Ticket Description:{spacing_between_line_around_headers}"
+        f"#### Title: {ticket.title}{spacing_between_line_around_headers}"
+        f"#### Description:{spacing_between_line_around_headers}"
         f"{ticket.description if ticket.description else 'No Jira description available'}\n\n"
     )
 
     if coding_task_content:
         md_content_to_gen += (
             f"# Repos to make change:\n\n"
-            f"{repo_list_str}\n\n"
+            f"{repo_list_str}\n"
             f"# Create branch command:\n\n"
             f"```bash\n"
             f"{gen_checkout_command(ticket, coding_task_content.main_ow_branch)}\n"
@@ -73,30 +75,34 @@ def gen_content_markdown(ticket: JiraTicket, coding_task_content: Optional[Codin
 
 def gen_checkout_command(ticket: JiraTicket, main_manifest_branch: str) -> str:
     """Generate the checkout command for a given Jira ticket and main branch."""
-    feature_branch = f"feat/{ticket.key.lower()}-{str_to_slug(ticket.title)}"
+    branch_name = f"{get_branch_prefix_from_ticket(ticket)}/{ticket.key}-{str_to_slug(ticket.title)}"
     repo_manifest: IesaManifest = get_repo_manifest_from_remote(main_manifest_branch)
+    repo_names = repo_manifest.get_all_repo_names(include_ow_sw_repos=True)
 
     # Build the case statement for repo info resolution
     case_statement = "case $repo_name in "
-    repo_names = repo_manifest.get_all_repo_names()
     for repo_name in repo_names:
-        repo_path = CORE_REPOS_PATH / repo_name
-        revision = repo_manifest.get_repo_revision(repo_name) or 'HEAD'  # Default to HEAD if no revision
-        remote = 'origin'    # Hard code to origin instead of repo_manifest.get_repo_remote(repo_name)
-        case_statement += f'"{repo_name}") repo_path="{repo_path}"; repo_revision="{revision}"; repo_remote="{remote}";; '
-    case_statement += "*) repo_path=\"\"; repo_revision=\"\"; repo_remote=\"\" ;; esac"
+        if repo_name == IESA_OW_SW_TOOLS_REPO_NAME:
+            revision = main_manifest_branch
+        else:
+            revision = repo_manifest.get_repo_revision(repo_name)
 
-    # Command with revision-based checkout (no fallback)
+        case_statement += f'"{repo_name}") repo_revision="{revision}";; '
+    case_statement += "*) repo_revision=\"\" ;; esac"
+
+    # Command with revision-based checkout
     repo_options = " ".join([f'"{name}"' for name in repo_names])
     command = (
+        f"repo_base_dir=\"{CORE_REPOS_PATH}\"; "
         f"echo -e \"\\n🔎 Found below repo(s):\"; PS3='Enter your choice (number): '; "
         f"select repo_name in {repo_options}; do "
         f"    {case_statement}; "
-        f"    git -C \"$repo_path\" fetch --all; "
-        f"    if git -C \"$repo_path\" show-ref --verify --quiet refs/heads/{feature_branch}; then "
-        f"        echo -e \"Use existing feature branch with command below:\\ngit -C \\\"$repo_path\\\" checkout {feature_branch}\"; "
+        f"    repo_path=\"$repo_base_dir/$repo_name\"; "
+        f"    cd \"$repo_path\" && git fetch --all; "
+        f"    if git show-ref --verify --quiet refs/heads/{branch_name}; then "
+        f"        echo -e \"Use existing branch:\\n\\ncd \\\"$repo_path\\\" && git checkout {branch_name}\"; "
         f"    else "
-        f"        echo -e \"Create new feature branch with command below:\\ngit -C \\\"$repo_path\\\" checkout $repo_revision && git pull origin $repo_revision && git -C \\\"$repo_path\\\" checkout -b {feature_branch}\"; "
+        f"        echo -e \"Create new branch:\\n\\ncd \\\"$repo_path\\\" && git checkout $repo_revision && git pull origin $repo_revision && git checkout -b {branch_name}\"; "
         f"    fi; "
         f"    break; "
         f"done"
@@ -105,16 +111,24 @@ def gen_checkout_command(ticket: JiraTicket, main_manifest_branch: str) -> str:
     return command
 
 
+def get_branch_prefix_from_ticket(ticket: JiraTicket) -> str:
+    """Get the branch prefix based on the ticket type."""
+    if ticket.issue_type == JiraIssueType.BUG:
+        return "fix"
+    elif ticket.issue_type == JiraIssueType.TASK or ticket.issue_type == JiraIssueType.STORY:
+        return "feat"
+    else:
+        return "chore"  # Default prefix for other types
+
+
 def get_repo_manifest_from_remote(main_manifest_branch: str) -> IesaManifest:
     """Gets the repo manifest from the remote GitLab repository."""
     # Use get_gl_project to get the manifest project object
     # token = read_value_from_credential_file(CREDENTIALS_FILE_PATH, GL_OW_SW_TOOLS_TOKEN_KEY_NAME)
     gl_repo_info: IesaLocalRepoInfo = get_repo_info_by_name(IESA_OW_SW_TOOLS_REPO_NAME)
-    gl_project_path = gl_repo_info.gl_project_path
-    token = gl_repo_info.gl_access_token
-    ow_sw_tools_project = get_gl_project(token, gl_project_path)
+    ow_sw_tools_project = get_gl_project(gl_repo_info)
 
-    LOG(f"Fetching manifest from branch '{main_manifest_branch}' of project '{gl_project_path}', path '{IESA_MANIFEST_FILE_PATH}'...")
+    LOG(f"Fetching manifest from branch '{main_manifest_branch}' of project '{ gl_repo_info.gl_project_path}', path '{IESA_MANIFEST_FILE_PATH}'...")
     # Use get_file_from_remote to fetch the manifest content
     manifest_content = get_file_from_remote(ow_sw_tools_project, str(IESA_MANIFEST_RELATIVE_PATH), main_manifest_branch)
 
@@ -179,7 +193,7 @@ if __name__ == "__main__":
 
     # Save the generated markdown content to a file
     file_prefix = f"{ticket.key}_"
-    file_name = f"{file_prefix}{str_to_slug(ticket.title)}.md"
+    file_name = f"{str_to_file_name(file_prefix + ticket.title)}.md"
     file_path = TEMP_FOLDER_PATH / file_name
     if vault_dir_str and rel_note_dir:
         should_create_note = True

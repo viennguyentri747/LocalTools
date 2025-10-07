@@ -48,7 +48,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_OW_BUILD_TYPE: BUILD_TYPE_IESA,
                 ARG_MANIFEST_SOURCE: MANIFEST_SOURCE_LOCAL,
                 ARG_USE_CURRENT_LOCAL_OW_BRANCH: True,
-                ARG_TISDK_REF: "manpack_master",
+                ARG_TISDK_REF: BRANCH_MANPACK_MASTER,
                 ARG_INTERACTIVE: False,
                 ARG_MAKE_CLEAN: True,
                 ARG_FORCE_RESET_TMP_BUILD: True,
@@ -98,9 +98,9 @@ def main() -> None:
     parser.add_argument(ARG_MANIFEST_SOURCE, choices=[MANIFEST_SOURCE_LOCAL, MANIFEST_SOURCE_REMOTE], default=MANIFEST_SOURCE_LOCAL,
                         help=F"Source for the manifest repository URL ({MANIFEST_SOURCE_LOCAL} or {MANIFEST_SOURCE_REMOTE}). Defaults to {MANIFEST_SOURCE_LOCAL}. Note that although it is local manifest, the source of sync is still remote so will need to push branch of dependent local repos specified in local manifest (not ow_sw_tools).")
     parser.add_argument(ARG_DEFAULT_OW_MANIFEST_BRANCH, default=EMPTY_STR_VALUE,
-                        help="Branch of oneweb_project_sw_tools for manifest (either local or remote branch, depend on --manifest_source). Ex: 'manpack_master'")
+                        help=f"Branch of oneweb_project_sw_tools for manifest (either local or remote branch, depend on --manifest_source). Ex: {BRANCH_MANPACK_MASTER}")
     parser.add_argument(ARG_TISDK_REF, type=str, default=EMPTY_STR_VALUE,
-                        help="TISDK Ref for BSP (for creating .iesa). Ex: 'manpack_master'")
+                        help=f"TISDK Ref for BSP (for creating .iesa). Ex: {BRANCH_MANPACK_MASTER}")
     parser.add_argument(ARG_OVERWRITE_REPOS, nargs='*', default=[],
                         help="List of repository names to overwrite from local")
     parser.add_argument(ARG_INTERACTIVE_SHORT, ARG_INTERACTIVE, type=lambda x: x.lower() == TRUE_STR_VALUE, default=False,

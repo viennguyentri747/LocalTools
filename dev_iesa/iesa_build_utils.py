@@ -1,8 +1,8 @@
 from pathlib import Path
 import sys
 from typing import Dict, List, Optional, Tuple
-from dev_common.constants import GIT_SUFFIX, IESA_MANIFEST_FILE_PATH
-from dev_common.core_utils import LOG
+from dev_common.constants import *
+from dev_common.core_utils import LOG, LOG_EXCEPTION
 from dev_common.format_utils import get_path_no_suffix
 import xml.etree.ElementTree as ElementTree
 
@@ -17,23 +17,32 @@ class IesaManifest:
         """Returns the relative path of a repository vs the tmp_build folder."""
         if repo_name in self._mapping:
             return self._mapping[repo_name][0]
-        return None
+        else:
+            LOG(f"Repo'{repo_name}' not found in manifest")
+            return None
 
     def get_repo_revision(self, repo_name: str) -> Optional[str]:
         """Returns the revision of a repository."""
         if repo_name in self._mapping:
             return self._mapping[repo_name][1]
-        return None
+        else:
+            LOG(f"Repo'{repo_name}' not found in manifest")
+            return None
 
     def get_repo_remote(self, repo_name: str) -> Optional[str]:
         """Returns the remote of a repository."""
         if repo_name in self._mapping:
             return self._mapping[repo_name][2]
-        return None
+        else:
+            LOG(f"Repo'{repo_name}' not found in manifest")
+            return None
 
-    def get_all_repo_names(self) -> List[str]:
+    def get_all_repo_names(self, include_ow_sw_repos: bool = False) -> List[str]:
         """Returns a list of all repository names."""
-        return list(self._mapping.keys())
+        base_list = list(self._mapping.keys())
+        if include_ow_sw_repos:
+            base_list.insert(0, IESA_OW_SW_TOOLS_REPO_NAME)
+        return base_list
 
 
 def parse_local_iesa_manifest(manifest_file: Path = IESA_MANIFEST_FILE_PATH) -> IesaManifest:

@@ -133,7 +133,7 @@ def get_repo_manifest_from_remote(main_manifest_branch: str) -> IesaManifest:
     manifest_content = get_file_from_remote(ow_sw_tools_project, str(IESA_MANIFEST_RELATIVE_PATH), main_manifest_branch)
 
     # Use parse_remote_iesa_manifest to parse the content
-    manifest = parse_remote_iesa_manifest(manifest_content)
+    manifest: IesaManifest = parse_remote_gl_iesa_manifest(manifest_content)
 
     return manifest
 
@@ -193,7 +193,7 @@ if __name__ == "__main__":
 
     # Save the generated markdown content to a file
     file_prefix = f"{ticket.key}_"
-    file_name = f"{str_to_file_name(file_prefix + ticket.title)}.md"
+    file_name = f"{sanitize_str_to_file_name(file_prefix + ticket.title)}.md"
     file_path = TEMP_FOLDER_PATH / file_name
     if vault_dir_str and rel_note_dir:
         should_create_note = True

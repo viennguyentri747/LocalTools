@@ -102,10 +102,7 @@ def main_paths(args: argparse.Namespace) -> None:
             LOG(f"Estimated token count for {filename}: {beautify_number(token_count)}")
 
         if not no_open_explorer:
-            if platform.system() == "Windows":
-                open_explorer_to_file(output_file_path)
-            else:
-                LOG(f"Skipping opening file explorer on non-Windows OS.")
+            open_explorer_to_file(output_file_path)
 
     if failures:
         sys.exit(1)

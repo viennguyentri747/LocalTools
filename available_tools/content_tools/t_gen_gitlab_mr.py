@@ -7,7 +7,7 @@ from textwrap import dedent
 from typing import Optional, List
 
 from dev_common import *
-from dev_common.gitlab_utils import get_gl_project, is_gl_branch_exists
+from dev_common.gitlab_utils import get_gl_project, is_gl_ref_exists
 
 JIRA_BASE_URL = "https://intelliantech.atlassian.net"
 
@@ -18,6 +18,7 @@ def get_tool_templates() -> List[ToolTemplate]:
     return [
         ToolTemplate(
             name="Generate GitLab MR for sample branch",
+            extra_description=f"{NOTE_AVAILABLE_LOCAL_REPO_NAMES}",
             args={
                 ARG_REPO_NAME: default_repo,
                 ARG_SOURCE_BRANCH: "ESA1W-6583_TEST_FIX_FTM_UPGRADE",  # Branch name without remote prefix. Ex: feat, NOT origin/feat
@@ -38,7 +39,7 @@ def extract_ticket_tag(branch_name: str) -> Optional[str]:
     return None
 
 
-def build_mr_description(
+def create_mr_content(
     jira_ticket: JiraTicket = None,
 ) -> str:
     """Fill the Markdown template with contextual details."""
@@ -50,10 +51,10 @@ def build_mr_description(
 {jira_ticket.minimal_description}
 
 ## Associated Jira tasks
-{f"- [{jira_ticket.key}]({jira_ticket.url})" if jira_ticket else "- None"}
+{f"[{jira_ticket.key}]({jira_ticket.url})" if jira_ticket else "- None"}
 
 ## Testing done for this MR
-- Tested ?
+- Testing ?
 
 ## Additional Information
 """
@@ -70,7 +71,7 @@ def ensure_temp_directory() -> Path:
 def write_markdown_file(content: str, repo_name: str, ticket_tag: Optional[str], source_branch: str) -> Path:
     temp_dir = ensure_temp_directory()
     ticket_part = ticket_tag or "no_ticket"
-    filename = str_to_file_name(f"mr_{(ticket_part)}_{(repo_name)}_{(source_branch)}")
+    filename = sanitize_str_to_file_name(f"mr_{(ticket_part)}_{(repo_name)}_{(source_branch)}")
     path = temp_dir / f"{filename}.md"
     path.write_text(content, encoding="utf-8")
     return path
@@ -105,11 +106,11 @@ def main() -> None:
 
     project_path = getattr(repo_gl_project, "path_with_namespace", repo_name)
 
-    if not is_gl_branch_exists(repo_gl_project, source_branch):
+    if not is_gl_ref_exists(repo_gl_project, source_branch):
         LOG(f"{LOG_PREFIX_MSG_ERROR} Source branch '{source_branch}' does not exist in '{project_path}'.")
         exit(1)
 
-    if not is_gl_branch_exists(repo_gl_project, target_branch):
+    if not is_gl_ref_exists(repo_gl_project, target_branch):
         LOG(f"{LOG_PREFIX_MSG_ERROR} Target branch '{target_branch}' does not exist in '{project_path}'.")
         exit(1)
 
@@ -122,7 +123,7 @@ def main() -> None:
 
     mr_title = f"[{ticket.key}] {ticket.title}"
     LOG(f"{LOG_PREFIX_MSG_INFO} Preparing MR '{mr_title}' from '{source_branch}' to '{target_branch}' in repo '{repo_name}'")
-    description = build_mr_description(
+    description = create_mr_content(
         jira_ticket=ticket,
     )
 
@@ -156,7 +157,7 @@ def main() -> None:
         LOG(f"{LOG_PREFIX_MSG_ERROR} Merge request creation failed.")
         return
 
-    LOG(f"{LOG_PREFIX_MSG_SUCCESS} Created MR !{created_mr.iid}: {created_mr.web_url}")
+    LOG(f"{LOG_PREFIX_MSG_SUCCESS} Created MR {created_mr.iid}: {created_mr.web_url}")
 
 
 if __name__ == "__main__":

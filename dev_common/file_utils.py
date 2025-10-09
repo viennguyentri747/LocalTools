@@ -1,8 +1,10 @@
 from enum import Enum
 import hashlib
 import os
+from pathlib import Path
 import shutil
-from typing import Tuple
+from typing import Tuple, Union
+import xml.etree.ElementTree as ET
 
 
 def expand_and_check_path(path_str: str) -> Tuple[bool, str]:
@@ -86,3 +88,17 @@ def write_to_file(file_path: str, content: str, mode: WriteMode = WriteMode.OVER
     """
     with open(file_path, mode.value) as f:
         f.write(content)
+
+
+def is_same_xml(f1: Union[str, Path], f2: Union[str, Path]) -> bool:
+    def canonicalize(p: Union[str, Path]):
+        p = Path(p)
+        def norm(e):
+            e.attrib = dict(sorted(e.attrib.items()))
+            for c in e:
+                norm(c)
+            e[:] = sorted(e, key=lambda x: (x.tag, sorted(x.attrib.items())))
+        root = ET.parse(p).getroot()
+        norm(root)
+        return ET.tostring(root, encoding='utf-8')
+    return canonicalize(f1) == canonicalize(f2)

@@ -33,7 +33,7 @@ def str_to_slug(s: str):
     return s
 
 
-def str_to_file_name(s: str):
+def sanitize_str_to_file_name(s: str):
     """
     Convert a string to a safe filename while preserving spaces and readability.
     Removes/replaces invalid characters but keeps the name natural.

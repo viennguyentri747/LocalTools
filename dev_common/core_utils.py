@@ -105,31 +105,34 @@ def read_value_from_credential_file(credentials_file_path: str, key_to_read: str
     return None
 
 
+def LOG_EXCEPTION_STR(exception: str, msg=None, exit: bool = True):
+    LOG_EXCEPTION(exception=Exception(exception), msg=msg, exit=exit)
+
+
 def LOG_EXCEPTION(exception: Exception, msg=None, exit: bool = True):
     """Log error with essential info to stderr."""
-    timestamp = datetime.now().strftime("%H:%M:%S")
 
     # One-line header with key info
-    print(f"[{timestamp}] {type(exception).__name__}: {exception}", file=sys.stderr)
+    LOG(f"{type(exception).__name__}: {exception}", file=sys.stderr, highlight=True)
     if msg:
-        print(f"- Context: {msg}", file=sys.stderr)
+        LOG(f"- Context: {msg}", file=sys.stderr, highlight=True)
 
     # Exception-specific critical info only
     if isinstance(exception, subprocess.CalledProcessError):
-        print(f"Command: {exception.cmd} (exit {exception.returncode})", file=sys.stderr)
+        LOG(f"Command: {exception.cmd} (exit {exception.returncode})", file=sys.stderr)
         if hasattr(exception, 'stderr') and exception.stderr:
-            print(f"Error: {exception.stderr.strip()}", file=sys.stderr)
+            LOG(f"Error: {exception.stderr.strip()}", file=sys.stderr)
         if hasattr(exception, 'stdout') and exception.stdout:
-            print(f"Output: {exception.stdout.strip()}", file=sys.stderr)
+            LOG(f"Output: {exception.stdout.strip()}", file=sys.stderr)
     elif isinstance(exception, (FileNotFoundError, PermissionError, OSError)):
         if hasattr(exception, 'filename') and exception.filename:
-            print(f"File: {exception.filename}", file=sys.stderr)
+            LOG(f"File: {exception.filename}", file=sys.stderr)
 
     # Compact traceback (just the relevant line)
     tb = traceback.extract_tb(exception.__traceback__)
     if tb:
         last_frame = tb[-1]
-        print(f"- Location: {last_frame.filename}:{last_frame.lineno} in {last_frame.name}()", file=sys.stderr)
+        LOG(f"- Location: {last_frame.filename}:{last_frame.lineno} in {last_frame.name}()", file=sys.stderr)
 
     if exit:
         sys.exit(1)

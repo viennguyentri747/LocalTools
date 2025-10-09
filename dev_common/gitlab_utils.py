@@ -104,13 +104,31 @@ def get_gl_project(repo_info: IesaLocalRepoInfo) -> Project:
         LOG_EXCEPTION(e)
 
 
-def is_gl_branch_exists(gl_project: Project, branch_name: str) -> bool:
-    """Return True when the branch exists in the project."""
-    if not branch_name:
+def is_gl_ref_exists(gl_project: Project, ref: str) -> bool:
+    """
+    Return True when the ref exists in the project.
+    Checks in order: branch, tag, commit SHA.
+    """
+    if not ref:
         return False
-
+    
     try:
-        gl_project.branches.get(branch_name)
+        # Check if it's a branch
+        gl_project.branches.get(ref)
+        return True
+    except Exception:
+        pass
+    
+    try:
+        # Check if it's a tag
+        gl_project.tags.get(ref)
+        return True
+    except Exception:
+        pass
+    
+    try:
+        # Check if it's a commit SHA (full or short)
+        gl_project.commits.get(ref)
         return True
     except Exception as exc:
         LOG_EXCEPTION(exception=exc, exit=False)

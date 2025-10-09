@@ -214,7 +214,7 @@ def display_content_to_copy(content: str, purpose: str = "", is_copy_to_clipboar
 
 def open_explorer_to_file(file_path: Path) -> None:
     """
-    Open Windows Explorer and highlight the specified file (WSL only).
+    Open Windows Explorer from WSL and highlight the specified file.
     """
     try:
         # Convert WSL path to Windows path

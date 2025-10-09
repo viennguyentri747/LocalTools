@@ -96,13 +96,14 @@ ping_acu_ip() {
     done
     echo -e "\r[$SECONDS s] ✅ $ip is reachable!"
 
+    # c3 = send 3 pings (sequentially), W1 = wait max 1 second for each reply
     while ! sshpass -p "$ut_pass" ssh \
         -o ConnectTimeout=2 \
         -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
         -o LogLevel=ERROR \
         -o BatchMode=no \
-        "$user@$ip" "ping -c1 -W1 $target >/dev/null 2>&1" 2>/dev/null; do
+        "$user@$ip" "ping -c3 -W1 $target >/dev/null 2>&1" 2>/dev/null; do
         echo -ne "\r[$SECONDS s] Waiting for ACU $target ($ip) to be reachable..."
         sleep 1
     done

@@ -132,6 +132,7 @@ class JiraTicket:
 
         # Description
         raw_description = self.fields.get("description")
+        self.raw_description = raw_description
         self.description = self.parse_jira_description(raw_description) if raw_description else ""
 
         # Labels and components
@@ -148,7 +149,6 @@ class JiraTicket:
             return ""
 
         text_parts = []
-
         def _parse_node(node):
             """Recursively parses a single node."""
             node_type = node.get("type")
@@ -161,14 +161,90 @@ class JiraTicket:
             elif node_type == "hardBreak":
                 text_parts.append("\n")
 
+            # Handle inline cards (links to Confluence pages, Jira issues, etc.)
+            elif node_type == "inlineCard":
+                url = node.get("attrs", {}).get("url", "")
+                if url:
+                    text_parts.append(f"[{url}]({url})")
+
+            # Handle regular links
+            elif node_type == "link":
+                url = node.get("attrs", {}).get("href", "")
+                # Parse the link content first
+                link_text = []
+                if "content" in node:
+                    old_parts = text_parts.copy()
+                    text_parts.clear()
+                    for child in node["content"]:
+                        _parse_node(child)
+                    link_text = "".join(text_parts)
+                    text_parts.clear()
+                    text_parts.extend(old_parts)
+                
+                if link_text:
+                    text_parts.append(f"{link_text} ({url})")
+                else:
+                    text_parts.append(url)
+
+            # Handle mentions
+            elif node_type == "mention":
+                mention_text = node.get("attrs", {}).get("text", "@user")
+                text_parts.append(mention_text)
+
+            # Handle emojis
+            elif node_type == "emoji":
+                shortName = node.get("attrs", {}).get("shortName", "")
+                text_parts.append(shortName if shortName else "")
+
+            # Handle code blocks
+            elif node_type == "codeBlock":
+                text_parts.append("\n```\n")
+                if "content" in node:
+                    for child in node["content"]:
+                        _parse_node(child)
+                text_parts.append("\n```\n")
+
+            # Handle inline code
+            elif node_type == "inlineCode":
+                text_parts.append("`")
+                if "content" in node:
+                    for child in node["content"]:
+                        _parse_node(child)
+                text_parts.append("`")
+
             # Handle list items by adding a bullet point
             elif node_type == "listItem":
-                text_parts.append("\n* ")  # Start each list item on a new line with a bullet
+                text_parts.append("\n* ")
+
+            # Handle ordered lists differently
+            elif node_type == "orderedList":
+                # Track item number if needed
+                if "content" in node:
+                    for idx, child in enumerate(node["content"], 1):
+                        text_parts.append(f"\n{idx}. ")
+                        if "content" in child:
+                            for subchild in child["content"]:
+                                _parse_node(subchild)
+                return  # Skip default content processing
+
+            # Handle headings
+            elif node_type == "heading":
+                level = node.get("attrs", {}).get("level", 1)
+                text_parts.append("\n" + "#" * level + " ")
 
             # Handle images by showing their alt text
             elif node_type == "media" and node.get("attrs", {}).get("type") == "file":
                 alt_text = node.get("attrs", {}).get("alt", "image")
                 text_parts.append(f"[{alt_text.strip()}]")
+
+            # Handle blockquotes
+            elif node_type == "blockquote":
+                text_parts.append("\n> ")
+
+            # Handle panels (info, note, warning, etc.)
+            elif node_type == "panel":
+                panel_type = node.get("attrs", {}).get("panelType", "info")
+                text_parts.append(f"\n[{panel_type.upper()}]: ")
 
             # For container nodes, parse their children
             if "content" in node and isinstance(node["content"], list):

@@ -8,6 +8,7 @@ from typing import Optional, List
 
 from dev_common import *
 from dev_common.gitlab_utils import get_gl_project, is_gl_ref_exists
+from dev_common.tools_utils import display_content_to_copy
 
 JIRA_BASE_URL = "https://intelliantech.atlassian.net"
 
@@ -17,10 +18,11 @@ def get_tool_templates() -> List[ToolTemplate]:
     default_repo = IESA_OW_SW_TOOLS_REPO_NAME
     return [
         ToolTemplate(
-            name="Generate GitLab MR for sample branch",
+            name="Create GitLab MR content for target branch",
             extra_description=f"{NOTE_AVAILABLE_LOCAL_REPO_NAMES}",
             args={
                 ARG_REPO_NAME: default_repo,
+                ARG_IS_CREATE_GL_MR: False,
                 ARG_SOURCE_BRANCH: "ESA1W-6583_TEST_FIX_FTM_UPGRADE",  # Branch name without remote prefix. Ex: feat, NOT origin/feat
                 ARG_TARGET_BRANCH: BRANCH_MANPACK_MASTER,
             },
@@ -47,16 +49,11 @@ def create_mr_content(
     # - Auto-generated MR for `{repo_name}` moving `{source_branch}` into `{target_branch}`.
     content = dedent(
         f"""
-## Description / What this MR does
-{jira_ticket.minimal_description}
-
-## Associated Jira tasks
-{f"[{jira_ticket.key}]({jira_ticket.url})" if jira_ticket else "- None"}
+## Description
+- Described in ticket: {f"[{jira_ticket.key}]({jira_ticket.url})" if jira_ticket else "- None"}
 
 ## Testing done for this MR
 - Testing ?
-
-## Additional Information
 """
     ).strip()
 
@@ -87,6 +84,8 @@ def main() -> None:
     parser.add_argument(ARG_REPO_NAME, required=False, help="Repository name as defined in local mapping.")
     parser.add_argument(ARG_SOURCE_BRANCH, required=True, help="Source branch for the merge request.")
     parser.add_argument(ARG_TARGET_BRANCH, required=True, help="Target branch to merge into.")
+    parser.add_argument(ARG_IS_CREATE_GL_MR, type=lambda x: x.lower() == TRUE_STR_VALUE, default=True,
+                        help="Create the GitLab MR. If false, prints title and description.")
 
     args = parser.parse_args()
 
@@ -130,34 +129,38 @@ def main() -> None:
     markdown_path = write_markdown_file(description, repo_name, ticket_key, source_branch)
     LOG(f"{LOG_PREFIX_MSG_INFO} Markdown written to {markdown_path}")
 
-    existing_open_mrs = get_gl_mrs_of_branch(
-        gl_project=repo_gl_project,
-        source_branch=source_branch,
-        target_branch=target_branch,
-        include_closed=False,
-    )
+    is_create_gl_mr = get_arg_value(args, ARG_IS_CREATE_GL_MR)
+    if not is_create_gl_mr:
+        display_content_to_copy(f"{mr_title}\n\n{description}", "Use for MR content")
+    else:
+        existing_open_mrs = get_gl_mrs_of_branch(
+            gl_project=repo_gl_project,
+            source_branch=source_branch,
+            target_branch=target_branch,
+            include_closed=False,
+        )
 
-    if existing_open_mrs:
-        LOG(f"{LOG_PREFIX_MSG_WARNING} Found existing open MR(s) for '{source_branch}':")
-        for mr in existing_open_mrs:
-            LOG(f"  !{mr.iid}: {mr.title} -> {mr.web_url}")
-        if not prompt_confirmation("Proceed with creating another MR anyway?"):
-            LOG(f"{LOG_PREFIX_MSG_INFO} Aborted by user due to existing MR.")
+        if existing_open_mrs:
+            LOG(f"{LOG_PREFIX_MSG_WARNING} Found existing open MR(s) for '{source_branch}':")
+            for mr in existing_open_mrs:
+                LOG(f"  !{mr.iid}: {mr.title} -> {mr.web_url}")
+            if not prompt_confirmation("Proceed with creating another MR anyway?"):
+                LOG(f"{LOG_PREFIX_MSG_INFO} Aborted by user due to existing MR.")
+                return
+
+        created_mr = create_gl_mr(
+            gl_project=repo_gl_project,
+            source_branch=source_branch,
+            target_branch=target_branch,
+            title=mr_title,
+            description=description,
+        )
+
+        if not created_mr:
+            LOG(f"{LOG_PREFIX_MSG_ERROR} Merge request creation failed.")
             return
 
-    created_mr = create_gl_mr(
-        gl_project=repo_gl_project,
-        source_branch=source_branch,
-        target_branch=target_branch,
-        title=mr_title,
-        description=description,
-    )
-
-    if not created_mr:
-        LOG(f"{LOG_PREFIX_MSG_ERROR} Merge request creation failed.")
-        return
-
-    LOG(f"{LOG_PREFIX_MSG_SUCCESS} Created MR {created_mr.iid}: {created_mr.web_url}")
+        LOG(f"{LOG_PREFIX_MSG_SUCCESS} Created MR {created_mr.iid}: {created_mr.web_url}")
 
 
 if __name__ == "__main__":

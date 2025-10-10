@@ -5,12 +5,12 @@ from pathlib import Path
 from typing import List, Tuple
 
 from dev_common.tools_utils import ToolTemplate, build_examples_epilog
-from inertial_sense_tools.decode_gps_status_utils import print_gps_status_report
-from inertial_sense_tools.decode_hdw_status_utils import (
+from available_tools.inertial_sense_tools.decode_gps_status_utils import print_gps_status_report
+from available_tools.inertial_sense_tools.decode_hdw_status_utils import (
     decode_hdw_status,
     print_decoded_status as print_hdw_status,
 )
-from inertial_sense_tools.decode_ins_status_utils import (
+from available_tools.inertial_sense_tools.decode_ins_status_utils import (
     decode_ins_status,
     print_decoded_status as print_ins_status,
 )

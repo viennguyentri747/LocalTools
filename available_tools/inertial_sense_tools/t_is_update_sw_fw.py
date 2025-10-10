@@ -5,8 +5,8 @@ import argparse
 from pathlib import Path
 from typing import List
 from dev_common import *
-from inertial_sense_tools.update_is_fws_utils import *
-from inertial_sense_tools.update_is_sdk_utils import *
+from available_tools.inertial_sense_tools.update_is_fws_utils import *
+from available_tools.inertial_sense_tools.update_is_sdk_utils import *
 
 
 def get_tool_templates() -> List[ToolTemplate]:

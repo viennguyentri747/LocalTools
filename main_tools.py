@@ -76,11 +76,6 @@ def build_template_command(tool, template: ToolTemplate):
     quoted_parts = []
     LOG(f"Template command parts: {cmd_parts}")
     for part in cmd_parts:
-        # Only quote parts that actually need quoting (contain spaces or special chars that need escaping)
-        # if ' ' in part and not (part.startswith('"') and part.endswith('"')):
-        #     quoted_parts.append(quote(part))
-        # else:
-        #     quoted_parts.append(part)
         quoted_parts.append(quote_arg_value_if_need(str(part)))
 
     return ' '.join(quoted_parts)

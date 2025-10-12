@@ -20,22 +20,9 @@ class ToolEntryNode:
     folder_name: Optional[str] = None
 
 
-# Helper functions that don't call other functions in this file
-def _group_by_folder(tools: List[ToolEntry]) -> List[tuple[str, List[ToolEntry]]]:
-    groups: dict[str, List[ToolEntry]] = {}
-    order: List[str] = []
-    for t in tools:
-        if t.folder not in groups:
-            groups[t.folder] = []
-            order.append(t.folder)
-        groups[t.folder].append(t)
-    return [(folder, groups[folder]) for folder in order]
-
-
 def discover_and_nest_tools(project_root: Path, folder_pattern: str, tool_prefix: str) -> List[ToolEntryNode]:
     """Discovers tools and organizes them into a hierarchical structure."""
-    tools = discover_tools(project_root, folder_pattern, tool_prefix)
-
+    tools: List[ToolEntry] = discover_tools(project_root, folder_pattern, tool_prefix)
     root_nodes: dict[str, ToolEntryNode] = {}
 
     for tool in tools:
@@ -43,33 +30,23 @@ def discover_and_nest_tools(project_root: Path, folder_pattern: str, tool_prefix
             folder_path = project_root / tool.folder
             metadata = load_tools_metadata(folder_path)
             root_nodes[tool.folder] = ToolEntryNode(
-                name=tool.folder.upper(),
-                metadata=metadata,
-                folder_name=tool.folder,
-            )
+                name=tool.folder.upper(), metadata=metadata, folder_name=tool.folder, )
 
         tool_node = ToolEntryNode(name=tool.filename, tool=tool)
         root_nodes[tool.folder].children.append(tool_node)
-
     # Sort the root nodes based on priority from folder name
-    try:
-        sorted_nodes = sorted(list(root_nodes.values()), key=lambda node: node.metadata.priority)
-        return sorted_nodes
-    except ValueError as e:
-        LOG(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+    sorted_nodes = sorted(list(root_nodes.values()), key=lambda node: node.metadata.priority)
+    return sorted_nodes
 
 
-def build_template_command(tool, template: ToolTemplate):
+def build_template_command(tool_path: Path, template: ToolTemplate) -> str:
     """Build command line for a template"""
-    cmd_parts = [sys.executable, str(tool.path)]
+    cmd_parts = [sys.executable, str(tool_path)]
     for arg_key, arg_value in template.args.items():
         if isinstance(arg_value, list):
             cmd_parts.append(arg_key)
             LOG(f"Arg list value for {arg_key}: {arg_value}")
-            # time.sleep(3)
-            # breakpoint()
-            cmd_parts.extend(quote_arg_value_if_need(v) for v in arg_value)  # cmd_parts.extend(str(v) for v in value)
+            cmd_parts.extend(quote_arg_value_if_need(v) for v in arg_value)
         else:
             cmd_parts.extend([arg_key, quote_arg_value_if_need(arg_value)])
 
@@ -81,13 +58,78 @@ def build_template_command(tool, template: ToolTemplate):
     return ' '.join(quoted_parts)
 
 
+def select_and_execute_template(tool_path: Path, templates: List[ToolTemplate]) -> int:
+    """
+    Display template selection menu and execute the selected template.
+
+    Args:
+        tool_path: Path to the tool script
+        templates: List of available templates
+
+    Returns:
+        Exit code (0 for success)
+    """
+    if not templates:
+        LOG("No templates available for this tool.")
+        return 0
+
+    # Build option data with command previews
+    option_data = []
+    for i, t in enumerate(templates, 1):
+        # Build command preview for this template
+        preview_cmd = build_template_command(tool_path, t)
+        title = f"[{i}] {t.name}. Note: {t.extra_description}\n    → {preview_cmd}"
+        option_data.append(OptionData(title=title, selectable=True, data=t))
+        option_data.append(OptionData(title="", selectable=False))  # Spacer
+
+    selected = interactive_select_with_arrows(option_data, menu_title=f"Choose a template")
+    if not selected or not selected.selectable:
+        return 0
+
+    selected_template: ToolTemplate = selected.data
+
+    # Build and run final command
+    cmd_line = build_template_command(tool_path, selected_template)
+
+    if selected_template.no_need_live_edit:
+        final_cmd = cmd_line
+    else:
+        search_root = selected_template.search_root if selected_template.search_root else Path.cwd()
+        final_cmd = prompt_input_with_paths(
+            prompt_message=f"Enter command",
+            default_input=f"{cmd_line}",
+            config=PathSearchConfig(search_root=search_root, resolve_symlinks=True, max_results=10),
+        )
+
+    if selected_template.usage_note:
+        LOG(f"Usage note:\n{selected_template.usage_note}")
+
+    if final_cmd:
+        if selected_template.run_now_without_modify:
+            LOG(f"Running template command now")
+            run_shell(final_cmd)
+        else:
+            tool_stem = tool_path.stem
+            display_content_to_copy(
+                final_cmd,
+                is_copy_to_clipboard=True,
+                purpose=f"Run tool {tool_stem}",
+                extra_prefix_descriptions=f"{selected_template.name}\n{selected_template.extra_description}"
+            )
+
+    return 0
+
+
 def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Discover and run local tool scripts")
 
-    p.add_argument(ARG_TOOL_PREFIX, default="t_", help="Filename prefix for tool scripts (default: t_)", )
+    p.add_argument(ARG_TOOL_PREFIX, default="t_", help="Filename prefix for tool scripts (default: t_)")
 
-    p.add_argument(ARG_TOOL_FOLDER_PATTERN, default=r"^(?!misc_tools$).*_tools$",
-                   help=r"Regex to match tool folders at project root, excluding 'ignore_tools' (default: ^(?!ignore_tools$).*_tools$)", )
+    p.add_argument(
+        ARG_TOOL_FOLDER_PATTERN,
+        default=r"^(?!misc_tools$).*_tools$",
+        help=r"Regex to match tool folders at project root, excluding 'ignore_tools' (default: ^(?!ignore_tools$).*_tools$)"
+    )
 
     return p.parse_args(argv)
 
@@ -130,14 +172,19 @@ def interactive_tool_select(message: str, tool_nodes: List[ToolEntryNode]) -> Op
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = parse_args(argv)
     project_root = AVAILABLE_TOOLS_PATH
-    # search_root = get_attribute_value(args, ARG_TOOL_ROOT_PATH)
-    tool_nodes = discover_and_nest_tools(project_root, get_arg_value(
-        args, ARG_TOOL_FOLDER_PATTERN), get_arg_value(args, ARG_TOOL_PREFIX))
+
+    tool_nodes: ToolEntryNode = discover_and_nest_tools(
+        project_root,
+        get_arg_value(args, ARG_TOOL_FOLDER_PATTERN),
+        get_arg_value(args, ARG_TOOL_PREFIX)
+    )
 
     tool = interactive_tool_select(f"Select a tool", tool_nodes)
     if tool is None:
         return 0
+
     LOG(f"Selected tool: {tool.full_path} ....")
+
     # Only show templates for Python tools
     if tool.path.suffix == ".py":
         if str(project_root) not in sys.path:
@@ -147,42 +194,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             if hasattr(module, 'get_tool_templates'):
                 templates: List[ToolTemplate] = module.get_tool_templates()
                 if templates:
-                    # Build option data with command previews
-                    option_data = []
-                    # Main code using the helper function
-                    for i, t in enumerate(templates, 1):
-                        # Build command preview for this template
-                        preview_cmd = build_template_command(tool, t)
-                        title = f"[{i}] {t.name}. Note: {t.extra_description}\n    → {preview_cmd}"
-                        option_data.append(OptionData(title=title, selectable=True, data=t))
-                        option_data.append(OptionData(title="", selectable=False))  # Spacer
-                    selected = interactive_select_with_arrows(option_data, menu_title=f"Choose a template")
-                    if selected and selected.selectable:
-                        selected_template: ToolTemplate = selected.data
-                        # Build and run final command
-                        cmd_line = build_template_command(tool, selected_template)
-                        if selected_template.no_need_live_edit:
-                            final_cmd = cmd_line
-                        else:
-                            search_root = selected_template.search_root if selected_template.search_root else Path.cwd()  # Default to CWD
-                            final_cmd = prompt_input_with_paths(
-                                prompt_message=f"Enter command",
-                                default_input=f"{cmd_line}",
-                                config=PathSearchConfig(search_root=search_root, resolve_symlinks=True, max_results=10),
-                            )
-
-                        if selected_template.usage_note:
-                            LOG(f"Usage note:\n{selected_template.usage_note}")
-                        if final_cmd:
-                            if selected_template.run_now_without_modify:
-                                LOG(f"Running template command now")
-                                run_shell(final_cmd)
-                            else:
-                                LOG(f"Template selected: {selected_template.name}")
-                                display_content_to_copy(
-                                    final_cmd, is_copy_to_clipboard=True, purpose=f"Run tool {tool.stem}", extra_prefix_descriptions=f"{selected_template.name}\n{selected_template.extra_description}"
-                                )
-                        return 0
+                    return select_and_execute_template(tool.path, templates)
         except Exception as e:
             LOG_EXCEPTION(e)
 

@@ -51,7 +51,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_MAKE_CLEAN: True,
                 ARG_FORCE_REMOVE_TMP_BUILD: True,
                 ARG_IS_DEBUG_BUILD: True,
-                ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME, IESA_ADC_LIB_REPO_NAME],
+                ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME],
             }
         ),
         ToolTemplate(
@@ -63,7 +63,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_USE_CURRENT_LOCAL_OW_BRANCH: True,
                 ARG_INTERACTIVE: False,
                 ARG_FORCE_REMOVE_TMP_BUILD: False,
-                ARG_MAKE_CLEAN: False,
+                ARG_MAKE_CLEAN: True,
                 ARG_IS_DEBUG_BUILD: True,
                 ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME, IESA_ADC_LIB_REPO_NAME],
             }

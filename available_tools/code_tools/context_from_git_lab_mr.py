@@ -48,17 +48,16 @@ def main_git_mr(args: argparse.Namespace) -> None:
     final_output_dir.mkdir(parents=True, exist_ok=True)
 
     # Create output filename based on MR URL
-    mr_id = mr_url.rstrip('/').split('/')[-1]
-    info: InfoFromMrUrl = get_info_from_mr_url(mr_url)
-    repo_info: IesaLocalRepoInfo = get_repo_info_by_project_path(info.gl_project_path)
+    mr_info: InfoFromMrUrl = get_info_from_mr_url(mr_url)
+    repo_info: IesaLocalRepoInfo = get_repo_info_by_project_path(mr_info.gl_project_path)
     gl_project = get_gl_project(repo_info)
-    mr: ProjectMergeRequest = get_gl_mr_by_iid(gl_project, info.mr_iid)
+    mr: ProjectMergeRequest = get_gl_mr_by_iid(gl_project, mr_info.mr_iid)
     mr_title = mr.title
     mr_description: str = get_stripped_paragraph(mr.description)
 
-    gl_project_path: str = info.gl_project_path
+    gl_project_path: str = mr_info.gl_project_path
     project_name = gl_project_path.split('/')[-1]
-    output_filename = f"mr_diff_{project_name}_{mr_id}{TXT_EXTENSION}"
+    output_filename = f"mr_diff_{project_name}_MR{mr_info.mr_iid}{TXT_EXTENSION}"
     output_path = final_output_dir / output_filename
 
     is_success = True

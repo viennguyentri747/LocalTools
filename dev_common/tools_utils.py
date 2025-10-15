@@ -206,7 +206,7 @@ def display_content_to_copy(content: str, purpose: str = "", is_copy_to_clipboar
     if extra_prefix_descriptions:
         LOG(f"{extra_prefix_descriptions}", show_time=False)
     LOG(f"\n", show_time=False)
-    LOG(f"✅ Content{purpose_text}{clipboard_status}:", show_time=False)
+    LOG(f"✅ Content{purpose_text}{clipboard_status}:", show_time=True)
     LOG(f"{LINE_SEPARATOR}", show_time=False)
     LOG(f"{content}", show_time=False)
     LOG(f"{LINE_SEPARATOR}", show_time=False)

@@ -21,7 +21,7 @@ def get_paths_tool_templates():
                 ARG_EXTRACT_MODE: EXTRACT_MODE_PATHS,
                 ARG_INCLUDE_PATHS_PATTERN: ["*"],
                 ARG_EXCLUDE_PATHS_PATTERN: [".git", ".vscode"],
-                ARG_PATHS_LONG: ["~/core_repos/intellian_pkg/", "~/ow_sw_tools/"],
+                ARG_PATHS_LONG: ["path1", "path2"],
             }
         )
     ]
@@ -71,8 +71,7 @@ def main_paths(args: argparse.Namespace) -> None:
                 else:
                     failures.append(path)
             except Exception as exc:
-                LOG(f"Path '{path}' generated an exception: {exc}")
-                failures.append(path)
+                LOG_EXCEPTION_STR(f"Path '{path}' generated an exception: {exc}", exit=True)
 
     LOG(f"\n{SUMMARY_SEPARATOR}")
     if successes:
@@ -151,14 +150,11 @@ def run_gitingest(input_path: Path, output_dir: Path, include_pattern_list: List
     for pattern in exclude_pattern_list:
         gitingest_cmd.extend([GIT_INGEST_EXCLUDE_FLAG, quote(pattern)])
 
-    try:
-        str_cmd = ' '.join(gitingest_cmd)
-        LOG(f"Starting gitingest for '{input_path}'.")
-        process = run_shell(str_cmd, check_throw_exception_on_exit_code=True,
-                            capture_output=True, text=True, encoding='utf-8', shell=True)
-        success_msg = f"{LOG_PREFIX_MSG_SUCCESS} Finished gitingest for '{input_path}'. Output saved to '{output_path}'."
-        if process.stdout:
-            success_msg += f"\n{process.stdout.strip()}"
-        return True, success_msg, output_path
-    except Exception as e:
-        return False, f"{LOG_PREFIX_MSG_ERROR} An unexpected error occurred while processing '{input_path}': {e}", output_path
+    str_cmd = ' '.join(gitingest_cmd)
+    LOG(f"Starting gitingest for '{input_path}'.")
+    process = run_shell(str_cmd, check_throw_exception_on_exit_code=True,
+                        capture_output=True, text=True, encoding='utf-8', shell=True)
+    success_msg = f"{LOG_PREFIX_MSG_SUCCESS} Finished gitingest for '{input_path}'. Output saved to '{output_path}'."
+    if process.stdout:
+        success_msg += f"\n{process.stdout.strip()}"
+    return True, success_msg, output_path

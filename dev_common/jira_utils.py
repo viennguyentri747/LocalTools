@@ -6,7 +6,7 @@ from typing import List, Dict, Optional, Any
 from datetime import datetime
 
 from dev_common.constants import *
-from dev_common.core_utils import LOG_EXCEPTION, read_value_from_credential_file
+from dev_common.core_utils import LOG, LOG_EXCEPTION, read_value_from_credential_file
 from dev_common.format_utils import get_stripped_paragraph
 
 JIRA_USERNAME = read_value_from_credential_file(CREDENTIALS_FILE_PATH, JIRA_USERNAME_KEY_NAME)
@@ -82,6 +82,7 @@ class JiraTicket:
             ticket_data: Raw ticket data from JIRA API
         """
         self.base_jira_url = base_jira_url.rstrip('/')  # Remove trailing slash if present
+        # LOG(f"DEBUG: Creating JiraTicket for ticket data: {ticket_data}")
         self.raw_data = ticket_data
         self.key: str = ticket_data.get("key", "").upper()
         # self.internal_id: str = ticket_data.get("id", "")
@@ -134,6 +135,13 @@ class JiraTicket:
         raw_description = self.fields.get("description")
         self.raw_description = raw_description
         self.description = self.parse_jira_description(raw_description) if raw_description else ""
+
+        # Environment
+        raw_environment = self.fields.get("environment")
+        self.raw_environment = raw_environment
+        # Usually a string or None
+        self.environment = self.parse_jira_description(raw_environment) if raw_environment else ""
+
 
         # Labels and components
         self.labels = self.fields.get("labels", [])

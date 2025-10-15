@@ -57,7 +57,10 @@ def gen_content_markdown(ticket: JiraTicket, coding_task_content: Optional[Codin
         f"# Ticket Overview:{spacing_between_line_around_headers}"
         f"#### Title: {ticket.title}{spacing_between_line_around_headers}"
         f"#### Description:{spacing_between_line_around_headers}"
-        f"{ticket.description if ticket.description else 'No Jira description available'}\n\n"
+        f"{ticket.description if ticket.description else 'No Jira description available'}{spacing_between_line_around_headers}"
+        f"#### Environment:{spacing_between_line_around_headers}"
+        f"{ticket.environment if ticket.environment else 'No Jira environment description available'}"
+        f"\n\n"
     )
 
     if coding_task_content:

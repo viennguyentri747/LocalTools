@@ -91,7 +91,7 @@ def main_git_diff(args: argparse.Namespace) -> None:
 
         LOG(f"{CELEBRATION_EMOJI} Extraction complete! Output directory: {final_output_dir}")
     else:
-        LOG(f"{FAILURE_EMOJI} Failed to process '{repo_path}'.", file=sys.stderr)
+        LOG_EXCEPTION_STR(f"{FAILURE_EMOJI} Failed to process '{repo_path}'.")
         try:
             shutil.rmtree(final_output_dir)
             LOG(f"Cleaned up empty output directory: {final_output_dir}")

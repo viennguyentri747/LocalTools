@@ -1,6 +1,6 @@
 """Utility helpers for decoding INS status messages from Inertial Sense devices."""
 
-from typing import Dict
+from typing import Dict, Union
 
 # INS Status Flags Constants
 INS_STATUS_HDG_ALIGN_COARSE = 0x00000001
@@ -54,12 +54,15 @@ INS_STATUS_RTOS_TASK_PERIOD_OVERRUN = 0x40000000
 INS_STATUS_GENERAL_FAULT = 0x80000000
 
 
-def decode_ins_status(ins_status: int) -> Dict[str, object]:
-    """Decode a 32-bit INS status value into a structured mapping."""
+def decode_ins_status(ins_status: Union[int, str]) -> Dict[str, Union[str, Dict[str, Union[str, bool]]]]:
+    """Decode a 32-bit INS status value into a structured mapping. Keys are CATEGORICAL heading (for example SOLUTION STATUS) and values corresponding str (corresponding value)/dict(of title: value)."""
+    if isinstance(ins_status, str):
+        ins_status = int(ins_status, 0)
+
     line_separator = f"\n{'=' * 60}\n"
     indent = " " * 4
 
-    decoded_status: Dict[str, object] = {
+    decoded_status: Dict[str, Union[str, Dict[str, object]]] = {
         "Overall Status Value (Hex)": f"0x{ins_status:08X}",
         f"{line_separator}SOLUTION STATUS": get_solution_status(ins_status),
         f"{line_separator}ALIGNMENT STATUS": {

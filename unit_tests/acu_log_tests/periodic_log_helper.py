@@ -32,6 +32,7 @@ from matplotlib.figure import Figure
 
 from unit_tests.acu_log_tests.periodic_log_constants import *
 
+
 class PLogData:
     """
     Encapsulates parsed periodic log data.
@@ -44,7 +45,7 @@ class PLogData:
         timestamps: List of datetime objects for each row
     """
 
-    def __init__(self, header: List[str], rows: List[List[str]], target_columns: List[str], 
+    def __init__(self, header: List[str], rows: List[List[str]], target_columns: List[str],
                  base_time: Optional[dt.datetime] = None, timestamps: Optional[List[dt.datetime]] = None):
         self.header = header
         self.raw_rows = rows
@@ -68,7 +69,7 @@ class PLogData:
 
     def _get_filtered_rows(self) -> List[List[str]]:
         """
-        Extract data for target columns from filtered rows.
+        Extract ROWS from RAW_ROWS with filtered columns = TARGET_COLUMNS.
         Returns list of rows, each row is a list of values.
         """
         if not self.target_columns or not self.raw_rows:
@@ -84,13 +85,46 @@ class PLogData:
 
         return filtered_rows
 
+
+    def get_target_column_row_values(self, column_name: str) -> List[str]:
+        """
+        Extracts all row values for a specific target column.
+
+        Args:
+            column_name: The name of the column to extract values from.
+
+        Returns:
+            A list of string values from the specified column for all rows.
+            Returns an empty list if the column is not found or there are no rows.
+        """
+        # Return an empty list if there's no data or the column doesn't exist.
+        if not self.raw_rows or column_name not in self.header:
+            return []
+
+        # Find the index of the target column.
+        try:
+            col_idx = self.header.index(column_name)
+        except ValueError:
+            # This case is redundant due to the 'in' check above but is good practice.
+            return []
+
+        # Extract the value from each row at the determined index.
+        # Use a list comprehension for a concise implementation.
+        # It includes a check to prevent IndexError on ragged rows.
+        column_values = [
+            row[col_idx] if col_idx < len(row) else ""
+            for row in self.raw_rows
+        ]
+
+        return column_values
+
     def get_numeric_columns(self, column_names: List[str]) -> Dict[str, Tuple[List[dt.datetime], List[float]]]:
         """
         Extract numeric data for specified columns.
-        
+
         Args:
             column_names: List of column names to extract
-            
+
         Returns:
             Dictionary mapping column names to (timestamps, values) tuples
         """
@@ -103,15 +137,15 @@ class PLogData:
         for col_name in column_names:
             if col_name not in name_to_idx:
                 continue
-            
+
             col_idx = name_to_idx[col_name]
             times: List[dt.datetime] = []
             values: List[float] = []
-            
+
             for row, timestamp in zip(self.raw_rows, self.timestamps):
                 if col_idx >= len(row):
                     continue
-                    
+
                 try:
                     value = float(row[col_idx])
                     times.append(timestamp)
@@ -119,37 +153,37 @@ class PLogData:
                 except (ValueError, TypeError):
                     # Skip non-numeric values
                     continue
-            
+
             if times and values:
                 result[col_name] = (times, values)
-        
+
         return result
 
-    def plot_columns(self, column_names: List[str], output_path: Optional[str] = None, 
+    def plot_columns(self, column_names: List[str], output_path: Optional[str] = None,
                      show_interactive: bool = True, figsize: Tuple[int, int] = (12, 6)) -> Optional[Figure]:
         """
         Create interactive plots for specified numeric columns.
-        
+
         Args:
             column_names: List of column names to plot
             output_path: Optional path to save the figure
             show: Whether to display the plot interactively
             figsize: Figure size as (width, height)
-            
+
         Returns:
             The matplotlib Figure object, or None if plotting failed
         """
         numeric_data = self.get_numeric_columns(column_names)
-        
+
         if not numeric_data:
             print(f"[WARNING] No numeric data found for columns: {column_names}", file=sys.stderr)
             return None
-        
+
         # Create subplots - one for each column
         n_plots = len(numeric_data)
         fig, axes = plt.subplots(n_plots, 1, figsize=figsize, squeeze=False)
         axes = axes.flatten()
-        
+
         for idx, (col_name, (times, values)) in enumerate(numeric_data.items()):
             ax = axes[idx]
             ax.plot(times, values, marker='o', markersize=3, linewidth=1.5, label=col_name)
@@ -158,14 +192,14 @@ class PLogData:
             ax.set_title(f'{col_name} over Time')
             ax.grid(True, alpha=0.3)
             ax.legend()
-            
+
             # Format x-axis to show time nicely
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
             ax.xaxis.set_major_locator(mdates.AutoDateLocator())
             fig.autofmt_xdate()
-        
+
         plt.tight_layout()
-        
+
         # Save if output path provided
         if output_path:
             try:
@@ -173,11 +207,11 @@ class PLogData:
                 print(f"{LOG_PREFIX_MSG_INFO} Graph saved to: {output_path}")
             except Exception as e:
                 print(f"[ERROR] Failed to save graph: {e}", file=sys.stderr)
-        
+
         # Show interactive plot
         if show_interactive:
             plt.show()
-        
+
         return fig
 
     def print_summary(self):
@@ -212,11 +246,14 @@ def find_header_and_rows(text: str) -> Tuple[Optional[List[str]], List[List[str]
     return header, rows
 
 
+TIME_REGEX = re.compile(r'^(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?$')
+
+
 def parse_time_components(row_time_str: str) -> Optional[Tuple[int, int, int, int]]:
     """
     Breaks a 'HH:MM:SS(.ffffff)' string into integer components.
     """
-    match = re.match(r'^(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?$', row_time_str.strip())
+    match = TIME_REGEX.match(row_time_str.strip())  # Use the pre-compiled regex
     if not match:
         return None
     hh, mm, ss, fraction = match.groups()
@@ -344,7 +381,7 @@ def parse_periodic_log(log_path: str, target_columns: List[str], max_time_captur
         filtered_rows = valid_rows
         filtered_times = valid_times
 
-    return PLogData(header=header, rows=filtered_rows, target_columns=found_target_columns, 
+    return PLogData(header=header, rows=filtered_rows, target_columns=found_target_columns,
                     base_time=base_time, timestamps=filtered_times)
 
 
@@ -355,7 +392,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--columns", nargs="+", default=[TIME_COLUMN], help="Target column names to display (default: Time)")
     p.add_argument("--format", default="fancy_grid",
                    help="Table format (grid, simple, fancy_grid, pipe, etc.). Default: fancy_grid")
-    p.add_argument("--graph", nargs="*", help="Column names to plot (space-separated). If not specified, no graphs are generated.")
+    p.add_argument("--graph", nargs="*",
+                   help="Column names to plot (space-separated). If not specified, no graphs are generated.")
     p.add_argument("--no-show", action="store_true", help="Don't display interactive plot window")
     p.add_argument("--graph-output", help="Path to save graph image (PNG format recommended)")
     args = p.parse_args(argv)
@@ -406,15 +444,15 @@ def main(argv: Optional[List[str]] = None) -> int:
             graph_columns = [col for col in args.columns if col != TIME_COLUMN]
         else:
             graph_columns = args.graph
-        
+
         if graph_columns:
             print(f"\n{LOG_PREFIX_MSG_INFO} Generating graphs for: {graph_columns}")
-            
+
             # Determine output path for graph
             graph_output = args.graph_output
             if not graph_output:
                 graph_output = f"{TEMP_FOLDER_PATH}/PlogTest_graph.png"
-            
+
             plog_data.plot_columns(
                 column_names=graph_columns,
                 output_path=graph_output,

@@ -4,11 +4,7 @@ is_vscode_terminal() {
 
 mount_h() {
     # echo "Check if need mount H: drive"
-    
-    # First check if H: exists in Windows
-    powershell.exe -Command '$result = if (Test-Path H:) { "SUCCESS" } else { "FAIL" }; $result | Out-File -FilePath "$env:TEMP\ps_result.txt" -Encoding UTF8 -NoNewline'
-    # Read the result from the temp file
-    if grep -q "SUCCESS" /mnt/c/Users/VIEN~1.NGU/AppData/Local/Temp/ps_result.txt; then
+    if powershell.exe -NoProfile -Command "if (Test-Path 'H:') { exit 0 } else { exit 1 }"; then
         has_h_drive=true
     else
         has_h_drive=false

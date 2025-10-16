@@ -85,3 +85,24 @@ rm() {
         fi
     done
 }
+
+explorer() {
+    local file_path="$1"
+    
+    # Convert WSL path to Windows path
+    local windows_path
+    if ! windows_path=$(wslpath -w "$file_path" 2>&1); then
+        echo "Failed to convert path: $windows_path" >&2
+        return 1
+    fi
+    
+    # Open Explorer with file selected
+    explorer.exe /select,"$windows_path"
+    
+    # if [ $? -eq 0 ]; then
+    #     echo "Opened Explorer to highlight '$file_path'"
+    # else
+    #     echo "Failed to open Explorer" >&2
+    #     return 1
+    # fi
+}

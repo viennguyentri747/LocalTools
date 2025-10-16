@@ -12,12 +12,12 @@ from dev_common import *
 @dataclass(frozen=True)
 class TemplateArgs:
     """Context passed to template builders."""
-    pattern: str
     search_path: Path
     ignore_case: bool
     literal: bool
     context: int
     max_depth: Optional[int]
+    pattern: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -38,11 +38,9 @@ class TemplateDefinition:
     key: str
     display_name: str
     description: str
-    builder: TemplateBuilder
     file_exts: List[str]
     default_args: Dict[str, object]
     usage_note: str = ""
-    is_grouped: bool = False
 
 
 @dataclass(frozen=True)
@@ -54,7 +52,6 @@ class GroupedTemplateDefinition:
     patterns: List[SearchPattern]
     file_exts: List[str]
     default_args: Dict[str, object]
-    usage_note: str = ""
 
 
 def quote(s: str) -> str:
@@ -88,6 +85,70 @@ def build_rg_command(regex: str, args: TemplateArgs, file_exts: List[str], extra
     return " ".join(parts)
 
 
+def build_fzf_command(
+    description: str, grouped_patterns: List[Tuple[str, str, str]], search_dir: str, file_exts: List[str]
+) -> str:
+    """Build the fzf command with a search_symbol shell function as a one-liner."""
+    rg_file_exts_str = " ".join([f"-g '*.{ext}'" for ext in file_exts])
+
+    command_parts = []
+    for rg_command, category, _ in grouped_patterns:
+        # Extract regex from the original rg_command
+        match = re.search(r"-e\s+'([^']*)'", rg_command)
+        if not match:
+            continue
+        regex = match.group(1)
+        
+        # Replace the placeholder with the shell variable `${symbol}`
+        regex_prefix = regex.replace(r'SYMBOL_PLACEHOLDER', r'${symbol}')
+
+        conditional_command = (
+            f'output=$(rg -n {rg_file_exts_str} -e "{regex_prefix}" "{search_dir}" 2>/dev/null); '
+            f'if [ -n "$output" ]; then '
+            # f'echo "=== {category} ==="; '
+            f'echo "$output"; '
+            f'fi'
+        )
+        command_parts.append(conditional_command)
+
+    search_function_body = "; ".join(command_parts)
+
+    # Build as a one-liner without line breaks or escaping
+    fzf_command = (
+        f'SEARCH_DIR="{search_dir}"; '
+        f'search_symbol() {{ '
+        f'local symbol="$1"; '
+        f'if [ -z "$symbol" ]; then '
+        f'echo "Type a symbol name to search..."; '
+        f'return; '
+        f'fi; '
+        f'local output; '
+        f'{search_function_body} '
+        f'}}; '
+        f'export -f search_symbol; '
+        f'export SEARCH_DIR; '
+        f'echo "" | fzf '
+        f'--header "{description}. Type to start searching ..." '
+        f'--prompt "Symbol> " '
+        f'--print-query '
+        f'--bind "change:reload:search_symbol {{q}}" '
+        f'--preview-window "up:80%" '
+        f'--ansi --disabled --no-sort'
+    )
+    
+    return fzf_command
+
+
+def build_fzf_fd_command(search_dir: str, initial_query: str = "") -> str:
+    """Builds an fzf command that uses fd for file searching."""
+    return (
+        f'fd --type f . "{search_dir}" | fzf '
+        f'--header "Find files by name. Press Enter to open in editor." '
+        f'--prompt "File> " '
+        f'--query "{initial_query}"'
+    )
+
+
 def build_fd_command(pattern: str, args: TemplateArgs) -> str:
     """Build fd command for file search."""
     parts = ["fd"]
@@ -116,7 +177,7 @@ def regex_c_function_definition(symbol: str, literal: bool) -> str:
         rf"(?:\s+(?:const|volatile))*"
         rf"\s+"
         rf"{sym}"
-        rf"\s*\("
+        r"\s*\("
     )
 
     return pattern
@@ -142,13 +203,13 @@ def regex_c_class_struct_definition(symbol: str, literal: bool) -> str:
         rf"(?:\s+(?:final|abstract))?"  # Class specifiers
         rf"\s+"
         rf"{symbol_name}"
-        rf"\b"  # Word boundary
+        r"\b"
     )
 
 
 def regex_c_macro_definition(symbol: str, literal: bool) -> str:
     sym = build_symbol_regex(symbol, literal)
-    return rf"^\s*#\s*define\s+{sym}"
+    return rf"^\s*#\s*define\s+{sym}\b"
 
 
 def regex_c_typedef_definition(symbol: str, literal: bool) -> str:
@@ -192,23 +253,6 @@ def build_grouped_search(args: TemplateArgs, patterns: List[SearchPattern], file
     return results
 
 
-# C/C++ Template builder functions (legacy single search)
-def fn_c_function_call(args: TemplateArgs, file_exts: List[str]) -> Tuple[str, Optional[str]]:
-    symbol = build_symbol_regex(args.pattern, args.literal)
-    regex = rf"{symbol}\s*\("
-    return build_rg_command(regex, args, file_exts), "Use --context to see call arguments"
-
-
-def fn_c_variable_usage(args: TemplateArgs, file_exts: List[str]) -> Tuple[str, Optional[str]]:
-    symbol = build_symbol_regex(args.pattern, args.literal)
-    return build_rg_command(symbol, args, file_exts, ["--color=always"]), None
-
-
-# Generic file search
-def fn_file_name(args: TemplateArgs, file_exts: List[str]) -> Tuple[str, Optional[str]]:
-    return build_fd_command(args.pattern, args), None
-
-
 # Template definitions
 C_CPP_EXTS = ["c", "cpp", "cc", "cxx", "h", "hpp", "hxx"]
 
@@ -229,45 +273,29 @@ USAGE_PATTERNS = [
 
 # Grouped template definitions
 GROUPED_TEMPLATES: Dict[str, GroupedTemplateDefinition] = {
-    "c-all-definitions": GroupedTemplateDefinition(
-        "c-all-definitions",
-        "Find all C/C++ definitions",
-        "Search for all types of definitions (functions, variables, classes, etc.)",
+    "c-fzf-definitions": GroupedTemplateDefinition(
+        "c-fzf-definitions",
+        "Fzf C/C++ definitions",
+        "Interactively search definitions (functions, variables, etc.) using fzf",
         DEFINITION_PATTERNS,
         C_CPP_EXTS,
-        {"--pattern": "SymbolName", "--path": "~/core_repos/"},
-        "Searches for all definition types and groups results by category",
+        {"--path": "~/core_repos/"},
     ),
-    "c-all-usage": GroupedTemplateDefinition(
-        "c-all-usage",
-        "Find all C/C++ usage",
-        "Search for all types of symbol usage (calls, references)",
+    "c-fzf-usages": GroupedTemplateDefinition(
+        "c-fzf-usages",
+        "Fzf C/C++ symbol usages",
+        "Interactively search symbol usages (function calls, references, etc.) using fzf",
         USAGE_PATTERNS,
         C_CPP_EXTS,
-        {"--pattern": "SymbolName", "--path": "~/core_repos/"},
-        "Searches for all usage types and groups results by category",
+        {"--path": "~/core_repos/"},
     ),
-}
-
-# Single search templates (legacy)
-TEMPLATES: Dict[str, TemplateDefinition] = {
-    "file-name": TemplateDefinition(
-        "file-name",
-        "Find files by name",
-        "Locate files matching a pattern using fd",
-        fn_file_name,
-        [],
-        {"--pattern": "partial_file_name", "--path": "~/core_repos/"},
-        "Use --max-depth to limit recursion depth",
-    ),
-    "c-function-call": TemplateDefinition(
-        "c-function-call",
-        "Find C/C++ function calls",
-        "Search for function invocations in C/C++ code",
-        fn_c_function_call,
-        C_CPP_EXTS,
-        {"--pattern": "FunctionName", "--path": "~/core_repos/"},
-        "Combine with --context for call site details",
+    "fzf-file-name": GroupedTemplateDefinition(
+        "fzf-file-name",
+        "Fzf file name",
+        "Interactively search for files by name using fd and fzf.",
+        [],  # No pre-defined rg patterns
+        [],  # Not applicable
+        {"--path": "~/core_repos/"},
     ),
 }
 
@@ -278,19 +306,6 @@ def get_tool_templates() -> List[ToolTemplate]:
 
     # Add grouped templates
     for tmpl in GROUPED_TEMPLATES.values():
-        args = {"--template": tmpl.key, "--run-now" : ""}
-        args.update({k: list(v) if isinstance(v, list) else v for k, v in tmpl.default_args.items()})
-        templates.append(
-            ToolTemplate(
-                name=tmpl.display_name,
-                extra_description=tmpl.description,
-                args=args,
-                usage_note=tmpl.usage_note,
-            )
-        )
-
-    # Add single templates
-    for tmpl in TEMPLATES.values():
         args = {"--template": tmpl.key}
         args.update({k: list(v) if isinstance(v, list) else v for k, v in tmpl.default_args.items()})
         templates.append(
@@ -298,14 +313,14 @@ def get_tool_templates() -> List[ToolTemplate]:
                 name=tmpl.display_name,
                 extra_description=tmpl.description,
                 args=args,
-                usage_note=tmpl.usage_note,
+                should_run_now=True
             )
         )
     return templates
 
 
 def parse_args() -> argparse.Namespace:
-    all_templates = list(GROUPED_TEMPLATES.keys()) + list(TEMPLATES.keys())
+    all_templates = list(GROUPED_TEMPLATES.keys())
     parser = argparse.ArgumentParser(
         description="Generate ripgrep/fd command templates for code search",
         formatter_class=argparse.RawTextHelpFormatter,
@@ -313,14 +328,13 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument("--template", choices=all_templates, required=True, help="Template to use")
-    parser.add_argument("--pattern", default="SYMBOL_NAME", help="Symbol or pattern to search")
     parser.add_argument("--path", default=".", help="Root search path (default: current directory)")
     parser.add_argument("--ignore-case", action="store_true", help="Case-insensitive search")
     parser.add_argument("--regex", action="store_true", help="Treat pattern as regex (default: literal)")
     parser.add_argument("--context", type=int, default=0, help="Lines of context around matches")
     parser.add_argument("--max-depth", type=int, help="Max directory depth for file search")
     parser.add_argument("--no-copy", action="store_true", help="Don't copy to clipboard")
-    parser.add_argument("--run-now", action="store_true", help="Run command immediately")
+    parser.add_argument("pattern", nargs="?", default=None, help="Symbol or pattern to search (optional, used for initial query in some templates)")
     return parser.parse_args()
 
 
@@ -336,65 +350,34 @@ def main() -> None:
         max_depth=args.max_depth,
     )
 
-    # Check if it's a grouped template
-    if args.template in GROUPED_TEMPLATES:
-        tmpl = GROUPED_TEMPLATES[args.template]
-        results = build_grouped_search(template_args, tmpl.patterns, tmpl.file_exts)
-
-        LOG(f"{LOG_PREFIX_MSG_INFO} {tmpl.display_name}")
-        LOG(f"{LOG_PREFIX_MSG_INFO} {tmpl.description}\n")
-
-        # Build combined command with conditional echo statements
-        command_parts = []
-        for command, category, description in results:
-            # This logic captures rg's output and only prints the header if it's not empty.
-            conditional_command = (
-                f"output=$({command}); "
-                f'if [ -n "$output" ]; then '
-                f'echo -e "\\n=== {category} ({description}) ==="; '
-                'echo "$output"; '
-                "fi"
-            )
-            command_parts.append(conditional_command)
-
-        # Join with semicolons for sequential execution
-        full_output = "; ".join(command_parts)
-
-        LOG(f"Combined command:\n{full_output}\n")
-
-        display_content_to_copy(
-            full_output,
-            purpose="Run all searches in one command",
-            is_copy_to_clipboard=not args.no_copy,
-            extra_prefix_descriptions=f"{tmpl.display_name}\n{tmpl.description}",
-        )
-
-        if tmpl.usage_note:
-            LOG(f"{LOG_PREFIX_MSG_INFO} Note: {tmpl.usage_note}")
-
-        if args.run_now:
-            os.system(full_output)
-
-    # Single template
-    elif args.template in TEMPLATES:
-        tmpl = TEMPLATES[args.template]
-        command, note = tmpl.builder(template_args, tmpl.file_exts)
-
-        LOG(f"{LOG_PREFIX_MSG_INFO} Generated command:\n{command}")
-
-        display_content_to_copy(
-            command,
-            purpose="Run search command",
-            is_copy_to_clipboard=not args.no_copy,
-            extra_prefix_descriptions=f"{tmpl.display_name}\n{tmpl.description}",
-        )
-
-        notes = [n for n in [tmpl.usage_note, note] if n]
-        if notes:
-            LOG(f"{LOG_PREFIX_MSG_INFO} Notes:\n- " + "\n- ".join(notes))
-
-    else:
+    # All templates are now grouped/interactive
+    if args.template not in GROUPED_TEMPLATES:
         LOG(f"{LOG_PREFIX_MSG_ERROR} Unknown template '{args.template}'")
+        return
+
+    tmpl = GROUPED_TEMPLATES[args.template]
+    
+    if tmpl.key == "fzf-file-name":
+        # Handle file search template
+        full_output = build_fzf_fd_command(str(template_args.search_path), initial_query=template_args.pattern or "")
+    else:
+        # Handle symbol search templates
+        pattern_for_rg = "SYMBOL_PLACEHOLDER"
+        fzf_template_args = TemplateArgs(
+            pattern=pattern_for_rg,
+            search_path=template_args.search_path,
+            ignore_case=template_args.ignore_case,
+            literal=template_args.literal,
+            context=template_args.context,
+            max_depth=template_args.max_depth,
+        )
+        
+        results = build_grouped_search(fzf_template_args, tmpl.patterns, tmpl.file_exts)
+        full_output = build_fzf_command(tmpl.display_name, results, str(template_args.search_path), tmpl.file_exts)
+
+    LOG(f"Interactive fzf command:\n{full_output}\n")
+    LOG(f"Running interactive fzf command... {full_output}")
+    run_shell(full_output, shell=True,executable='/bin/bash')
 
 
 if __name__ == "__main__":

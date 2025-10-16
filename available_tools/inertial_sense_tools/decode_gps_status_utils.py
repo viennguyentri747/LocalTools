@@ -1,7 +1,7 @@
 """Utility helpers for decoding GPS status messages from Inertial Sense devices."""
 
 from enum import Flag, IntEnum
-from typing import Dict, List
+from typing import Dict, List, Union
 
 # --- Constants and Masks ---
 
@@ -66,8 +66,11 @@ def decode_flags(status: int) -> List[GpsStatusFlags]:
     return [flag for flag in GpsStatusFlags if flag.value & flags_value]
 
 
-def decode_gps_status(status: int) -> Dict[str, object]:
+def decode_gps_status(status: Union[int, str]) -> Dict[str, object]:
     """Decode the GPS status integer into a structured mapping."""
+    if isinstance(status, str):
+        status = int(status, 0)
+
     return {
         "raw_status": status,
         "fix_type": decode_fix_type(status),
@@ -75,7 +78,7 @@ def decode_gps_status(status: int) -> Dict[str, object]:
     }
 
 
-def print_gps_status_report(status: int) -> None:
+def print_gps_status_report(status: Union[int, str]) -> None:
     """Print a human readable summary of the GPS status."""
     decoded = decode_gps_status(status)
 

@@ -66,23 +66,19 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    try:
-        status_value = int(args.status, 0)
-    except ValueError as exc:
-        raise SystemExit(f"Failed to parse status value '{args.status}': {exc}") from exc
-
-    decode_message(args.type, args.status, status_value)
+    status_value = int(args.status, 0)
+    decode_message(args.type, status_value)
 
 
-def decode_message(message_type: str, raw_status: str, status_value: int) -> None:
+def decode_message(message_type: str, status_value: str) -> None:
     """Route decoding to the appropriate helper for the given message type."""
     if message_type == "gps":
-        print(f"Decoding GPS Status: {raw_status} (0x{status_value:08X})")
+        print(f"Decoding GPS Status: {status_value}")
         print_gps_status_report(status_value)
         return
 
     if message_type == "ins":
-        print(f"Decoding INS Status: {raw_status} (0x{status_value:08X})...")
+        print(f"Decoding INS Status: {status_value}...")
         decoded = decode_ins_status(status_value)
         print_ins_status(decoded)
         print("\n" + "=" * 40 + "\n")

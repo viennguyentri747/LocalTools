@@ -1,7 +1,7 @@
 """Utility helpers for decoding hardware status messages from Inertial Sense devices."""
 
 from enum import Flag
-from typing import Dict
+from typing import Dict, Union
 
 # Built-in Test (BIT) Status Field
 HDW_STATUS_BIT_MASK: int = 0x03000000
@@ -85,8 +85,11 @@ def is_set(hdw_status: int, flag: HdwStatusFlags) -> bool:
     return (hdw_status & flag.value) != 0
 
 
-def decode_hdw_status(hdw_status: int) -> Dict[str, object]:
+def decode_hdw_status(hdw_status: Union[int, str]) -> Dict[str, object]:
     """Decode a 32-bit hardware status value into a structured mapping."""
+    if isinstance(hdw_status, str):
+        hdw_status = int(hdw_status, 0)
+
     line_separator = f"\n{'=' * 60}\n"
     indent = " " * 4
 

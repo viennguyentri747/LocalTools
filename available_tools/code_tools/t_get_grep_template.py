@@ -278,7 +278,7 @@ def get_tool_templates() -> List[ToolTemplate]:
 
     # Add grouped templates
     for tmpl in GROUPED_TEMPLATES.values():
-        args = {"--template": tmpl.key}
+        args = {"--template": tmpl.key, "--run-now" : ""}
         args.update({k: list(v) if isinstance(v, list) else v for k, v in tmpl.default_args.items()})
         templates.append(
             ToolTemplate(
@@ -320,7 +320,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--context", type=int, default=0, help="Lines of context around matches")
     parser.add_argument("--max-depth", type=int, help="Max directory depth for file search")
     parser.add_argument("--no-copy", action="store_true", help="Don't copy to clipboard")
-
+    parser.add_argument("--run-now", action="store_true", help="Run command immediately")
     return parser.parse_args()
 
 
@@ -371,6 +371,9 @@ def main() -> None:
 
         if tmpl.usage_note:
             LOG(f"{LOG_PREFIX_MSG_INFO} Note: {tmpl.usage_note}")
+
+        if args.run_now:
+            os.system(full_output)
 
     # Single template
     elif args.template in TEMPLATES:

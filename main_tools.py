@@ -106,8 +106,11 @@ def select_and_execute_template(tool_path: Path, templates: List[ToolTemplate]) 
 
     if final_cmd:
         if selected_template.run_now_without_modify:
-            LOG(f"Running template command now")
+            LOG(f"{LINE_SEPARATOR}", show_time=False)
+            LOG(f"Running template command now ...")
             run_shell(final_cmd)
+            LOG(f"{LINE_SEPARATOR}", show_time=False)
+
         else:
             tool_stem = tool_path.stem
             display_content_to_copy(

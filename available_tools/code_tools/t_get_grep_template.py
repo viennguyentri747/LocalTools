@@ -377,7 +377,8 @@ def main() -> None:
 
     LOG(f"Interactive fzf command:\n{full_output}\n")
     LOG(f"Running interactive fzf command... {full_output}")
-    run_shell(full_output, shell=True,executable='/bin/bash')
+    LOG(f"{LINE_SEPARATOR}", show_time=False)
+    run_shell(full_output, shell=True,executable='/bin/bash',show_cmd=False)
 
 
 if __name__ == "__main__":

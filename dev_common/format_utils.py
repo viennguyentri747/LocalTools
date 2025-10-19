@@ -91,8 +91,22 @@ def quote_arg_value_if_need(arg_value) -> Union[str, List[str]]:
         if (single_value.startswith("'") and single_value.endswith("'")) or (single_value.startswith('"') and single_value.endswith('"')):
             # Already quoted? leave it alone
             return single_value
-        if any(ch in single_value for ch in ['*', '?', '[', ']']):
-            return f"'{single_value}'"
+        
+        # Characters that need quoting in shell arguments
+        # * ? [ ] { }  - Glob/wildcard expansion characters
+        # ( ) < >      - Redirection and subshell characters
+        # | & ;        - Pipe, background, and command separator
+        # $ `          - Variable expansion and command substitution
+        # \            - Escape character
+        # \s           - Whitespace (spaces, tabs, newlines)
+        # " '          - Quote characters themselves
+        needs_quoting = bool(re.search(r'[*?\[\]{}()<>|;&$`\\\s"\']', single_value))
+        
+        if needs_quoting:
+            # Use single quotes and escape any single quotes within
+            escaped_value = single_value.replace("'", "'\"'\"'")
+            return f"'{escaped_value}'"
+        
         return single_value
 
     if isinstance(arg_value, list):

@@ -10,7 +10,7 @@ from types import ModuleType
 from typing import Iterable, List, Optional
 
 from dev_common import LOG, LOG_EXCEPTION
-from main_tools import select_and_execute_template
+from main_tools import diplay_templates
 
 
 def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
@@ -117,7 +117,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         LOG(f"Invalid templates returned from {tool_path}: expected a list.")
         return 1
 
-    return select_and_execute_template(tool_path, templates)
+    return diplay_templates(tool_path, templates)
 
 
 if __name__ == "__main__":

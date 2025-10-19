@@ -28,7 +28,7 @@ def discover_and_nest_tools(project_root: Path, folder_pattern: str, tool_prefix
     for tool in tools:
         if tool.folder not in root_nodes:
             folder_path = project_root / tool.folder
-            metadata = load_tools_metadata(folder_path)
+            metadata: ToolFolderMetadata = load_tools_metadata(folder_path)
             root_nodes[tool.folder] = ToolEntryNode(
                 name=tool.folder.upper(), metadata=metadata, folder_name=tool.folder, )
 
@@ -51,14 +51,16 @@ def build_template_command(tool_path: Path, template: ToolTemplate) -> str:
             cmd_parts.extend([arg_key, quote_arg_value_if_need(arg_value)])
 
     quoted_parts = []
-    LOG(f"Template command parts: {cmd_parts}")
+    # LOG(f"Template command parts: {cmd_parts}")
     for part in cmd_parts:
         quoted_parts.append(quote_arg_value_if_need(str(part)))
 
-    return ' '.join(quoted_parts)
+    final_cmd = ' '.join(quoted_parts)
+    LOG(f"Built template command: {final_cmd}")
+    return final_cmd
 
 
-def select_and_execute_template(tool_path: Path, templates: List[ToolTemplate]) -> int:
+def diplay_templates(tool_path: Path, templates: List[ToolTemplate]) -> int:
     """
     Display template selection menu and execute the selected template.
 
@@ -75,12 +77,18 @@ def select_and_execute_template(tool_path: Path, templates: List[ToolTemplate]) 
 
     # Build option data with command previews
     option_data = []
-    for i, t in enumerate(templates, 1):
+    for i, template in enumerate(templates, 1):
+        if template.should_hidden:
+            continue
+
         # Build command preview for this template
-        preview_cmd = build_template_command(tool_path, t)
-        title = f"[{i}] {t.name}. Note: {t.extra_description}\n    → {preview_cmd}"
-        option_data.append(OptionData(title=title, selectable=True, data=t))
+        preview_cmd = build_template_command(tool_path, template)
+        title = f"[{i}] {template.name}. Note: {template.extra_description}\n    → {preview_cmd}"
+        option_data.append(OptionData(title=title, selectable=True, data=template))
         option_data.append(OptionData(title="", selectable=False))  # Spacer
+    if not option_data:
+        LOG("No templates available for this tool.")
+        return 0
 
     selected = interactive_select_with_arrows(option_data, menu_title=f"Choose a template")
     if not selected or not selected.selectable:
@@ -197,7 +205,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             if hasattr(module, 'get_tool_templates'):
                 templates: List[ToolTemplate] = module.get_tool_templates()
                 if templates:
-                    return select_and_execute_template(tool.path, templates)
+                    return diplay_templates(tool.path, templates)
         except Exception as e:
             LOG_EXCEPTION(e)
 

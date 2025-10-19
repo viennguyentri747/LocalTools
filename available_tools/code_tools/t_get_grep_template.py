@@ -32,35 +32,23 @@ TemplateBuilder = Callable[[TemplateArgs], Tuple[str, Optional[str]]]
 GroupedTemplateBuilder = Callable[[TemplateArgs], List[Tuple[str, str, str]]]  # (command, category, description)
 
 
-@dataclass(frozen=True)
-class TemplateDefinition:
-    """Template configuration."""
-    key: str
-    display_name: str
-    description: str
-    file_exts: List[str]
-    default_args: Dict[str, object]
-    usage_note: str = ""
+ARG_DISPLAY_NAME = f"{ARGUMENT_LONG_PREFIX}display-name"
+ARG_DESCRIPTION = f"{ARGUMENT_LONG_PREFIX}description"
+ARG_SEARCH_MODE = f"{ARGUMENT_LONG_PREFIX}search-mode"
+ARG_PATTERN_KEYS = f"{ARGUMENT_LONG_PREFIX}pattern-keys"
+ARG_FILE_EXTS = f"{ARGUMENT_LONG_PREFIX}file-exts"
+ARG_IGNORE_CASE = f"{ARGUMENT_LONG_PREFIX}ignore-case"
+ARG_REGEX = f"{ARGUMENT_LONG_PREFIX}regex"
+ARG_CONTEXT = f"{ARGUMENT_LONG_PREFIX}context"
+ARG_MAX_DEPTH = f"{ARGUMENT_LONG_PREFIX}max-depth"
+ARG_NO_COPY = f"{ARGUMENT_LONG_PREFIX}no-copy"
 
-
-@dataclass(frozen=True)
-class GroupedTemplateDefinition:
-    """Grouped template configuration."""
-    key: str
-    display_name: str
-    description: str
-    patterns: List[SearchPattern]
-    file_exts: List[str]
-    default_args: Dict[str, object]
+SEARCH_MODE_SYMBOL = "fzf-symbols"
+SEARCH_MODE_FILE = "fzf-files"
 
 
 def quote(s: str) -> str:
     return shlex.quote(s)
-
-
-def build_symbol_regex(symbol: str, literal: bool, word_boundaries: bool = True) -> str:
-    body = re.escape(symbol) if literal else symbol
-    return rf"\b{body}\b" if word_boundaries else body
 
 
 def build_rg_command(regex: str, args: TemplateArgs, file_exts: List[str], extra_flags: Optional[List[str]] = None) -> str:
@@ -93,19 +81,17 @@ def build_fzf_command(
 
     command_parts = []
     for rg_command, category, _ in grouped_patterns:
-        # Extract regex from the original rg_command
         match = re.search(r"-e\s+'([^']*)'", rg_command)
         if not match:
             continue
         regex = match.group(1)
-        
-        # Replace the placeholder with the shell variable `${symbol}`
+
         regex_prefix = regex.replace(r'SYMBOL_PLACEHOLDER', r'${symbol}')
 
         conditional_command = (
-            f'output=$(rg -n {rg_file_exts_str} -e "{regex_prefix}" "{search_dir}" 2>/dev/null); '
+            # Using --color=always ensures the output is colored even when piped.
+            f'output=$(rg -n --color=always {rg_file_exts_str} -e "{regex_prefix}" "{search_dir}" 2>/dev/null); '
             f'if [ -n "$output" ]; then '
-            # f'echo "=== {category} ==="; '
             f'echo "$output"; '
             f'fi'
         )
@@ -113,29 +99,45 @@ def build_fzf_command(
 
     search_function_body = "; ".join(command_parts)
 
-    # Build as a one-liner without line breaks or escaping
-    fzf_command = (
-        f'SEARCH_DIR="{search_dir}"; '
-        f'search_symbol() {{ '
-        f'local symbol="$1"; '
-        f'if [ -z "$symbol" ]; then '
-        f'echo "Type a symbol name to search..."; '
-        f'return; '
-        f'fi; '
-        f'local output; '
-        f'{search_function_body} '
-        f'}}; '
-        f'export -f search_symbol; '
-        f'export SEARCH_DIR; '
+    fzf_runner = (
         f'echo "" | fzf '
         f'--header "{description}. Type to start searching ..." '
         f'--prompt "Symbol> " '
         f'--print-query '
         f'--bind "change:reload:search_symbol {{q}}" '
         f'--preview-window "up:80%" '
+        # --ansi tells fzf to interpret the color codes from rg.
         f'--ansi --disabled --no-sort'
     )
-    
+
+    # MODIFICATION: Simplified final output with color.
+    fzf_command = (
+        # Define color variables for the final output.
+        f"GREEN='\\033[0;32m'; "
+        f"NC='\\033[0m'; "  # No Color (to reset the terminal).
+
+        f'SEARCH_DIR="{search_dir}"; '
+        f'search_symbol() {{ '
+        f'local symbol="$1"; '
+        f'if [ -z "$symbol" ]; then echo "Type a symbol name to search..."; return; fi; '
+        f'local output; '
+        f'{search_function_body} '
+        f'}}; '
+        f'export -f search_symbol; '
+        f'export SEARCH_DIR; '
+
+        f'selection=$({fzf_runner}); '
+        f'if [ -n "$selection" ]; then '
+        # The symbol is the first line of the output (as we use print-query).
+        f'  symbol=$(echo "$selection" | head -n 1); '
+        # The line from rg already has colors, so we just print it.
+        f'  line=$(echo "$selection" | tail -n 1); '
+        # Use `echo -e` to add color to the labels.
+        f'  echo -e "${{GREEN}}Selected Symbol:${{NC}} $symbol"; '
+        f'  echo -e "${{GREEN}}Selected line:${{NC}}   $line"; '
+        f'fi'
+    )
+
     return fzf_command
 
 
@@ -163,9 +165,8 @@ def build_fd_command(pattern: str, args: TemplateArgs) -> str:
     return " ".join(parts)
 
 
-# Regex builders for different pattern types
 def regex_c_function_definition(symbol: str, literal: bool) -> str:
-    sym = build_symbol_regex(symbol, literal)
+    sym = build_symbol_regex(symbol, literal, just_match_prefix=True)
     pattern = (
         rf"^\s*"
         rf"(?:\[\[[\w\s:]+\]\]\s*)*"  # Attributes like [[nodiscard]]
@@ -182,15 +183,13 @@ def regex_c_function_definition(symbol: str, literal: bool) -> str:
 
     return pattern
 
-
 def regex_c_variable_definition(symbol: str, literal: bool) -> str:
-    sym = build_symbol_regex(symbol, literal)
+    sym = build_symbol_regex(symbol, literal, just_match_prefix=True)
     return rf"^\s*(const|static|constexpr|extern|volatile|[\w:<>\[\]\s\*&]+)\s+{sym}\s*(=|;|\[)"
-
 
 def regex_c_class_struct_definition(symbol: str, literal: bool) -> str:
     """Generates a regex to find C/C++ class or struct definitions."""
-    symbol_name = build_symbol_regex(symbol, literal, word_boundaries=True)
+    symbol_name = build_symbol_regex(symbol, literal, word_boundaries=True, just_match_prefix=True)
 
     return (
         rf"^\s*"
@@ -206,43 +205,61 @@ def regex_c_class_struct_definition(symbol: str, literal: bool) -> str:
         r"\b"
     )
 
-
 def regex_c_macro_definition(symbol: str, literal: bool) -> str:
-    sym = build_symbol_regex(symbol, literal)
+    sym = build_symbol_regex(symbol, literal, just_match_prefix=True)
     return rf"^\s*#\s*define\s+{sym}\b"
-
 
 def regex_c_typedef_definition(symbol: str, literal: bool) -> str:
     """
     Generates a regex to find a C typedef definition for a given symbol.
 
     This version handles both:
-    1. Single-line definitions (e.g., `typedef int my_int;`)
+    1. Single-line definitions (e.g., typedef int my_int;)
     2. The closing line of a multi-line struct, enum, or union
-       (e.g., `} my_struct_t;`)
+       (e.g., } my_struct_t;)
     """
-    sym = build_symbol_regex(symbol, literal)
+    sym = build_symbol_regex(symbol, literal, just_match_prefix=True)
 
-    # This pattern matches a line that either starts with `typedef`
-    # OR starts with a closing brace `}` followed by the symbol.
+    # This pattern matches a line that either starts with typedef
+    # OR starts with a closing brace } followed by the symbol.
     return rf"^(?:\s*typedef\s+.*?|\s*}})\s+{sym}\s*;"
 
-
 def regex_c_enum_definition(symbol: str, literal: bool) -> str:
-    sym = build_symbol_regex(symbol, literal, word_boundaries=False)
+    sym = build_symbol_regex(symbol, literal, word_boundaries=False, just_match_prefix=True)
     return rf"^\s*enum\s+(class\s+)?{sym}\b"
 
-
 def regex_c_function_call(symbol: str, literal: bool) -> str:
-    sym = build_symbol_regex(symbol, literal)
+    sym = build_symbol_regex(symbol, literal, just_match_prefix=True)
     return rf"{sym}\s*\("
 
-
 def regex_c_symbol_usage(symbol: str, literal: bool) -> str:
-    return build_symbol_regex(symbol, literal)
+    return build_symbol_regex(symbol, literal, just_match_prefix=True)
 
 
-# Grouped template builders
+def build_symbol_regex(symbol: str, literal: bool, word_boundaries: bool = True, just_match_prefix: bool = False) -> str:
+    """
+    Builds a regex for a symbol with optional word boundaries and prefix matching.
+
+    Args:
+        symbol: The symbol to search for.
+        literal: If True, treats the symbol as a literal string; otherwise, as a regex.
+        word_boundaries: If True, ensures the symbol is matched as a whole word.
+        just_match_prefix: If True, matches symbols that start with the given pattern. Don't haven to match the full symbol.
+
+    Returns:
+        A regex string tailored to the provided specifications.
+    """
+    body = re.escape(symbol) if literal else symbol
+
+    if just_match_prefix:
+        if literal:
+            body = rf"{body}\w*"
+        else:
+            body = rf"(?:{body})\w*"
+
+    return rf"\b{body}\b" if word_boundaries else body
+
+
 def build_grouped_search(args: TemplateArgs, patterns: List[SearchPattern], file_exts: List[str]) -> List[Tuple[str, str, str]]:
     """Build multiple search commands for grouped patterns."""
     results = []
@@ -256,129 +273,178 @@ def build_grouped_search(args: TemplateArgs, patterns: List[SearchPattern], file
 # Template definitions
 C_CPP_EXTS = ["c", "cpp", "cc", "cxx", "h", "hpp", "hxx"]
 
-# Grouped patterns
-DEFINITION_PATTERNS = [
-    SearchPattern("Function Definitions", regex_c_function_definition, "Function declarations"),
-    SearchPattern("Variable Definitions", regex_c_variable_definition, "Variable/field declarations"),
-    SearchPattern("Class/Struct Definitions", regex_c_class_struct_definition, "Class and struct declarations"),
-    SearchPattern("Macro Definitions", regex_c_macro_definition, "#define preprocessor macros"),
-    SearchPattern("Typedef Definitions", regex_c_typedef_definition, "Type alias declarations"),
-    SearchPattern("Enum Definitions", regex_c_enum_definition, "Enumeration declarations"),
-]
+PATTERN_KEY_FUNCTION_DEFINITION = "c-function-definition"
+PATTERN_KEY_VARIABLE_DEFINITION = "c-variable-definition"
+PATTERN_KEY_CLASS_STRUCT_DEFINITION = "c-class-struct-definition"
+PATTERN_KEY_MACRO_DEFINITION = "c-macro-definition"
+PATTERN_KEY_TYPEDEF_DEFINITION = "c-typedef-definition"
+PATTERN_KEY_ENUM_DEFINITION = "c-enum-definition"
+PATTERN_KEY_FUNCTION_CALL = "c-function-call"
+PATTERN_KEY_SYMBOL_USAGE = "c-symbol-usage"
 
-USAGE_PATTERNS = [
-    SearchPattern("Function Calls", regex_c_function_call, "Function invocations"),
-    SearchPattern("Symbol References", regex_c_symbol_usage, "All symbol references"),
-]
-
-# Grouped template definitions
-GROUPED_TEMPLATES: Dict[str, GroupedTemplateDefinition] = {
-    "c-fzf-definitions": GroupedTemplateDefinition(
-        "c-fzf-definitions",
-        "Fzf C/C++ definitions",
-        "Interactively search definitions (functions, variables, etc.) using fzf",
-        DEFINITION_PATTERNS,
-        C_CPP_EXTS,
-        {"--path": "~/core_repos/"},
-    ),
-    "c-fzf-usages": GroupedTemplateDefinition(
-        "c-fzf-usages",
-        "Fzf C/C++ symbol usages",
-        "Interactively search symbol usages (function calls, references, etc.) using fzf",
-        USAGE_PATTERNS,
-        C_CPP_EXTS,
-        {"--path": "~/core_repos/"},
-    ),
-    "fzf-file-name": GroupedTemplateDefinition(
-        "fzf-file-name",
-        "Fzf file name",
-        "Interactively search for files by name using fd and fzf.",
-        [],  # No pre-defined rg patterns
-        [],  # Not applicable
-        {"--path": "~/core_repos/"},
-    ),
+PATTERN_REGISTRY: Dict[str, SearchPattern] = {
+    PATTERN_KEY_FUNCTION_DEFINITION: SearchPattern("Function Definitions", regex_c_function_definition, "Function declarations"),
+    PATTERN_KEY_VARIABLE_DEFINITION: SearchPattern("Variable Definitions", regex_c_variable_definition, "Variable/field declarations"),
+    PATTERN_KEY_CLASS_STRUCT_DEFINITION: SearchPattern("Class/Struct Definitions", regex_c_class_struct_definition, "Class and struct declarations"),
+    PATTERN_KEY_MACRO_DEFINITION: SearchPattern("Macro Definitions", regex_c_macro_definition, "#define preprocessor macros"),
+    PATTERN_KEY_TYPEDEF_DEFINITION: SearchPattern("Typedef Definitions", regex_c_typedef_definition, "Type alias declarations"),
+    PATTERN_KEY_ENUM_DEFINITION: SearchPattern("Enum Definitions", regex_c_enum_definition, "Enumeration declarations"),
+    PATTERN_KEY_FUNCTION_CALL: SearchPattern("Function Calls", regex_c_function_call, "Function invocations"),
+    PATTERN_KEY_SYMBOL_USAGE: SearchPattern("Symbol References", regex_c_symbol_usage, "All symbol references"),
 }
+
+DEFINITION_PATTERN_KEYS = [
+    PATTERN_KEY_FUNCTION_DEFINITION,
+    PATTERN_KEY_VARIABLE_DEFINITION,
+    PATTERN_KEY_CLASS_STRUCT_DEFINITION,
+    PATTERN_KEY_MACRO_DEFINITION,
+    PATTERN_KEY_TYPEDEF_DEFINITION,
+    PATTERN_KEY_ENUM_DEFINITION,
+]
+
+USAGE_PATTERN_KEYS = [
+    PATTERN_KEY_FUNCTION_CALL,
+    PATTERN_KEY_SYMBOL_USAGE,
+]
+
+
+def resolve_patterns(pattern_keys: List[str]) -> Tuple[List[SearchPattern], List[str]]:
+    """Resolve pattern keys to SearchPattern objects."""
+    resolved: List[SearchPattern] = []
+    missing: List[str] = []
+    for key in pattern_keys:
+        pattern = PATTERN_REGISTRY.get(key)
+        if pattern is None:
+            missing.append(key)
+        else:
+            resolved.append(pattern)
+    return resolved, missing
 
 
 def get_tool_templates() -> List[ToolTemplate]:
     """Generate examples for CLI help."""
-    templates = []
-
-    # Add grouped templates
-    for tmpl in GROUPED_TEMPLATES.values():
-        args = {"--template": tmpl.key}
-        args.update({k: list(v) if isinstance(v, list) else v for k, v in tmpl.default_args.items()})
-        templates.append(
-            ToolTemplate(
-                name=tmpl.display_name,
-                extra_description=tmpl.description,
-                args=args,
-                should_run_now=True
-            )
-        )
-    return templates
+    return [
+        ToolTemplate(
+            name="Fzf C/C++ definitions",
+            extra_description="Interactively search definitions (functions, variables, etc.) using fzf",
+            args={
+                ARG_DISPLAY_NAME: "Fzf C/C++ definitions",
+                ARG_DESCRIPTION: "Interactively search definitions (functions, variables, etc.) using fzf",
+                ARG_SEARCH_MODE: SEARCH_MODE_SYMBOL,
+                ARG_PATTERN_KEYS: DEFINITION_PATTERN_KEYS,
+                ARG_FILE_EXTS: C_CPP_EXTS,
+                ARG_PATH_LONG: "~/core_repos/",
+            },
+            should_run_now=True,
+        ),
+        ToolTemplate(
+            name="Fzf C/C++ symbol usages",
+            extra_description="Interactively search symbol usages (function calls, references, etc.) using fzf",
+            args={
+                ARG_DISPLAY_NAME: "Fzf C/C++ symbol usages",
+                ARG_DESCRIPTION: "Interactively search symbol usages (function calls, references, etc.) using fzf",
+                ARG_SEARCH_MODE: SEARCH_MODE_SYMBOL,
+                ARG_PATTERN_KEYS: USAGE_PATTERN_KEYS,
+                ARG_FILE_EXTS: C_CPP_EXTS,
+                ARG_PATH_LONG: "~/core_repos/",
+            },
+            should_run_now=True,
+        ),
+        ToolTemplate(
+            name="Fzf file name",
+            extra_description="Interactively search for files by name using fd and fzf.",
+            args={
+                ARG_DISPLAY_NAME: "Fzf file name",
+                ARG_DESCRIPTION: "Interactively search for files by name using fd and fzf.",
+                ARG_SEARCH_MODE: SEARCH_MODE_FILE,
+                ARG_PATH_LONG: "~/core_repos/",
+            },
+            should_run_now=True,
+        ),
+    ]
 
 
 def parse_args() -> argparse.Namespace:
-    all_templates = list(GROUPED_TEMPLATES.keys())
     parser = argparse.ArgumentParser(
         description="Generate ripgrep/fd command templates for code search",
         formatter_class=argparse.RawTextHelpFormatter,
         epilog=build_examples_epilog(get_tool_templates(), Path(__file__)),
     )
 
-    parser.add_argument("--template", choices=all_templates, required=True, help="Template to use")
-    parser.add_argument("--path", default=".", help="Root search path (default: current directory)")
-    parser.add_argument("--ignore-case", action="store_true", help="Case-insensitive search")
-    parser.add_argument("--regex", action="store_true", help="Treat pattern as regex (default: literal)")
-    parser.add_argument("--context", type=int, default=0, help="Lines of context around matches")
-    parser.add_argument("--max-depth", type=int, help="Max directory depth for file search")
-    parser.add_argument("--no-copy", action="store_true", help="Don't copy to clipboard")
-    parser.add_argument("pattern", nargs="?", default=None, help="Symbol or pattern to search (optional, used for initial query in some templates)")
+    parser.add_argument(ARG_DISPLAY_NAME, default="", help="Display name for the interactive command header.")
+    parser.add_argument(ARG_DESCRIPTION, default="", help="Additional description shown in the command log.")
+    parser.add_argument(ARG_SEARCH_MODE, choices=[SEARCH_MODE_SYMBOL, SEARCH_MODE_FILE], required=True,
+                        help="Search mode to execute.")
+    parser.add_argument(ARG_PATTERN_KEYS, nargs='*', default=[],
+                        help="Pattern keys to include when using symbol search.")
+    parser.add_argument(ARG_FILE_EXTS, nargs='*', default=[],
+                        help="File extensions to filter when searching with ripgrep.")
+    parser.add_argument(ARG_PATH_LONG, default=".", help="Root search path (default: current directory)")
+    parser.add_argument(ARG_IGNORE_CASE, action="store_true", help="Case-insensitive search")
+    parser.add_argument(ARG_REGEX, action="store_true", help="Treat pattern as regex (default: literal)")
+    parser.add_argument(ARG_CONTEXT, type=int, default=0, help="Lines of context around matches")
+    parser.add_argument(ARG_MAX_DEPTH, type=int, help="Max directory depth for file search")
+    parser.add_argument(ARG_NO_COPY, action="store_true", help="Don't copy to clipboard")
+    parser.add_argument("pattern", nargs="?", default=None,
+                        help="Symbol or pattern to search (optional, used for initial query in some templates)")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
 
+    search_mode = get_arg_value(args, ARG_SEARCH_MODE)
+    display_name = get_arg_value(args, ARG_DISPLAY_NAME) or "Interactive search"
+    description = get_arg_value(args, ARG_DESCRIPTION) or display_name
+    pattern_keys = get_arg_value(args, ARG_PATTERN_KEYS) or []
+    file_exts = get_arg_value(args, ARG_FILE_EXTS) or []
+
+    search_path_value = get_arg_value(args, ARG_PATH_LONG)
+    ignore_case = bool(get_arg_value(args, ARG_IGNORE_CASE))
+    literal = not bool(get_arg_value(args, ARG_REGEX))
+    context_value = get_arg_value(args, ARG_CONTEXT)
+    max_depth_value = get_arg_value(args, ARG_MAX_DEPTH)
+    pattern_value = get_arg_value(args, "pattern")
+
     template_args = TemplateArgs(
-        pattern=args.pattern,
-        search_path=Path(args.path).expanduser(),
-        ignore_case=args.ignore_case,
-        literal=not args.regex,
-        context=args.context,
-        max_depth=args.max_depth,
+        pattern=pattern_value,
+        search_path=Path(search_path_value).expanduser(),
+        ignore_case=ignore_case,
+        literal=literal,
+        context=context_value,
+        max_depth=max_depth_value,
     )
 
-    # All templates are now grouped/interactive
-    if args.template not in GROUPED_TEMPLATES:
-        LOG(f"{LOG_PREFIX_MSG_ERROR} Unknown template '{args.template}'")
-        return
-
-    tmpl = GROUPED_TEMPLATES[args.template]
-    
-    if tmpl.key == "fzf-file-name":
-        # Handle file search template
+    if search_mode == SEARCH_MODE_FILE:
         full_output = build_fzf_fd_command(str(template_args.search_path), initial_query=template_args.pattern or "")
-    else:
-        # Handle symbol search templates
-        pattern_for_rg = "SYMBOL_PLACEHOLDER"
-        fzf_template_args = TemplateArgs(
-            pattern=pattern_for_rg,
+    elif search_mode == SEARCH_MODE_SYMBOL:
+        resolved_patterns, missing_keys = resolve_patterns(pattern_keys)
+        if missing_keys:
+            LOG(f"{LOG_PREFIX_MSG_ERROR} Unknown pattern keys: {', '.join(missing_keys)}")
+            return
+        if not resolved_patterns:
+            LOG(f"{LOG_PREFIX_MSG_ERROR} No patterns provided for symbol search.")
+            return
+
+        placeholder_args = TemplateArgs(
+            pattern="SYMBOL_PLACEHOLDER",
             search_path=template_args.search_path,
             ignore_case=template_args.ignore_case,
             literal=template_args.literal,
             context=template_args.context,
             max_depth=template_args.max_depth,
         )
-        
-        results = build_grouped_search(fzf_template_args, tmpl.patterns, tmpl.file_exts)
-        full_output = build_fzf_command(tmpl.display_name, results, str(template_args.search_path), tmpl.file_exts)
 
-    LOG(f"Interactive fzf command:\n{full_output}\n")
+        grouped_results = build_grouped_search(placeholder_args, resolved_patterns, file_exts)
+        full_output = build_fzf_command(display_name, grouped_results, str(template_args.search_path), file_exts)
+    else:
+        LOG(f"{LOG_PREFIX_MSG_ERROR} Unsupported search mode '{search_mode}'")
+        return
+
+    LOG(f"{description}\nInteractive fzf command:\n{full_output}\n")
     LOG(f"Running interactive fzf command... {full_output}")
     LOG(f"{LINE_SEPARATOR}", show_time=False)
-    run_shell(full_output, shell=True,executable='/bin/bash',show_cmd=False)
+    run_shell(["bash", "-lc", full_output], shell=False, show_cmd=False)
 
 
 if __name__ == "__main__":

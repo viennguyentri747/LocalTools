@@ -33,8 +33,9 @@ class ToolTemplate:
     no_need_live_edit: bool
     usage_note: str = ""
     run_now_without_modify: bool = False
+    should_hidden: bool = False
 
-    def __init__(self, name: str, extra_description: str = "", args: Dict[str, Any] = {}, search_root: Optional[Path] = None, no_need_live_edit: bool = True, usage_note: str = "", should_run_now: bool = False):
+    def __init__(self, name: str, extra_description: str = "", args: Dict[str, Any] = {}, search_root: Optional[Path] = None, no_need_live_edit: bool = True, usage_note: str = "", should_run_now: bool = False, hidden: bool = False):
         self.name = name
         self.extra_description = extra_description
         self.args = args
@@ -42,6 +43,7 @@ class ToolTemplate:
         self.no_need_live_edit = no_need_live_edit
         self.usage_note = usage_note
         self.run_now_without_modify = should_run_now
+        self.should_hidden = hidden
 
 
 @dataclass

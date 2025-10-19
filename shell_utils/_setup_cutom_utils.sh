@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# case ":$PATH:" in
+#   *":/usr/local/bin:"*) ;;
+#   *) export PATH="/usr/local/bin:$PATH" && echo "Added /usr/local/bin to PATH" ;;
+# esac
+
 # Find the directory where this script itself lives
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 

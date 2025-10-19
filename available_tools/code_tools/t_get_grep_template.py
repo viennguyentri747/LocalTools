@@ -29,9 +29,6 @@ class SearchPattern:
 
 
 TemplateBuilder = Callable[[TemplateArgs], Tuple[str, Optional[str]]]
-GroupedTemplateBuilder = Callable[[TemplateArgs], List[Tuple[str, str, str]]]  # (command, category, description)
-
-
 ARG_DISPLAY_NAME = f"{ARGUMENT_LONG_PREFIX}display-name"
 ARG_DESCRIPTION = f"{ARGUMENT_LONG_PREFIX}description"
 ARG_SEARCH_MODE = f"{ARGUMENT_LONG_PREFIX}search-mode"
@@ -51,9 +48,9 @@ def quote(s: str) -> str:
     return shlex.quote(s)
 
 
-def build_rg_command(regex: str, args: TemplateArgs, file_exts: List[str], extra_flags: Optional[List[str]] = None) -> str:
-    """Build ripgrep command with common options."""
-    parts = ["rg", "-n"]
+def build_rg_base_command(args: TemplateArgs, file_exts: List[str]) -> str:
+    """Build the reusable portion of the ripgrep command."""
+    parts = ["rg", "--color=always", "-n"]
 
     if args.ignore_case:
         parts.append("-i")
@@ -61,36 +58,32 @@ def build_rg_command(regex: str, args: TemplateArgs, file_exts: List[str], extra
     if args.context > 0:
         parts.extend(["-C", str(args.context)])
 
-    # File type filtering
     if file_exts:
         for ext in file_exts:
-            parts.extend(["-g", quote(f"*.{ext}")])
+            parts.extend(["-g", f"*.{ext}"])
 
-    if extra_flags:
-        parts.extend(extra_flags)
-
-    parts.extend(["-e", quote(regex), quote(str(args.search_path))])
-    return " ".join(parts)
+    return " ".join(quote(part) for part in parts)
 
 
-def build_fzf_command(
-    description: str, grouped_patterns: List[Tuple[str, str, str]], search_dir: str, file_exts: List[str]
-) -> str:
+def build_fzf_rgrep_command(description: str, template_args: TemplateArgs, patterns: List[SearchPattern], file_exts: List[str]) -> str:
     """Build the fzf command with a search_symbol shell function as a one-liner."""
-    rg_file_exts_str = " ".join([f"-g '*.{ext}'" for ext in file_exts])
+    base_rg_command = build_rg_base_command(template_args, file_exts)
+    search_dir = str(template_args.search_path)
+    search_dir_arg = quote(search_dir)
+
+    def shell_regex(regex_template: str) -> str:
+        """Convert the template regex into something safe for double-quoted shell usage."""
+        escaped = regex_template.replace("\\", "\\\\").replace('"', '\\"')
+        return escaped.replace("SYMBOL_PLACEHOLDER", "${symbol}")
 
     command_parts = []
-    for rg_command, category, _ in grouped_patterns:
-        match = re.search(r"-e\s+'([^']*)'", rg_command)
-        if not match:
-            continue
-        regex = match.group(1)
-
-        regex_prefix = regex.replace(r'SYMBOL_PLACEHOLDER', r'${symbol}')
+    for pattern in patterns:
+        regex_template = pattern.regex_c_builder("SYMBOL_PLACEHOLDER", template_args.literal)
+        regex_expression = shell_regex(regex_template)
 
         conditional_command = (
             # Using --color=always ensures the output is colored even when piped.
-            f'output=$(rg -n --color=always {rg_file_exts_str} -e "{regex_prefix}" "{search_dir}" 2>/dev/null); '
+            f'output=$({base_rg_command} -e "{regex_expression}" {search_dir_arg} 2>/dev/null); '
             f'if [ -n "$output" ]; then '
             f'echo "$output"; '
             f'fi'
@@ -185,7 +178,18 @@ def regex_c_function_definition(symbol: str, literal: bool) -> str:
 
 def regex_c_variable_definition(symbol: str, literal: bool) -> str:
     sym = build_symbol_regex(symbol, literal, just_match_prefix=True)
-    return rf"^\s*(const|static|constexpr|extern|volatile|[\w:<>\[\]\s\*&]+)\s+{sym}\s*(=|;|\[)"
+    return (
+        rf"^\s*"
+        # rf"(?!(?:return|if|while|for|switch|case|goto|sizeof|typeof|alignof|delete|throw)\s*)"
+        rf"(?!return\s)"  # Not a return statement
+        rf"(?!if\s*\()"  # Not an if statement
+        # rf"(?!while\s*\()"  # Not a while loop
+        # rf"(?!for\s*\()"  # Not a for loop
+        # rf"(?!switch\s*\()"  # Not a switch statement
+        # rf"(?!case\s+)"  # Not a case label
+        # rf"(?!goto\s+)"  # Not a goto statement
+        rf"(const|static|constexpr|extern|volatile|[\w:<>\[\]\s\*&]+)\s+{sym}\s*(=|;|\[)"
+    )
 
 def regex_c_class_struct_definition(symbol: str, literal: bool) -> str:
     """Generates a regex to find C/C++ class or struct definitions."""
@@ -258,16 +262,6 @@ def build_symbol_regex(symbol: str, literal: bool, word_boundaries: bool = True,
             body = rf"(?:{body})\w*"
 
     return rf"\b{body}\b" if word_boundaries else body
-
-
-def build_grouped_search(args: TemplateArgs, patterns: List[SearchPattern], file_exts: List[str]) -> List[Tuple[str, str, str]]:
-    """Build multiple search commands for grouped patterns."""
-    results = []
-    for pattern in patterns:
-        regex = pattern.regex_c_builder(args.pattern, args.literal)
-        command = build_rg_command(regex, args, file_exts)
-        results.append((command, pattern.name, pattern.description))
-    return results
 
 
 # Template definitions
@@ -435,15 +429,12 @@ def main() -> None:
             max_depth=template_args.max_depth,
         )
 
-        grouped_results = build_grouped_search(placeholder_args, resolved_patterns, file_exts)
-        full_output = build_fzf_command(display_name, grouped_results, str(template_args.search_path), file_exts)
+        full_output = build_fzf_rgrep_command(display_name, placeholder_args, resolved_patterns, file_exts)
     else:
         LOG(f"{LOG_PREFIX_MSG_ERROR} Unsupported search mode '{search_mode}'")
         return
 
-    LOG(f"{description}\nInteractive fzf command:\n{full_output}\n")
-    LOG(f"Running interactive fzf command... {full_output}")
-    LOG(f"{LINE_SEPARATOR}", show_time=False)
+    LOG(f"{description} -> launching interactive search")
     run_shell(["bash", "-lc", full_output], shell=False, show_cmd=False)
 
 

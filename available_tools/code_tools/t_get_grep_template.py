@@ -14,10 +14,10 @@ class TemplateArgs:
     """Context passed to template builders."""
     search_path: Path
     ignore_case: bool
-    literal: bool
+    literal_symbol_input: bool
     context: int
     max_depth: Optional[int]
-    pattern: Optional[str] = None
+    initial_query: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -34,28 +34,31 @@ ARG_SEARCH_MODE = f"{ARGUMENT_LONG_PREFIX}search-mode"
 ARG_PATTERN_KEYS = f"{ARGUMENT_LONG_PREFIX}pattern-keys"
 ARG_FILE_EXTS = f"{ARGUMENT_LONG_PREFIX}file-exts"
 ARG_CASE_SENSITIVE = f"{ARGUMENT_LONG_PREFIX}case-sensitive"
-ARG_REGEX = f"{ARGUMENT_LONG_PREFIX}regex"
+ARG_REGEX_INPUT = f"{ARGUMENT_LONG_PREFIX}regex"
 ARG_CONTEXT = f"{ARGUMENT_LONG_PREFIX}context"
 ARG_MAX_DEPTH = f"{ARGUMENT_LONG_PREFIX}max-depth"
 ARG_NO_COPY = f"{ARGUMENT_LONG_PREFIX}no-copy"
+ARG_INITIAL_QUERY = f"{ARGUMENT_LONG_PREFIX}initial-query"
 
 SEARCH_MODE_SYMBOL = "fzf-symbols"
 SEARCH_MODE_FILE = "fzf-files"
 SEARCH_MODE_TEXT = "fzf-text"
+SYMBOL_PLACEHOLDER_STR = "SYMBOL_PLACEHOLDER"
 
 
 def quote(s: str) -> str:
     return shlex.quote(s)
 
 
-def build_rg_base_command(args: TemplateArgs, file_exts: List[str]) -> str:
+def build_rg_base_command(args: TemplateArgs, file_exts: List[str], is_regex_filter_pattern: bool = True) -> str:
     """Build the reusable portion of the ripgrep command."""
+    # -n: line numbers
     parts = ["rg", "--color=always", "-n"]
 
-    if args.literal:
-        parts.append("-F")  # Use fixed-string (literal) search
+    if is_regex_filter_pattern:
+        parts.append("-P")  # Use Perl regex (original default)
     else:
-        parts.append("-P")  # Use Perl regex (original default )
+        parts.append("-F")  # Use fixed-string (literal) search
 
     if args.ignore_case:
         parts.append("-i")
@@ -70,20 +73,65 @@ def build_rg_base_command(args: TemplateArgs, file_exts: List[str]) -> str:
     return " ".join(quote(part) for part in parts)
 
 
-def build_fzf_rgrep_command(description: str, template_args: TemplateArgs, patterns: List[SearchPattern], file_exts: List[str], initial_query: str = "") -> str:
+def _build_fzf_wrapper_command(description: str, prompt: str, bind_command: str, initial_query_str: str, search_dir: str, prerequisite_commands: str = "", query_variable_name: str = "Query") -> str:
+    """
+    Builds the fzf runner command and the final shell wrapper that processes its output.
+    This is a shared helper for different fzf-based commands.
+    """
+
+    query_arg = f'--query {quote(initial_query_str)} ' if initial_query_str else ''
+    initial_input = f'rg --color=always -n {quote(initial_query_str)} {quote(search_dir)} 2>/dev/null' if initial_query_str else 'echo ""'
+    fzf_runner = (
+        f'{initial_input} | fzf '
+        rf'--header "{description}. Type to filter ..." '
+        f'{query_arg}'
+        f'--prompt {quote(prompt)} '
+        f'--print-query '  # Print the query as the first line
+        f'--bind {quote(bind_command)} '  # Bind to the specific reload command
+        f'--preview-window "up:80%" '
+        # --ansi: interpret colors from rg
+        # --disabled: disable fzf's own search
+        # --no-sort: keep rg's output order
+        f'--ansi --disabled --no-sort'
+    )
+
+    # This logic is extracted from the original build_fzf_rgrep_command
+    return (
+        # Define color variables for the final output.
+        f"GREEN='\\033[0;32m'; "
+        f"NC='\\033[0m'; "
+        # Run any prerequisite commands (e.g., defining shell functions)
+        f"{prerequisite_commands} "
+        # Run the fzf command and capture its output
+        f'selection=$({fzf_runner}); '
+        f'if [ -n "$selection" ]; then '
+        # The query is the first line of the output (as we use print-query)
+        f'  query_result=$(echo "$selection" | head -n 1); '
+        # The line from rg is the last line
+        f'  line=$(echo "$selection" | tail -n 1); '
+        # Use `echo -e` to add color to the labels
+        f'  echo -e "${{GREEN}}Selected {query_variable_name}:${{NC}} $query_result"; '
+        f'  echo -e "${{GREEN}}Selected line:${{NC}}   $line"; '
+        f'else '
+        f'  echo -e "${{GREEN}}No selection made!${{NC}}"; '
+        f'fi; '
+    )
+
+
+def build_fzf_rgrep_c_command(description: str, template_args: TemplateArgs, patterns: List[SearchPattern], file_exts: List[str], initial_query: str = "") -> str:
     """Build the fzf command with a search_symbol shell function as a one-liner."""
-    base_rg_command = build_rg_base_command(template_args, file_exts)
+    base_rg_command = build_rg_base_command(template_args, file_exts, is_regex_filter_pattern=True)
     search_dir = str(template_args.search_path)
     search_dir_arg = quote(search_dir)
 
     def shell_regex(regex_template: str) -> str:
         """Convert the template regex into something safe for double-quoted shell usage."""
         escaped = regex_template.replace("\\", "\\\\").replace('"', '\\"')
-        return escaped.replace("SYMBOL_PLACEHOLDER", "${symbol}")
+        return escaped.replace(F"{SYMBOL_PLACEHOLDER_STR}", "${symbol}")
 
     command_parts = []
     for pattern in patterns:
-        regex_template = pattern.regex_c_builder("SYMBOL_PLACEHOLDER", template_args.literal)
+        regex_template = pattern.regex_c_builder(SYMBOL_PLACEHOLDER_STR, template_args.literal_symbol_input)
         regex_expression = shell_regex(regex_template)
 
         conditional_command = (
@@ -96,50 +144,53 @@ def build_fzf_rgrep_command(description: str, template_args: TemplateArgs, patte
         command_parts.append(conditional_command)
 
     search_function_body = "; ".join(command_parts)
-
-    initial_query_arg = f'--query {quote(initial_query)}' if initial_query else ''
-
-    fzf_runner = (
-        f'echo "" | fzf '
-        f'--header "{description}. Type to start searching ..." '
-        f'--prompt "Symbol> " '
-        f'{initial_query_arg} '
-        f'--print-query '
-        f'--bind "change:reload:search_symbol {{q}}" '
-        f'--preview-window "up:80%" '
-        # --ansi tells fzf to interpret the color codes from rg.
-        f'--ansi --disabled --no-sort'
-    )
-
-    # MODIFICATION: Simplified final output with color.
-    fzf_command = (
-        # Define color variables for the final output.
-        f"GREEN='\\033[0;32m'; "  # Actually yellow?
-        f"NC='\\033[0m'; "  # No Color (to reset the terminal).
+    # Define and export the search_symbol function
+    search_function_name = "search_symbol"
+    prerequisite_commands = (
         f'SEARCH_DIR="{search_dir}"; '
-        f'search_symbol() {{ '
+        f'{search_function_name}() {{ '
         f'local symbol="$1"; '
         f'if [ -z "$symbol" ]; then echo "Type a symbol name to search..."; return; fi; '
         f'local output; '
         f'{search_function_body} '
         f'}}; '
-        f'export -f search_symbol; '
+        f'export -f {search_function_name}; '
         f'export SEARCH_DIR; '
-        f'selection=$({fzf_runner}); '
-        f'if [ -n "$selection" ]; then '
-        # The symbol is the first line of the output (as we use print-query).
-        f'  symbol=$(echo "$selection" | head -n 1); '
-        # The line from rg already has colors, so we just print it.
-        f'  line=$(echo "$selection" | tail -n 1); '
-        # Use `echo -e` to add color to the labels.
-        f'  echo -e "${{GREEN}}Selected Symbol:${{NC}} $symbol"; '
-        f'  echo -e "${{GREEN}}Selected line:${{NC}}   $line"; '
-        f'else '
-        f'  echo -e "${{GREEN}}No selection made!${{NC}}"; '
-        f'fi; '
     )
 
-    return fzf_command
+    # --- Call the Shared Wrapper ---
+    return _build_fzf_wrapper_command(
+        description=description,
+        prompt="Symbol> ",
+        bind_command=f"change:reload:{search_function_name} {{q}}",
+        initial_query_str=initial_query,
+        search_dir=search_dir,
+        prerequisite_commands=prerequisite_commands,
+        query_variable_name="Symbol"
+    )
+
+
+def build_fzf_rg_text_command(description: str, template_args: TemplateArgs, file_exts: List[str], initial_query: str = "") -> str:
+    """Build the fzf command for a simple text search using ripgrep."""
+    base_rg_command = build_rg_base_command(template_args, file_exts, is_regex_filter_pattern=True)
+    search_dir = str(template_args.search_path)
+    search_dir_arg = quote(search_dir)
+
+    # Command to run inside fzf's reload binding
+    empty_query_command = 'echo "Type text to search..."'
+    # Define the complex bind command,  this triggers on every input change in fzf's query field.
+    bind_command = f'change:reload(if [ -n "{{q}}" ]; then {base_rg_command} -e {{q}} {search_dir_arg} 2>/dev/null; else {empty_query_command}; fi)'
+
+    # --- Call the Shared Wrapper ---
+    return _build_fzf_wrapper_command(
+        description=description,
+        prompt="Text> ",
+        bind_command=bind_command,
+        initial_query_str=initial_query,
+        search_dir=search_dir,
+        prerequisite_commands="",  # No prerequisites
+        query_variable_name="Query"
+    )
 
 
 def build_fzf_fd_command(search_dir: str, initial_query: str = "") -> str:
@@ -419,25 +470,23 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(ARG_DISPLAY_NAME, default="", help="Display name for the interactive command header.")
-    parser.add_argument(ARG_SEARCH_MODE, choices=[SEARCH_MODE_SYMBOL, SEARCH_MODE_FILE], required=True,
+    parser.add_argument(ARG_SEARCH_MODE, choices=[SEARCH_MODE_SYMBOL, SEARCH_MODE_FILE, SEARCH_MODE_TEXT], required=True,
                         help="Search mode to execute.")
     parser.add_argument(ARG_PATTERN_KEYS, nargs='*', default=[],
                         help="Pattern keys to include when using symbol search.")
     parser.add_argument(ARG_FILE_EXTS, nargs='*', default=[],
                         help="File extensions to filter when searching with ripgrep.")
     parser.add_argument(ARG_PATH_LONG, default=".", help="Root search path (default: current directory)")
-
     parser.add_argument(ARG_CASE_SENSITIVE, type=lambda x: x.lower() == TRUE_STR_VALUE, default=False,
                         help="Enable case-sensitive search (true or false). Default: false (i.e., ignore case).")
-    parser.add_argument(ARG_REGEX, type=lambda x: x.lower() == TRUE_STR_VALUE, default=False,
-                        help="Treat pattern as regex (true or false). Default: false (i.e., literal search).")
+    parser.add_argument(ARG_REGEX_INPUT, type=lambda x: x.lower() == TRUE_STR_VALUE, default=False,
+                        help="Treat symbol input as regex (true or false). Default: false (i.e., literal search).")
     parser.add_argument(ARG_CONTEXT, type=int, default=0, help="Lines of context around matches")
     parser.add_argument(ARG_MAX_DEPTH, type=int, help="Max directory depth for file search")
     parser.add_argument(ARG_NO_COPY, type=lambda x: x.lower() == TRUE_STR_VALUE, default=False,
                         help="Don't copy to clipboard (true or false). Default: false.")
-
-    parser.add_argument("pattern", nargs="?", default=None,
-                        help="Symbol or pattern to search (optional, used for initial query in some templates)")
+    parser.add_argument(ARG_INITIAL_QUERY, default="", help="Initial query in some templates)")
+    print("Args parsed:", parser.parse_args())
     return parser.parse_args()
 
 
@@ -451,22 +500,25 @@ def main() -> None:
 
     search_path_value = get_arg_value(args, ARG_PATH_LONG)
     ignore_case = not bool(get_arg_value(args, ARG_CASE_SENSITIVE))
-    literal = not bool(get_arg_value(args, ARG_REGEX))
+    is_literal_input = not bool(get_arg_value(args, ARG_REGEX_INPUT))
     context_value = get_arg_value(args, ARG_CONTEXT)
     max_depth_value = get_arg_value(args, ARG_MAX_DEPTH)
-    pattern_value = get_arg_value(args, "pattern")
+    initial_query = get_arg_value(args, ARG_INITIAL_QUERY)
 
     template_args = TemplateArgs(
-        pattern=pattern_value,
+        initial_query=initial_query,
         search_path=Path(search_path_value).expanduser(),
         ignore_case=ignore_case,
-        literal=literal,
+        literal_symbol_input=is_literal_input,
         context=context_value,
         max_depth=max_depth_value,
     )
 
     if search_mode == SEARCH_MODE_FILE:
-        full_output = build_fzf_fd_command(str(template_args.search_path), initial_query=template_args.pattern or "")
+        full_output = build_fzf_fd_command(str(template_args.search_path), initial_query=template_args.initial_query)
+    elif search_mode == SEARCH_MODE_TEXT:
+        full_output = build_fzf_rg_text_command(display_name, template_args,
+                                                file_exts, initial_query=template_args.initial_query)
     elif search_mode == SEARCH_MODE_SYMBOL:
         resolved_patterns, missing_keys = resolve_patterns(pattern_keys)
         if missing_keys:
@@ -476,23 +528,14 @@ def main() -> None:
             LOG(f"{LOG_PREFIX_MSG_ERROR} No patterns provided for symbol search.")
             return
 
-        placeholder_args = TemplateArgs(
-            pattern="SYMBOL_PLACEHOLDER",
-            search_path=template_args.search_path,
-            ignore_case=template_args.ignore_case,
-            literal=template_args.literal,
-            context=template_args.context,
-            max_depth=template_args.max_depth,
-        )
-
-        full_output = build_fzf_rgrep_command(display_name, placeholder_args,
-                                              resolved_patterns, file_exts, initial_query=template_args.pattern or "")
+        full_output = build_fzf_rgrep_c_command(
+            display_name, template_args, resolved_patterns, file_exts, initial_query=template_args.initial_query)
     else:
         LOG(f"{LOG_PREFIX_MSG_ERROR} Unsupported search mode '{search_mode}'")
         return
 
     LOG(f"{display_name} -> launching interactive search")
-    run_shell(["bash", "-lc", full_output], shell=False, show_cmd=False)
+    run_shell(["bash", "-lc", full_output], shell=False, show_cmd=True)
 
 
 if __name__ == "__main__":

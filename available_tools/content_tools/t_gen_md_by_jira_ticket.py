@@ -6,7 +6,7 @@ from dev_common import *
 from dev_iesa import *
 # cmd.exe /c curl -X GET "http://127.0.0.1:27123/commands/" -H "accept: application/json" -H "Authorization: Bearer 647569e74ba327766ebee74be157d37cdeda23f6b8b4b8b36ff8011b90c56fb4"
 
-PATH_TO_WORKING_NOTES = f"Notes/_Root/Productivity/CurrentWorking/Diary/Working\ Company/Intellian\ Working\ \(Link,\ How\ to…\)/Intellian\ Note\ working,\ diary\ \(work\ log\)/"
+PATH_TO_WORKING_NOTES = f"Notes/_Root/Productivity/CurrentWorking/Diary/Working Company/Intellian Working (Link, How to…)/Intellian Note working, diary (work log)/"
 
 
 def get_tool_templates() -> List[ToolTemplate]:
@@ -18,8 +18,7 @@ def get_tool_templates() -> List[ToolTemplate]:
             args={
                 ARG_VAULT_PATH: f"{Path.home()}/obsidian_work_vault/",
                 ARG_NOTE_REL_PATH: f"{PATH_TO_WORKING_NOTES}",
-                ARG_NOTE_REL_PATHS_TO_ADD_CONTENT: [
-                    f"{PATH_TO_WORKING_NOTES}/_Intellian\ Note\ working,\ diary\ \(work\ log\).md"],
+                ARG_NOTE_REL_PATHS_TO_ADD_CONTENT: [f"{PATH_TO_WORKING_NOTES}/_Intellian Note working, diary (work log).md"],
                 ARG_IS_GEN_CODING_TASK: True,
                 ARG_DEFAULT_OW_MANIFEST_BRANCH: BRANCH_MANPACK_MASTER,
                 ARG_TICKET_URL: f"{JIRA_COMPANY_URL}/browse/FPA-3",
@@ -195,7 +194,7 @@ if __name__ == "__main__":
     markdown_content = gen_content_markdown(ticket, coding_task_content)
 
     # Save the generated markdown content to a file
-    file_prefix = f"{ticket.key}_"
+    file_prefix = f"{ticket.key} "
     file_name = f"{sanitize_str_to_file_name(file_prefix + ticket.title)}.md"
     file_path = TEMP_FOLDER_PATH / file_name
     if vault_dir_str and rel_note_dir:

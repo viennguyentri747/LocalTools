@@ -470,8 +470,8 @@ def get_tisdk_ref_from_ci_yml(file_path: str) -> Optional[str]:
 
 def init_and_sync_from_remote(manifest_repo_url: str, manifest_repo_branch: str, manifest_source: str, use_current_ow_branch: bool) -> None:
     LOG(f"{MAIN_STEP_LOG_PREFIX} Init and Sync repo at {OW_BUILD_FOLDER_PATH}...")
-    run_shell(f"repo init {manifest_repo_url} -b {manifest_repo_branch} -m {IESA_MANIFEST_RELATIVE_PATH}",
-              cwd=OW_BUILD_FOLDER_PATH,)
+    run_shell(
+        f"repo init {manifest_repo_url} -b {manifest_repo_branch} -m {IESA_MANIFEST_RELATIVE_PATH}", cwd=OW_BUILD_FOLDER_PATH,)
 
     # Construct the full path to the manifest file
     manifest_full_path = os.path.join(OW_BUILD_FOLDER_PATH, ".repo", "manifests", IESA_MANIFEST_RELATIVE_PATH)

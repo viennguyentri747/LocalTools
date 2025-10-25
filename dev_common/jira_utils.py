@@ -8,6 +8,7 @@ from datetime import datetime
 from dev_common.constants import *
 from dev_common.core_utils import LOG, LOG_EXCEPTION, read_value_from_credential_file
 from dev_common.format_utils import get_stripped_paragraph
+from dev_common.md_utils import *
 
 JIRA_USERNAME = read_value_from_credential_file(CREDENTIALS_FILE_PATH, JIRA_USERNAME_KEY_NAME)
 JIRA_COMPANY_URL = read_value_from_credential_file(CREDENTIALS_FILE_PATH, JIRA_COMPANY_URL_KEY_NAME)
@@ -20,55 +21,6 @@ def get_company_jira_client() -> 'JiraClient':
     if jira_client is None:
         jira_client = JiraClient(JIRA_COMPANY_URL, JIRA_USERNAME, API_TOKEN)
     return jira_client
-
-
-def parse_jira_description(description: dict) -> str:
-    """
-    Parses a Jira Atlassian Document Format (ADF) dictionary into a plain string.
-    """
-    if not isinstance(description, dict) or "content" not in description:
-        return ""
-
-    text_parts = []
-
-    def _parse_node(node):
-        """Recursively parses a single node."""
-        node_type = node.get("type")
-
-        # Handle text nodes
-        if node_type == "text":
-            text_parts.append(node.get("text", ""))
-
-        # Handle line breaks
-        elif node_type == "hardBreak":
-            text_parts.append("\n")
-
-        # Handle list items by adding a bullet point
-        elif node_type == "listItem":
-            text_parts.append("\n* ")  # Start each list item on a new line with a bullet
-
-        # Handle images by showing their alt text
-        elif node_type == "media" and node.get("attrs", {}).get("type") == "file":
-            alt_text = node.get("attrs", {}).get("alt", "image")
-            text_parts.append(f"[{alt_text.strip()}]")
-
-        # For container nodes, parse their children
-        if "content" in node and isinstance(node["content"], list):
-            # Add a newline after paragraphs for spacing
-            is_paragraph = node_type == "paragraph"
-
-            for child_node in node["content"]:
-                _parse_node(child_node)
-
-            if is_paragraph:
-                text_parts.append("\n")
-
-    # Start parsing from the top-level content
-    for content_node in description["content"]:
-        _parse_node(content_node)
-
-    # Clean up the final string for better readability
-    return "".join(text_parts).strip().replace('\n\n\n', '\n\n')
 
 
 class JiraTicket:
@@ -116,7 +68,7 @@ class JiraTicket:
         self.ticket_type_name = ticket_type_name
         self.ticket_type_id = tickettype_data.get("id", "")
         self.issue_type: JiraIssueType = JiraIssueType.from_string(ticket_type_name)
-        
+
         # Assignee and reporter
         assignee_data = self.fields.get("assignee")
         self.assignee_name = assignee_data.get("displayName", "") if assignee_data else None
@@ -142,7 +94,6 @@ class JiraTicket:
         # Usually a string or None
         self.environment = self.parse_jira_description(raw_environment) if raw_environment else ""
 
-
         # Labels and components
         self.labels = self.fields.get("labels", [])
         self.components = [comp.get("name", "") for comp in self.fields.get("components", [])]
@@ -157,23 +108,27 @@ class JiraTicket:
             return ""
 
         text_parts = []
-        def _parse_node(node):
+
+        def _parse_node(node, list_level=0):
             """Recursively parses a single node."""
             node_type = node.get("type")
 
             # Handle text nodes
             if node_type == "text":
-                text_parts.append(node.get("text", ""))
+                text = node.get("text", "")
+                marks = node.get("marks", [])
+                text = get_md_apply_text_marks(text, marks)
+                text_parts.append(text)
 
             # Handle line breaks
             elif node_type == "hardBreak":
-                text_parts.append("\n")
+                text_parts.append(MD_NEWLINE)
 
             # Handle inline cards (links to Confluence pages, Jira issues, etc.)
             elif node_type == "inlineCard":
                 url = node.get("attrs", {}).get("url", "")
                 if url:
-                    text_parts.append(f"[{url}]({url})")
+                    text_parts.append(get_md_inline_link(url))
 
             # Handle regular links
             elif node_type == "link":
@@ -184,15 +139,12 @@ class JiraTicket:
                     old_parts = text_parts.copy()
                     text_parts.clear()
                     for child in node["content"]:
-                        _parse_node(child)
+                        _parse_node(child, list_level)
                     link_text = "".join(text_parts)
                     text_parts.clear()
                     text_parts.extend(old_parts)
-                
-                if link_text:
-                    text_parts.append(f"{link_text} ({url})")
-                else:
-                    text_parts.append(url)
+
+                text_parts.append(get_md_link_text(link_text, url))
 
             # Handle mentions
             elif node_type == "mention":
@@ -206,71 +158,183 @@ class JiraTicket:
 
             # Handle code blocks
             elif node_type == "codeBlock":
-                text_parts.append("\n```\n")
+                language = node.get("attrs", {}).get("language", "")
+                text_parts.append(get_md_code_block_start(language))
                 if "content" in node:
                     for child in node["content"]:
-                        _parse_node(child)
-                text_parts.append("\n```\n")
+                        _parse_node(child, list_level)
+                text_parts.append(get_md_code_block_end())
 
             # Handle inline code
-            elif node_type == "inlineCode":
-                text_parts.append("`")
+            elif node_type == "code":
+                text_parts.append(get_md_wrap_text(node.get("text", ""), MD_CODE_WRAPPER))
+
+            # Handle bullet lists
+            elif node_type == "bulletList":
                 if "content" in node:
                     for child in node["content"]:
-                        _parse_node(child)
-                text_parts.append("`")
+                        _parse_node(child, list_level)
 
-            # Handle list items by adding a bullet point
-            elif node_type == "listItem":
-                text_parts.append("\n* ")
-
-            # Handle ordered lists differently
+            # Handle ordered lists
             elif node_type == "orderedList":
-                # Track item number if needed
                 if "content" in node:
                     for idx, child in enumerate(node["content"], 1):
-                        text_parts.append(f"\n{idx}. ")
-                        if "content" in child:
-                            for subchild in child["content"]:
-                                _parse_node(subchild)
-                return  # Skip default content processing
+                        if child.get("type") == "listItem":
+                            text_parts.append(get_md_list_prefix(list_level, is_ordered=True, index=idx))
+                            if "content" in child:
+                                for subchild in child["content"]:
+                                    _parse_node(subchild, list_level + 1)
+
+            # Handle task lists (todos)
+            elif node_type == "taskList":
+                if "content" in node:
+                    for child in node["content"]:
+                        _parse_node(child, list_level)
+
+            elif node_type == "taskItem":
+                state = node.get("attrs", {}).get("state", "TODO")
+                is_done = state == "DONE"
+                text_parts.append(get_md_todo_prefix(list_level, is_done))
+                if "content" in node:
+                    for child in node["content"]:
+                        _parse_node(child, list_level + 1)
+
+            # Handle list items
+            elif node_type == "listItem":
+                text_parts.append(get_md_list_prefix(list_level))
+                if "content" in node:
+                    for child in node["content"]:
+                        _parse_node(child, list_level + 1)
 
             # Handle headings
             elif node_type == "heading":
                 level = node.get("attrs", {}).get("level", 1)
-                text_parts.append("\n" + "#" * level + " ")
+                text_parts.append(get_md_heading_prefix(level))
+                if "content" in node:
+                    for child in node["content"]:
+                        _parse_node(child, list_level)
+                text_parts.append(MD_NEWLINE)
 
-            # Handle images by showing their alt text
-            elif node_type == "media" and node.get("attrs", {}).get("type") == "file":
-                alt_text = node.get("attrs", {}).get("alt", "image")
-                text_parts.append(f"[{alt_text.strip()}]")
+            # Handle images/media
+            elif node_type == "media":
+                alt_text = node.get("attrs", {}).get("alt", "")
+                url = node.get("attrs", {}).get("url", "")
+                text_parts.append(get_md_media_text(alt_text, url))
 
             # Handle blockquotes
             elif node_type == "blockquote":
-                text_parts.append("\n> ")
+                text_parts.append(MD_BLOCKQUOTE_PREFIX)
+                if "content" in node:
+                    for child in node["content"]:
+                        _parse_node(child, list_level)
+                text_parts.append(MD_NEWLINE)
 
-            # Handle panels (info, note, warning, etc.)
+            # Handle panels (info, note, warning, error, success)
             elif node_type == "panel":
                 panel_type = node.get("attrs", {}).get("panelType", "info")
-                text_parts.append(f"\n[{panel_type.upper()}]: ")
+                text_parts.append(get_md_panel_prefix(panel_type))
+                if "content" in node:
+                    for child in node["content"]:
+                        _parse_node(child, list_level)
+                text_parts.append(MD_NEWLINE)
 
-            # For container nodes, parse their children
-            if "content" in node and isinstance(node["content"], list):
-                # Add a newline after paragraphs for spacing
-                is_paragraph = node_type == "paragraph"
+            # Handle status (lozenge)
+            elif node_type == "status":
+                status_text = node.get("attrs", {}).get("text", "")
+                text_parts.append(get_md_status_badge(status_text))
 
+            # Handle dates
+            elif node_type == "date":
+                timestamp = node.get("attrs", {}).get("timestamp", "")
+                if timestamp:
+                    text_parts.append(get_md_date_text(timestamp))
+
+            # Handle rules (horizontal lines)
+            elif node_type == "rule":
+                text_parts.append(MD_HORIZONTAL_RULE)
+
+            # Handle expand/collapse sections
+            elif node_type == "expand":
+                title = node.get("attrs", {}).get("title", "")
+                if title:
+                    text_parts.append(get_md_expand_header(title))
+                if "content" in node:
+                    for child in node["content"]:
+                        _parse_node(child, list_level)
+
+            # Handle decision nodes
+            elif node_type == "decisionList":
+                if "content" in node:
+                    for child in node["content"]:
+                        _parse_node(child, list_level)
+
+            elif node_type == "decisionItem":
+                state = node.get("attrs", {}).get("state", "DECIDED")
+                text_parts.append(get_md_decision_prefix(state))
+                if "content" in node:
+                    for child in node["content"]:
+                        _parse_node(child, list_level)
+
+            # Handle tables
+            elif node_type == "table":
+                text_parts.append(MD_NEWLINE)
+                if "content" in node:
+                    for child in node["content"]:
+                        _parse_node(child, list_level)
+                text_parts.append(MD_NEWLINE)
+
+            elif node_type == "tableRow":
+                text_parts.append(get_md_table_cell_separator())
+                if "content" in node:
+                    for child in node["content"]:
+                        _parse_node(child, list_level)
+                text_parts.append(MD_NEWLINE)
+
+            elif node_type == "tableHeader" or node_type == "tableCell":
+                if "content" in node:
+                    for child in node["content"]:
+                        _parse_node(child, list_level)
+                text_parts.append(get_md_table_cell_separator())
+
+            # Handle extension nodes (for apps/plugins)
+            elif node_type == "extension":
+                extension_key = node.get("attrs", {}).get("extensionKey", "")
+                text_parts.append(get_md_extension_text(extension_key))
+
+            # Handle layout sections
+            elif node_type == "layoutSection":
+                if "content" in node:
+                    for child in node["content"]:
+                        _parse_node(child, list_level)
+
+            elif node_type == "layoutColumn":
+                if "content" in node:
+                    for child in node["content"]:
+                        _parse_node(child, list_level)
+
+            # Handle paragraphs and other container nodes
+            elif node_type == "paragraph":
+                if "content" in node:
+                    for child_node in node["content"]:
+                        _parse_node(child_node, list_level)
+                text_parts.append(MD_NEWLINE)
+
+            # For any other container nodes, parse their children
+            elif "content" in node and isinstance(node["content"], list):
                 for child_node in node["content"]:
-                    _parse_node(child_node)
-
-                if is_paragraph:
-                    text_parts.append("\n")
+                    _parse_node(child_node, list_level)
 
         # Start parsing from the top-level content
         for content_node in description["content"]:
             _parse_node(content_node)
 
         # Clean up the final string for better readability
-        return "".join(text_parts).strip().replace('\n\n\n', '\n\n')
+        result = "".join(text_parts).strip()
+        # Replace multiple consecutive newlines with just two
+        while MD_TRIPLE_NEWLINE in result:
+            result = result.replace(MD_TRIPLE_NEWLINE, MD_DOUBLE_NEWLINE)
+
+        return result
 
     @property
     def minimal_description(self) -> str:

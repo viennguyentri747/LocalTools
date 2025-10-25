@@ -6,6 +6,22 @@ from typing import List
 LINE_SEPARATOR = f"\n{'=' * 70}\n"
 LINE_SEPARATOR_NO_ENDLINE = f"{'=' * 70}"
 
+# Markdown formatting constants
+MD_NEWLINE = "\n"
+MD_DOUBLE_NEWLINE = "\n\n"
+MD_TRIPLE_NEWLINE = "\n\n\n"
+MD_HORIZONTAL_RULE = "\n---\n"
+MD_BLOCKQUOTE_PREFIX = "\n> "
+MD_LIST_INDENT = "  "
+
+# Markdown wrapper constants
+MD_BOLD_WRAPPER = "**"
+MD_ITALIC_WRAPPER = "*"
+MD_STRIKETHROUGH_WRAPPER = "~~"
+MD_UNDERLINE_WRAPPER = "_"
+MD_CODE_WRAPPER = "`"
+MD_CODE_BLOCK_WRAPPER = "```"
+
 # Obsidian
 OBSIDIAN_VAULT_NAME = "ObsidianWorkVault"  # The exact name of your Obsidian vault.
 OBSIDIAN_VAULT_PATH = f"{Path.home()}/obsidian_work_vault"  # The full local path to your vault.

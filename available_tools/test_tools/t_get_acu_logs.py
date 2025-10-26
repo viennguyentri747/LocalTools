@@ -129,12 +129,13 @@ def batch_fetch_acu_logs(ips: List[str], log_types: List[str], date_filters: Opt
         LOG(f"{LOG_PREFIX_MSG_INFO} Installing SSH keys on {len(password_required_ips)} hosts (requires password)...")
         for ip in password_required_ips:
             LOG(f"{LOG_PREFIX_MSG_INFO} Setting up SSH key for {ip}...")
-            if copy_ssh_key_to_host(user, ip, public_key_path):
-                # Move to passwordless list after successful key copy
+            
+            # This function now contains the proactive removal logic
+            if setup_host_ssh_key(user, ip, public_key_path):
                 passwordless_ips.append(ip)
             else:
                 LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to copy SSH key to {ip}, skipping...")
-                results_by_ip[ip] = AcuLogInfo(is_valid=False, ip=ip)
+                results_by_ip[ip] = AcuLogInfo(is_valid=False, ip=ip)    
 
     # Now fetch logs from all hosts with passwordless access (parallel)
     if passwordless_ips:
@@ -144,12 +145,7 @@ def batch_fetch_acu_logs(ips: List[str], log_types: List[str], date_filters: Opt
         def _fetch_single_ip(ip: str) -> AcuLogInfo:
             LOG(f"{LOG_PREFIX_MSG_INFO} Attempting batch download for {ip}...")
             dest_path = log_output_dir / ip
-            return fetch_acu_logs(
-                log_types=log_types,
-                ut_ip=ip,
-                date_filters=date_filters,
-                dest_folder_path=dest_path,
-            )
+            return fetch_acu_logs( log_types=log_types, ut_ip=ip, date_filters=date_filters, dest_folder_path=dest_path, )
 
         if max_workers == 1:
             for ip in passwordless_ips:

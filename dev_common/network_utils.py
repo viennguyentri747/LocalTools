@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 from typing import List, Optional, Tuple
@@ -51,7 +52,7 @@ def setup_passwordless_ssh(user: str, jump_host: str, remote_host: str,
     _, public_key_path = check_ssh_key_exists(key_type)
 
     # Copy key to jump hosts first
-    if not copy_ssh_key_to_host(user, jump_host, public_key_path):
+    if not setup_host_ssh_key(user, jump_host, public_key_path):
         LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to setup SSH key for jump host {jump_host}")
         return False
 
@@ -102,6 +103,7 @@ def check_ssh_pwless_statuses(ips: List[str], user: str, public_key_path: Path, 
                 password_required_ips.append(ip)
 
     return passwordless_ips, password_required_ips
+
 
 
 def is_ssh_key_already_installed(user: str, host: str, public_key_path: Path) -> bool:
@@ -163,10 +165,51 @@ def generate_ssh_key(key_type: str = SSH_KEY_TYPE_RSA) -> bool:
         return False
 
 
-def copy_ssh_key_to_host(user: str, host: str, public_key_path: Path,
+def remove_target_ssh_key_from_known_host(ip: str) -> bool:
+    """
+    Attempts to remove the offending host key from the user's known_hosts file.
+    This is the fix suggested by SSH when a host key mismatch occurs.
+    """
+    known_hosts_path = Path.home() / ".ssh" / "known_hosts"
+    if not known_hosts_path.exists():
+        LOG(f"{LOG_PREFIX_MSG_INFO} No known_hosts file found, skipping key removal for {ip}.")
+        return True  # Nothing to remove, so "success"
+
+    # Use shlex.quote to prevent command injection
+    command = f"ssh-keygen -f {shlex.quote(str(known_hosts_path))} -R {shlex.quote(ip)}"
+    LOG(f"{LOG_PREFIX_MSG_INFO} Attempting to remove old host key for {ip}: {command}")
+    
+    try:
+        # Run the command
+        result = subprocess.run(shlex.split(command), capture_output=True, text=True, check=True, timeout=10)
+        LOG(f"{LOG_PREFIX_MSG_INFO} Successfully removed host key for {ip}.")
+        if result.stdout:
+            LOG(f"ssh-keygen stdout: {result.stdout.strip()}")
+        return True
+    except subprocess.CalledProcessError as e:
+        # Command returned a non-zero exit code
+        LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to remove host key for {ip}. Error: {e.stderr.strip()}")
+        return False
+    except Exception as e:
+        # Other errors (e.g., timeout)
+        LOG(f"{LOG_PREFIX_MSG_ERROR} An unexpected error occurred while running ssh-keygen for {ip}: {e}")
+        return False
+
+def setup_host_ssh_key(user: str, host: str, public_key_path: Path,
                          via_jump: Optional[str] = None) -> bool:
-    """Copy SSH public key to remote host."""
+    """
+    Copy SSH public key to remote host.
+    Proactively removes any existing host key from known_hosts before attempting.
+    """
     LOG(f"{LOG_PREFIX_MSG_INFO} Copying SSH key to {user}@{host}...")
+
+    # --- NEW: Proactively remove the host key first ---
+    LOG(f"{LOG_PREFIX_MSG_INFO} Attempting to remove any old host key for {host}...")
+    if not remove_target_ssh_key_from_known_host(host):
+        LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to remove old host key for {host}. Aborting key copy.", file=sys.stderr)
+        return False
+    LOG(f"{LOG_PREFIX_MSG_INFO} Old host key removed (or did not exist). Proceeding with copy...")
+    # --- End NEW ---
 
     try:
         # Read the public key
@@ -175,25 +218,30 @@ def copy_ssh_key_to_host(user: str, host: str, public_key_path: Path,
 
         # Build the command to add the key to authorized_keys
         if via_jump:
-            # Copy via jump host
             cmd = [
                 'ssh', '-o', f'ProxyJump={user}@{via_jump}',
-                '-o', 'StrictHostKeyChecking=no',
+                '-o', 'StrictHostKeyChecking=no', # Now accepts the new key automatically
                 f'{user}@{host}',
                 f'mkdir -p ~/.ssh && echo "{public_key}" >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && chmod 700 ~/.ssh'
             ]
         else:
-            # Direct copy
             cmd = [
                 'ssh', '-o', 'StrictHostKeyChecking=no',
                 f'{user}@{host}',
                 f'mkdir -p ~/.ssh && echo "{public_key}" >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && chmod 700 ~/.ssh'
             ]
 
-        subprocess.check_call(cmd)
-        LOG(f"{LOG_PREFIX_MSG_INFO} SSH key successfully copied to {host}")
+        # Run the SSH command (one attempt)
+        subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)
+        
+        LOG(f"{LOG_PREFIX_MSG_INFO} SSH key successfully copied to {host}.")
         return True
 
+    except subprocess.CalledProcessError as e:
+        # The command failed. This will now almost certainly be the "Permission denied" error.
+        LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to copy key to {host}. Error: {e.stderr.strip()}", file=sys.stderr)
+        return False
     except Exception as e:
-        LOG(f"{LOG_PREFIX_MSG_ERROR} Error copying SSH key to {host}: {e}", file=sys.stderr)
+        # Catch other errors (e.g., file not found, timeout)
+        LOG(f"{LOG_PREFIX_MSG_ERROR} An unexpected error occurred while copying key to {host}: {e}", file=sys.stderr)
         return False

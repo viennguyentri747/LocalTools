@@ -10,7 +10,7 @@ from typing import List, Dict, Any, Optional
 from enum import IntEnum, auto
 import pyperclip
 from dev_common.constants import CMD_WSLPATH, LINE_SEPARATOR, CMD_EXPLORER, WSL_SELECT_FLAG
-from dev_common.core_utils import LOG
+from dev_common.core_utils import LOG, run_shell
 
 
 class ToolFolderPriority(IntEnum):
@@ -190,7 +190,7 @@ def load_tools_metadata(folder: Path) -> ToolFolderMetadata:
     raise TypeError(f"Unsupported metadata type {type(metadata)} for {folder.name}")
 
 
-def display_content_to_copy(content: str, purpose: str = "", is_copy_to_clipboard: bool = True, extra_prefix_descriptions: Optional[str] = None) -> None:
+def display_content_to_copy(content: str, purpose: str = "", is_copy_to_clipboard: bool = True, extra_prefix_descriptions: Optional[str] = None, is_run_content_in_shell: bool = False) -> None:
     """
     Handles the final command display and clipboard copying.
     """
@@ -212,6 +212,13 @@ def display_content_to_copy(content: str, purpose: str = "", is_copy_to_clipboar
     LOG(f"{LINE_SEPARATOR}", show_time=False)
     LOG(f"{content}", show_time=False)
     LOG(f"{LINE_SEPARATOR}", show_time=False)
+
+    if is_run_content_in_shell:
+        LOG(f"\nRunning the command now...\n", show_time=True)
+        try:
+            run_shell(content, show_cmd=True)
+        except Exception as e:
+            LOG(f"Failed to run the command: {e}")
 
 
 def open_explorer_to_file(file_path: Path) -> None:

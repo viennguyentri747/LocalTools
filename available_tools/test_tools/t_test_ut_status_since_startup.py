@@ -10,12 +10,13 @@ from urllib.parse import urlparse
 
 from dev_common import *
 
-DEFAULT_PING_INTERVAL = 5  # seconds between ping attempts
+DEFAULT_SSM_REBOOT_TIMEOUT = 60  # seconds to wait for SSM to respond after reboot
+DEFAULT_REQUEST_INTERVAL = 1  # seconds between url request attempts
 DEFAULT_GPX_FIX_TIMEOUT = 120  # seconds to wait for gpx fix
-DEFAULT_ONLINE_TIMEOUT = 600  # seconds to wait for the host to come back online
+DEFAULT_ONLINE_TIMEOUT = 800  # seconds to wait for the host to come back online
 
-ARG_SSM = f"{ARGUMENT_LONG_PREFIX}ssm"
-ARG_PING_INTERVAL = f"{ARGUMENT_LONG_PREFIX}ping-interval"
+ARG_SSM_IP = f"{ARGUMENT_LONG_PREFIX}ssm"
+ARG_REQUEST_INTERVAL = f"{ARGUMENT_LONG_PREFIX}request-interval"
 ARG_GPX_FIX_TIMEOUT = f"{ARGUMENT_LONG_PREFIX}gpx-fix-timeout"
 ARG_ONLINE_TIMEOUT = f"{ARGUMENT_LONG_PREFIX}online-timeout"
 
@@ -24,18 +25,20 @@ ARG_ONLINE_TIMEOUT = f"{ARGUMENT_LONG_PREFIX}online-timeout"
 class RebootSequenceConfig:
     """Configuration for constructing the reboot + status command."""
 
-    ssm_target: str
-    ping_interval: int = DEFAULT_PING_INTERVAL
+    ssm_ip: str
+    request_interval: int = DEFAULT_REQUEST_INTERVAL
+    ssm_reboot_timeout: int = DEFAULT_SSM_REBOOT_TIMEOUT
     gpx_fix_timeout: int = DEFAULT_GPX_FIX_TIMEOUT
-    online_timeout: int = DEFAULT_ONLINE_TIMEOUT
+    apn_online_timeout: int = DEFAULT_ONLINE_TIMEOUT
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> "RebootSequenceConfig":
         return cls(
-            ssm_target=get_arg_value(args, ARG_SSM),
-            ping_interval=int(get_arg_value(args, ARG_PING_INTERVAL)),
+            ssm_ip=get_arg_value(args, ARG_SSM_IP),
+            request_interval=int(get_arg_value(args, ARG_REQUEST_INTERVAL)),
+            ssm_reboot_timeout=DEFAULT_SSM_REBOOT_TIMEOUT,
             gpx_fix_timeout=int(get_arg_value(args, ARG_GPX_FIX_TIMEOUT)),
-            online_timeout=int(get_arg_value(args, ARG_ONLINE_TIMEOUT)),
+            apn_online_timeout=int(get_arg_value(args, ARG_ONLINE_TIMEOUT)),
         )
 
 
@@ -44,10 +47,10 @@ def get_tool_templates() -> List[ToolTemplate]:
     default_ssm = f"{LIST_MP_IPS[0]}" if LIST_MP_IPS else "192.168.100.54"
 
     base_args = {
-        ARG_SSM: default_ssm,
-        ARG_PING_INTERVAL: DEFAULT_PING_INTERVAL,
+        ARG_REQUEST_INTERVAL: DEFAULT_REQUEST_INTERVAL,
         ARG_GPX_FIX_TIMEOUT: DEFAULT_GPX_FIX_TIMEOUT,
         ARG_ONLINE_TIMEOUT: DEFAULT_ONLINE_TIMEOUT,
+        ARG_SSM_IP: default_ssm,
     }
 
     return [
@@ -65,29 +68,14 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawTextHelpFormatter,
         epilog=build_examples_epilog(get_tool_templates(), Path(__file__)),
     )
-    parser.add_argument(
-        ARG_SSM,
-        required=True,
-        help="Base URL or IP for the SSM API (e.g. http://10.0.0.5 or 10.0.0.5:8080).",
-    )
-    parser.add_argument(
-        ARG_PING_INTERVAL,
-        type=int,
-        default=DEFAULT_PING_INTERVAL,
-        help=f"Seconds between ping attempts (default: {DEFAULT_PING_INTERVAL}).",
-    )
-    parser.add_argument(
-        ARG_GPX_FIX_TIMEOUT,
-        type=int,
-        default=DEFAULT_GPX_FIX_TIMEOUT,
-        help=f"Seconds to wait for the host to go offline (default: {DEFAULT_GPX_FIX_TIMEOUT}).",
-    )
-    parser.add_argument(
-        ARG_ONLINE_TIMEOUT,
-        type=int,
-        default=DEFAULT_ONLINE_TIMEOUT,
-        help=f"Seconds to wait for the host to respond to ping again (default: {DEFAULT_ONLINE_TIMEOUT}).",
-    )
+    parser.add_argument(ARG_SSM_IP, required=True,
+                        help="Base URL or IP for the SSM API (e.g. http://10.0.0.5 or 10.0.0.5:8080).", )
+    parser.add_argument(ARG_REQUEST_INTERVAL, type=int, default=DEFAULT_REQUEST_INTERVAL,
+                        help=f"Seconds between ping attempts (default: {DEFAULT_REQUEST_INTERVAL}).", )
+    parser.add_argument(ARG_GPX_FIX_TIMEOUT, type=int, default=DEFAULT_GPX_FIX_TIMEOUT,
+                        help=f"Seconds to wait for the host to go offline (default: {DEFAULT_GPX_FIX_TIMEOUT}).", )
+    parser.add_argument(ARG_ONLINE_TIMEOUT, type=int, default=DEFAULT_ONLINE_TIMEOUT,
+                        help=f"Seconds to wait for the host to respond to ping again (default: {DEFAULT_ONLINE_TIMEOUT}).", )
 
     return parser.parse_args()
 
@@ -100,53 +88,50 @@ def build_reboot_sequence_command(config: RebootSequenceConfig) -> str:
     3. Waits for ping to succeed again.
     4. Retrieves GNSS stats and connection status.
     """
-    if config.ping_interval <= 0:
+    if config.request_interval <= 0:
         raise ValueError("ping-interval must be positive.")
-    if config.gpx_fix_timeout < 0 or config.online_timeout < 0:
+    if config.gpx_fix_timeout < 0 or config.apn_online_timeout < 0:
         raise ValueError("offline-timeout and online-timeout must be non-negative.")
 
+    curl_timeout_secs = 10
     command = (
-        f'SSM_HOST={config.ssm_target} && '
-        f'SSM_BASE_URL=$SSM_HOST && '
-        f'PING_INTERVAL={config.ping_interval} && '
-        f'GPS_FIX_TIMEOUT={config.gpx_fix_timeout} && '
-        f'CONNECTION_TIMEOUT={config.online_timeout} && '
-        f'log() {{ printf "[%s] %s\\n" "$(date \'+%Y-%m-%d %H:%M:%S\')" "$1"; }} && '
-        f'log "Issuing reboot request to $SSM_BASE_URL/api/system/reboot" && '
-        f'REBOOT_RESPONSE=$(curl -fsS "$SSM_BASE_URL/api/system/reboot") && '
+        f'BASE_URL={config.ssm_ip} && REQ_INTERVAL={config.request_interval} && '
+        f'GPS_FIX_TIMEOUT={config.gpx_fix_timeout} && APN_TIMEOUT={config.apn_online_timeout} && '
+        # log to stderr instead of stdout to avoid interfering with command output capture (from stdout)
+        f'log() {{ printf "[%s] %s\\n" "$(date \'+%Y-%m-%d %H:%M:%S\')" "$1" >&2; }} && '
+        f'curl_with_log() {{ local url="$1"; log "REQUEST: GET $url"; response=$(curl -fsS --max-time {curl_timeout_secs} "$url" 2>&1); exit_code=$?; log "RESPONSE: $response"; [ $exit_code -eq 0 ] && echo "$response"; return $exit_code; }} && '
+        f'log "Issuing reboot request to $BASE_URL/api/system/reboot" && '
+        f'REBOOT_RESPONSE=$(curl_with_log "$BASE_URL/api/system/reboot") && '
         f'echo "$REBOOT_RESPONSE" | grep -q \'"status":"OK"\' && '
         f'log "Reboot request successful: $REBOOT_RESPONSE" && '
-        f'log "Sleeping 5 seconds..." && '
-        f'sleep 5 && '
-        f'log "Waiting for GPS 3D fix..." && '
-        f'gps_fix_check_start=$(date +%s) && '
-        f'until GPS_DATA=$(curl -sS "$SSM_BASE_URL/api/gnss/gnssstats" 2>/dev/null | jq -r \'paths(scalars) as $p | ($p | join(".")) as $key | getpath($p) as $val | "\\($key): \\($val)"\' | grep -i "fix") && '
-        f'echo "$GPS_DATA" | grep -q "fix_quality: GPS fix (SPS)" && '
-        f'echo "$GPS_DATA" | grep -q "fix_type: 3D"; do '
-        f'if [ $(( $(date +%s) - gps_fix_check_start )) -ge "$GPS_FIX_TIMEOUT" ]; then '
-        f'log "Timed out waiting for GPS 3D fix"; '
-        f'exit 1; '
-        f'fi; '
-        f'log "Waiting for GPS 3D fix... (retrying)"; '
-        f'sleep "$PING_INTERVAL"; '
-        f'done && '
-        f'log "GPS 3D fix acquired! Fix details:" && '
-        f'echo "$GPS_DATA" && '
-        f'log "Waiting for connection status to be CONNECTED..." && '
-        f'conn_start=$(date +%s) && '
-        f'until CNX_STATUS=$(curl -sS "$SSM_BASE_URL/api/cnx/connection_status" 2>/dev/null) && '
-        f'echo "$CNX_STATUS" | grep -q "CONNECTED"; do '
-        f'if [ $(( $(date +%s) - conn_start )) -ge "$CONNECTION_TIMEOUT" ]; then '
-        f'log "Timed out waiting for CONNECTED status"; '
-        f'exit 1; '
-        f'fi; '
-        f'log "Waiting for CONNECTED status... (retrying)"; '
-        f'sleep "$PING_INTERVAL"; '
-        f'done && '
-        f'log "Connection status: $CNX_STATUS" && '
-        f'log "Reboot cycle completed successfully!"'
+        f'sleep_time=5 && log "Sleeping $sleep_time seconds..." && sleep $sleep_time && '
+        f'reboot_start=$(date +%s) && log "Waiting for SSM to respond..." && '
+        f'until curl_with_log "$BASE_URL/api/system/status"; do '
+        f'elapsed=$(( $(date +%s) - reboot_start )); '
+        f'[ $elapsed -ge {config.ssm_reboot_timeout} ] && log "Timed out waiting for SSM" && exit 1; '
+        f'log "Waiting for SSM to respond (elapsed=${{elapsed}}s)"; '
+        f'sleep "$REQ_INTERVAL"; done && '
+        f'ssm_start=$(date +%s) && server_up_time=$(( ssm_start - reboot_start )) && log "Server up after $server_up_time sec, checking GPX fix status..." && '
+        f'until GPS_DATA=$(curl_with_log "$BASE_URL/api/gnss/gnssstats") && [ -n "$GPS_DATA" ] && '
+        f'GPS_FILTERED=$(echo "$GPS_DATA" | jq -r \'paths(scalars) as $p | ($p | join(".")) as $key | getpath($p) as $val | "\\($key): \\($val)"\' | grep -i "fix") && echo "$GPS_FILTERED" | grep -q "fix_quality: GPS fix (SPS)" && echo "$GPS_FILTERED" | grep -q "fix_type: 3D"; do '
+        f'elapsed=$(( $(date +%s) - ssm_start )); '
+        f'[ $elapsed -ge "$GPS_FIX_TIMEOUT" ] && log "Timed out waiting for GPS 3D fix" && exit 1; '
+        f'log "Waiting for GPS 3D fix (elapsed=${{elapsed}}s)"; '
+        f'sleep "$REQ_INTERVAL"; done && '
+        f'gps_fix_time=$(( $(date +%s) - ssm_start )) && '
+        f'log "GPS Fix status ok after $gps_fix_time sec, waiting for CONNECTED status with timeout = $APN_TIMEOUT..." && '
+        f'until CNX_STATUS=$(curl_with_log "$BASE_URL/api/cnx/connection_status") && '
+        f'echo "$CNX_STATUS" | grep -q \'"connection_status":"CONNECTED"\'; do '
+        f'elapsed=$(( $(date +%s) - ssm_start )); '
+        f'[ $elapsed -ge "$APN_TIMEOUT" ] && log "Timed out waiting for CONNECTED" && exit 1; '
+        f'log "Waiting for CONNECTED (elapsed=${{elapsed}}s)"; '
+        f'sleep "$REQ_INTERVAL"; done && '
+        f'connect_time=$(( $(date +%s) - ssm_start )) && total_time=$(( $(date +%s) - reboot_start )) && '
+        f'log "======================================" && log "REBOOT CYCLE RESULTS" && log "======================================" &&'
+        f'log "Server up: $server_up_time sec" && log "GPS 3D fix: $gps_fix_time sec" && '
+        f'log "Connected: $connect_time sec" && log "Total time: $total_time sec" && '
+        f'log "======================================" && log "Reboot cycle completed successfully!"'
     )
-
     return command.strip()
 
 
@@ -164,6 +149,7 @@ def main() -> None:
         command,
         purpose="reboot UT and confirm status endpoints",
         is_copy_to_clipboard=True,
+        is_run_content_in_shell=True,
     )
 
 

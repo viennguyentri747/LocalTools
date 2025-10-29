@@ -1,6 +1,7 @@
+from dataclasses import dataclass
 from pathlib import Path
 import re
-from typing import Dict, List
+from typing import Callable, Dict, List, Any
 from dev_common import *
 from dev_common.constants import *
 
@@ -121,3 +122,34 @@ class MatchInfo:
 
     def get_patterns(self) -> List[str]:
         return self._patterns_to_match
+
+
+@dataclass
+class ToolTemplate:
+    name: str
+    extra_description: str
+    args: Dict[str, Any]  # {arg_name: arg_value}
+    search_root: Optional[Path]
+    no_need_live_edit: bool
+    usage_note: str = ""
+    run_now_without_modify: bool = False
+    should_hidden: bool = False
+
+    def __init__(self, name: str, extra_description: str = "", args: Dict[str, Any] = {}, search_root: Optional[Path] = None, no_need_live_edit: bool = True, usage_note: str = "", should_run_now: bool = False, hidden: bool = False):
+        self.name = name
+        self.extra_description = extra_description
+        self.args = args
+        self.search_root = search_root
+        self.no_need_live_edit = no_need_live_edit
+        self.usage_note = usage_note
+        self.run_now_without_modify = should_run_now
+        self.should_hidden = hidden
+
+@dataclass(frozen=True)
+class ForwardedTool:
+    """Represents a test tool that can be forwarded through this entry point."""
+
+    mode: str
+    description: str
+    main: Callable[..., None]
+    get_templates: Callable[[], List[ToolTemplate]]

@@ -12,6 +12,7 @@ from typing import List, Dict, Any, Optional, Set
 from enum import IntEnum, auto
 import pyperclip
 from dev_common.constants import CMD_WSLPATH, LINE_SEPARATOR, CMD_EXPLORER, WSL_SELECT_FLAG
+from dev_common.custom_structures import *
 from dev_common.core_utils import LOG, run_shell
 
 
@@ -24,28 +25,6 @@ class ToolFolderPriority(IntEnum):
     remote_tool = auto()
     # TODO: Add more priorities
     LAST = 999
-
-
-@dataclass
-class ToolTemplate:
-    name: str
-    extra_description: str
-    args: Dict[str, Any]  # {arg_name: arg_value}
-    search_root: Optional[Path]
-    no_need_live_edit: bool
-    usage_note: str = ""
-    run_now_without_modify: bool = False
-    should_hidden: bool = False
-
-    def __init__(self, name: str, extra_description: str = "", args: Dict[str, Any] = {}, search_root: Optional[Path] = None, no_need_live_edit: bool = True, usage_note: str = "", should_run_now: bool = False, hidden: bool = False):
-        self.name = name
-        self.extra_description = extra_description
-        self.args = args
-        self.search_root = search_root
-        self.no_need_live_edit = no_need_live_edit
-        self.usage_note = usage_note
-        self.run_now_without_modify = should_run_now
-        self.should_hidden = hidden
 
 
 @dataclass
@@ -258,12 +237,12 @@ def copy_to_wsl_shell_prompt(content: str) -> None:
         if not sys.stdin.isatty():
             LOG("! Cannot paste to shell: Not running in an interactive TTY.", show_time=False)
             return
-            
+
         # Push each character into the TTY's input buffer
         for char in content:
             # TIOCSTI: Terminal Input Output Control, Simulate Terminal Input
             fcntl.ioctl(fd, termios.TIOCSTI, char.encode('utf-8'))
-            
+
     except (IOError, OSError) as e:
         LOG(f"! Failed to paste to shell prompt: {e}", show_time=False)
         LOG("  This feature (TIOCSTI) might be disabled by your system admin.", show_time=False)

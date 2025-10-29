@@ -96,13 +96,14 @@ explorer() {
         return 1
     fi
     
+    echo "Windows path: $windows_path"
     # Open Explorer with file selected
     explorer.exe /select,"$windows_path"
     
-    # if [ $? -eq 0 ]; then
-    #     echo "Opened Explorer to highlight '$file_path'"
-    # else
-    #     echo "Failed to open Explorer" >&2
-    #     return 1
-    # fi
+    if [ $? -eq 0 ]; then
+        echo "Opened Explorer to highlight '$file_path'"
+    else
+        echo "Failed to open Explorer" >&2
+        return 1
+    fi
 }

@@ -69,6 +69,39 @@ login_permanent() {
     sshpass -p $ut_pass ssh-copy-id -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${ip_prefix}.$last_octet
 }
 
+ping_ssm_ip() {
+    SECONDS=0
+    local ip=""
+    local mute=0
+
+    # Parse args
+    for arg in "$@"; do
+        case "$arg" in
+            --mute) mute=1 ;;
+            *) ip="$arg" ;;
+        esac
+    done
+
+    if [[ -z "$ip" ]]; then
+        echo "Usage: ping_ssm <ip> [--mute]"
+        echo "Ex: ping_ssm 192.168.100.70 --mute"
+        return 1
+    fi
+
+    echo "Pinging $ip..."
+    while ! ping -c2 -W1 "$ip" >/dev/null 2>&1; do
+        echo -ne "\r[$SECONDS s] Waiting for $ip to be reachable..."
+        sleep 1
+    done
+    echo -e "\r[$SECONDS s] ✅ $ip is reachable!"
+
+    if [[ "$mute" -ne 1 ]]; then
+        noti
+    else
+        echo "✅ Task complete (no notification)"
+    fi
+}
+
 ping_acu_ip() {
     SECONDS=0
     local ip=""
@@ -90,12 +123,11 @@ ping_acu_ip() {
         return 1
     fi
 
-    while ! ping -c1 -W1 "$ip" >/dev/null 2>&1; do
-        echo -ne "\r[$SECONDS s] Waiting for $ip to be reachable..."
-        sleep 1
-    done
-    echo -e "\r[$SECONDS s] ✅ $ip is reachable!"
+    # First part: ping UT (call ping_ssm)
+    ping_ssm_ip "$ip" --mute
 
+    # Second part: ping ACU from UT
+    echo "Pinging ACU $target from UT $ip..."
     # c3 = send 3 pings (sequentially), W1 = wait max 1 second for each reply
     while ! sshpass -p "$ut_pass" ssh \
         -o ConnectTimeout=2 \
@@ -115,6 +147,27 @@ ping_acu_ip() {
     else
         echo "✅ Task complete (no notification)"
     fi
+}
+
+ping_ssm() {
+    local area=$1
+    local last_octet=$2
+    shift 2
+
+    if [[ -z "$last_octet" ]]; then
+        echo "Usage: ping_ssm <area> <last-octet> [--mute]"
+        echo "Ex: ping_ssm nor 70 --mute"
+        return 1
+    fi
+
+    local ip_prefix
+    ip_prefix=$(get_ip "$area")
+    [ $? -ne 0 ] && return 1
+
+    local ip="${ip_prefix}.${last_octet}"
+
+    # Pass all remaining args (e.g. --mute) to ping_ssm_ip
+    ping_ssm_ip "$ip" "$@"
 }
 
 ping_acu() {

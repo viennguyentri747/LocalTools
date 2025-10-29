@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import fcntl
 import importlib.util
 import os
 from pathlib import Path
@@ -6,7 +7,8 @@ import re
 import shutil
 import subprocess
 import sys
-from typing import List, Dict, Any, Optional
+import termios
+from typing import List, Dict, Any, Optional, Set
 from enum import IntEnum, auto
 import pyperclip
 from dev_common.constants import CMD_WSLPATH, LINE_SEPARATOR, CMD_EXPLORER, WSL_SELECT_FLAG
@@ -190,11 +192,27 @@ def load_tools_metadata(folder: Path) -> ToolFolderMetadata:
     raise TypeError(f"Unsupported metadata type {type(metadata)} for {folder.name}")
 
 
-def display_content_to_copy(content: str, purpose: str = "", is_copy_to_clipboard: bool = True, extra_prefix_descriptions: Optional[str] = None, is_run_content_in_shell: bool = False) -> None:
+class PostActionType(IntEnum):
+    NONE = 0
+    RUN_CONTENT_IN_SHELL = auto()
+    # PASTE_CONTENT_TO_SHELL_PROMPT = auto() #Have to set this but not safe: sudo sysctl -w dev.tty.legacy_tiocsti=1
+
+
+def display_content_to_copy(
+    content: str,
+    purpose: str = "",
+    is_copy_to_clipboard: bool = True,
+    extra_prefix_descriptions: Optional[str] = None,
+    post_actions: Optional[Set[PostActionType]] = None
+) -> None:
     """
     Handles the final command display and clipboard copying.
     """
     purpose_text = f" to {purpose}" if purpose else ""
+
+    # Initialize post_actions if None
+    if post_actions is None:
+        post_actions = set()
 
     # Try to copy to clipboard first
     clipboard_status = ""
@@ -204,6 +222,7 @@ def display_content_to_copy(content: str, purpose: str = "", is_copy_to_clipboar
             clipboard_status = " (copied to clipboard)"
         except Exception as e:
             clipboard_status = f" (clipboard failed: {e})"
+
     LOG(f"\n", show_time=False)
     if extra_prefix_descriptions:
         LOG(f"{extra_prefix_descriptions}", show_time=False)
@@ -213,12 +232,43 @@ def display_content_to_copy(content: str, purpose: str = "", is_copy_to_clipboar
     LOG(f"{content}", show_time=False)
     LOG(f"{LINE_SEPARATOR}", show_time=False)
 
-    if is_run_content_in_shell:
-        LOG(f"\nRunning the command now...\n", show_time=True)
-        try:
-            run_shell(content, show_cmd=True)
-        except Exception as e:
-            LOG(f"Failed to run the command: {e}")
+    # Process post actions
+    for post_action in post_actions:
+        if post_action == PostActionType.RUN_CONTENT_IN_SHELL:
+            LOG(f"▶️  Running the above command in shell...", show_time=True)
+            run_shell(content)
+        # elif post_action == PostActionType.PASTE_CONTENT_TO_SHELL_PROMPT:
+        #     LOG(f"📋 Copying content to shell prompt...", show_time=True)
+        #     copy_to_wsl_shell_prompt(content)
+
+
+def copy_to_wsl_shell_prompt(content: str) -> None:
+    """
+    Pushes content into the TTY's input buffer.
+    This only works on Unix-like systems (Linux, WSL, macOS).
+    """
+    if sys.platform == "win32" or fcntl is None or termios is None:
+        LOG("! Pasting to shell prompt is not supported on this platform.", show_time=False)
+        LOG("  (Content is in your clipboard for manual pasting).", show_time=False)
+        return
+    try:
+        # Get the file descriptor for standard input
+        fd = sys.stdin.fileno()
+        # Check if we are in an interactive terminal (TTY)
+        if not sys.stdin.isatty():
+            LOG("! Cannot paste to shell: Not running in an interactive TTY.", show_time=False)
+            return
+            
+        # Push each character into the TTY's input buffer
+        for char in content:
+            # TIOCSTI: Terminal Input Output Control, Simulate Terminal Input
+            fcntl.ioctl(fd, termios.TIOCSTI, char.encode('utf-8'))
+            
+    except (IOError, OSError) as e:
+        LOG(f"! Failed to paste to shell prompt: {e}", show_time=False)
+        LOG("  This feature (TIOCSTI) might be disabled by your system admin.", show_time=False)
+    except Exception as e:
+        LOG(f"! An unexpected error occurred during shell paste: {e}", show_time=False)
 
 
 def open_explorer_to_file(file_path: Path) -> None:

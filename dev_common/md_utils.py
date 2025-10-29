@@ -5,7 +5,7 @@ from dev_common.constants import *
 
 def get_md_todo_checkbox(is_done: bool) -> str:
     """Returns checkbox markdown for todo items."""
-    return "[x]" if is_done else "[ ]"
+    return "- [x]" if is_done else "- [ ]"
 
 
 def get_md_heading_prefix(level: int) -> str:

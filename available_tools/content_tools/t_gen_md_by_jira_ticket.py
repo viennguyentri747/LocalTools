@@ -6,7 +6,7 @@ from dev_common import *
 from dev_iesa import *
 # cmd.exe /c curl -X GET "http://127.0.0.1:27123/commands/" -H "accept: application/json" -H "Authorization: Bearer 647569e74ba327766ebee74be157d37cdeda23f6b8b4b8b36ff8011b90c56fb4"
 
-PATH_TO_WORKING_NOTES = f"Notes/_Root/Productivity/CurrentWorking/Diary/Working Company/Intellian Working (Link, How to…)/Intellian Note working, diary (work log)/"
+PATH_TO_WORKING_NOTES = f"Notes/_Root/CurrentWorking/Intellian Working (Link, How to…)/Intellian Note working, diary (work log)/"
 
 
 def get_tool_templates() -> List[ToolTemplate]:

@@ -51,6 +51,12 @@ class ToolFolderMetadata:
     always_expand: bool = False
     start_collapsed: Optional[bool] = None
     priority: ToolFolderPriority = ToolFolderPriority.LAST
+    should_ignore: bool = False
+
+    def __init__(self, **kwargs: Any):
+        for key, value in kwargs.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
 
     def get_display_title(self, fallback_title: str) -> str:
         base = self.title or fallback_title
@@ -64,6 +70,8 @@ class ToolFolderMetadata:
         if self.start_collapsed is not None:
             return self.start_collapsed
         return True
+
+    
 
 
 def discover_tools(root: Path, folder_pattern: str, prefix: str) -> List[ToolEntry]:
@@ -147,7 +155,7 @@ def load_tools_metadata(folder: Path) -> ToolFolderMetadata:
     metadata_file_name = "_tools_metadata.py"
     metadata_path = folder / f"{metadata_file_name}"
     if not metadata_path.exists():
-        return ToolFolderMetadata()
+        raise FileNotFoundError(f"Metadata file not found: {metadata_path}. Please check create it if haven't yet.")
 
     spec = importlib.util.spec_from_file_location(f"{folder.name}_tools_metadata", metadata_path)
     if spec is None or spec.loader is None:
@@ -215,11 +223,9 @@ def display_content_to_copy(
     for post_action in post_actions:
         if post_action == PostActionType.RUN_CONTENT_IN_SHELL:
             LOG(f"▶️  Running the above command in shell...", show_time=True)
-            run_shell(content)
-        # elif post_action == PostActionType.PASTE_CONTENT_TO_SHELL_PROMPT:
-        #     LOG(f"📋 Copying content to shell prompt...", show_time=True)
-        #     copy_to_wsl_shell_prompt(content)
-
+            command_result: subprocess.CompletedProcess = run_shell(content, check_throw_exception_on_exit_code=False)
+            if command_result.returncode != 0:
+                LOG_EXCEPTION_STR(f"⚠️  Command exited with code {command_result.returncode}, error: {command_result.stderr}")
 
 def copy_to_wsl_shell_prompt(content: str) -> None:
     """

@@ -127,7 +127,7 @@ def build_reboot_sequence_command(config: RebootSequenceConfig) -> str:
             f'[ $elapsed -ge {config.ssm_reboot_timeout} ] && log "Timed out waiting for SSM!" && exit 0; '
             f'log "Waiting for SSM to respond (elapsed=${{elapsed}}s)"; '
             f'sleep "$REQ_INTERVAL"; done && '
-            f'ssm_start=$(date +%s) && server_up_time=$(( ssm_start - reboot_start )) && log "Server up after $server_up_time sec, checking GPX fix status..." && '
+            f'ssm_start=$(date +%s) && server_up_time=$(( ssm_start - reboot_start )) && log "SSM up after $server_up_time sec, checking GPX fix status..." && '
             f'until GPS_DATA=$(curl_with_log "$BASE_URL/api/gnss/gnssstats") && [ -n "$GPS_DATA" ] && '
             f'GPS_FILTERED=$(echo "$GPS_DATA" | jq -r \'paths(scalars) as $p | ($p | join(".")) as $key | getpath($p) as $val | "\\($key): \\($val)"\' | grep -i "fix") && echo "$GPS_FILTERED" | grep -q "fix_quality: GPS fix (SPS)" && echo "$GPS_FILTERED" | grep -q "fix_type: 3D"; do '
             f'elapsed=$(( $(date +%s) - ssm_start )); '
@@ -141,19 +141,19 @@ def build_reboot_sequence_command(config: RebootSequenceConfig) -> str:
             # Append results to space-separated strings
             f'server_up_times="$server_up_times $server_up_time" && gps_fix_times="$gps_fix_times $fix_time" && '
             f'connect_times="$connect_times $connect_time" && total_times="$total_times $total_time" && '
-            f'log "======================================" && log "CYCLE RESULTS" && log "======================================" && '
+            f'log "======================================" && log "CYCLE RESULTS ON {config.ssm_ip}" && log "======================================" && '
             # Display all results so far
             f'i=1 && for sup in $server_up_times; do '
             f'gfix=$(echo $gps_fix_times | cut -d" " -f$i) && conn=$(echo $connect_times | cut -d" " -f$i) && '
             f'tot=$(echo $total_times | cut -d" " -f$i) && '
             f'log "Iteration $i:" && '
-            f'log "  Total: $tot sec" && log "  Server up: $sup sec" && log "  GPS 3D fix: $gfix sec" && log "  Connected: $conn sec" && '
+            f'log "  Total: $tot sec" && log "  SSM up: $sup sec" && log "  GPS 3D fix: $gfix sec" && log "  Connected: $conn sec" && '
             f'log "--------------------------------------" && '
             f'i=$((i + 1)); done && '
             # Summary analysis after each iteration
             f'log "======================================" && log "SUMMARY ANALYSIS ($iteration of $TOTAL_ITERATIONS iterations)" && log "======================================" && '
             f'calc_stats() {{ local values="$1" label="$2"; local sum=0 count=0 min=999999 max=0; for val in $values; do sum=$((sum + val)); count=$((count + 1)); [ $val -lt $min ] && min=$val; [ $val -gt $max ] && max=$val; done; local avg=$((sum / count)); log "$label: avg=$avg sec, min=$min sec, max=$max sec"; }} && '
-            f'calc_stats "$total_times" "Total Time" && calc_stats "$server_up_times" "Server Up Time" && calc_stats "$gps_fix_times" "GPS 3D Fix Time" && calc_stats "$connect_times" "Connected Time" && '
+            f'calc_stats "$total_times" "Total Time" && calc_stats "$server_up_times" "SSM Up Time" && calc_stats "$gps_fix_times" "GPS 3D Fix Time" && calc_stats "$connect_times" "Connected Time" && '
             f'log "======================================"; done && '
             f'log "All $TOTAL_ITERATIONS iterations completed successfully!"'
         )

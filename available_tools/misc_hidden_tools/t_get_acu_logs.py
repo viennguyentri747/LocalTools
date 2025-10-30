@@ -1,6 +1,5 @@
 #!/home/vien/local_tools/MyVenvFolder/bin/python
 import argparse
-import textwrap
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -14,29 +13,16 @@ DEFAULT_LOG_OUTPUT_PATH = ACU_LOG_PATH
 ARG_LOG_TYPES = f"{ARGUMENT_LONG_PREFIX}type"
 ARG_DATE_FILTERS = f"{ARGUMENT_LONG_PREFIX}date"
 ARG_LOG_OUTPUT_PATH = f"{ARGUMENT_LONG_PREFIX}log_output_path"
-ARG_PATTERNS = f"{ARGUMENT_LONG_PREFIX}patterns"
 ARG_MAX_THREAD_COUNT = f"{ARGUMENT_LONG_PREFIX}max_threads"
-MOTION_DETECT_PATTERN = r"MOTION DETECT"
-INS_MONITOR_START_PATTERN = r"INS-READY"
 DEFAULT_MAX_THREAD_COUNT = 20
 
 
 def get_tool_templates() -> List[ToolTemplate]:
+    default_dates = [
+        get_acu_log_datename_from_date(datetime.now() - timedelta(days=1)),
+        get_acu_log_datename_from_date(datetime.now()),
+    ]
     return [
-        ToolTemplate(
-            name=f"Get ACU E Logs + Show command to grep pattern {MOTION_DETECT_PATTERN}",
-            extra_description="Copy flash log files from remote",
-            args={
-                ARG_LOG_OUTPUT_PATH: str(DEFAULT_LOG_OUTPUT_PATH),
-                ARG_LOG_TYPES: [E_LOG_PREFIX],
-                ARG_LIST_IPS: LIST_MP_IPS,
-                ARG_DATE_FILTERS: [
-                    get_acu_log_datename_from_date(datetime.now() - timedelta(days=1)),
-                    get_acu_log_datename_from_date(datetime.now()),
-                ],
-                ARG_PATTERNS: [quote(MOTION_DETECT_PATTERN), quote(INS_MONITOR_START_PATTERN)],
-            },
-        ),
         ToolTemplate(
             name="Get ACU Logs",
             extra_description="Copy flash log files from remote",
@@ -44,10 +30,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_LOG_OUTPUT_PATH: str(DEFAULT_LOG_OUTPUT_PATH),
                 ARG_LOG_TYPES: list(DEFAULT_LOG_TYPE_PREFIXES),
                 ARG_LIST_IPS: LIST_MP_IPS,
-                ARG_DATE_FILTERS: [
-                    get_acu_log_datename_from_date(datetime.now() - timedelta(days=1)),
-                    get_acu_log_datename_from_date(datetime.now()),
-                ],
+                ARG_DATE_FILTERS: default_dates,
             },
         ),
     ]
@@ -86,12 +69,6 @@ def parse_args() -> argparse.Namespace:
         help='Directory where fetched logs will be stored.',
     )
     parser.add_argument(
-        ARG_PATTERNS,
-        nargs='+',
-        default=None,
-        help='Optional regex patterns to search within fetched logs via a generated grep command.',
-    )
-    parser.add_argument(
         ARG_MAX_THREAD_COUNT,
         type=int,
         default=DEFAULT_MAX_THREAD_COUNT,
@@ -110,32 +87,40 @@ class IpFetchSummary:
     fetch_success: bool = False
 
 
-def batch_fetch_acu_logs(ips: List[str], log_types: List[str], date_filters: Optional[List[str]], log_output_dir: Path, max_thread_count: int, user: str = "root", public_key_path: Path = Path.home() / ".ssh" / "id_rsa.pub", ) -> List[AcuLogInfo]:
+def batch_fetch_acu_logs(ips: List[str], log_types: List[str], date_filters: Optional[List[str]], log_output_dir: Path, max_thread_count: int, user: str = "root", public_key_path: Path = Path.home() / ".ssh" / "id_rsa.pub", should_has_var_logs: bool = False) -> List[AcuLogInfo]:
     if not ips:
         return []
 
     # Separate IPs into those with and without passwordless access
     passwordless_ips = []
     password_required_ips = []
+    results_by_ip: Dict[str, AcuLogInfo] = {}
 
     # Check SSH status in parallel
-    passwordless_ips, password_required_ips = check_ssh_pwless_statuses(
+    ssh_statuses = check_ssh_pwless_statuses(
         ips, user, public_key_path, max_workers=max_thread_count
     )
+    passwordless_ips = list(ssh_statuses.passwordless_ips)
+    password_required_ips = list(ssh_statuses.password_required_ips)
 
-    results_by_ip: Dict[str, AcuLogInfo] = {}
+    if ssh_statuses.unreachable_ips:
+        LOG(f"{LOG_PREFIX_MSG_WARNING} Skipping {len(ssh_statuses.unreachable_ips)} unreachable host(s): {', '.join(ssh_statuses.unreachable_ips)}")
+        for ip in ssh_statuses.unreachable_ips:
+            results_by_ip[ip] = AcuLogInfo(is_valid=False, ip=ip)
+
     # First, handle hosts that need password (sequentially)
     if password_required_ips:
         LOG(f"{LOG_PREFIX_MSG_INFO} Installing SSH keys on {len(password_required_ips)} hosts (requires password)...")
         for ip in password_required_ips:
             LOG(f"{LOG_PREFIX_MSG_INFO} Setting up SSH key for {ip}...")
-            
+
             # This function now contains the proactive removal logic
             if setup_host_ssh_key(user, ip, public_key_path):
                 passwordless_ips.append(ip)
             else:
                 LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to copy SSH key to {ip}, skipping...")
-                results_by_ip[ip] = AcuLogInfo(is_valid=False, ip=ip)    
+                results_by_ip[ip] = AcuLogInfo(is_valid=False, ip=ip)
+                LOG_EXCEPTION(f"Failed to copy SSH key to {ip}, quitting...")
 
     # Now fetch logs from all hosts with passwordless access (parallel)
     if passwordless_ips:
@@ -145,7 +130,7 @@ def batch_fetch_acu_logs(ips: List[str], log_types: List[str], date_filters: Opt
         def _fetch_single_ip(ip: str) -> AcuLogInfo:
             LOG(f"{LOG_PREFIX_MSG_INFO} Attempting batch download for {ip}...")
             dest_path = log_output_dir / ip
-            return fetch_acu_logs( log_types=log_types, ut_ip=ip, date_filters=date_filters, dest_folder_path=dest_path, )
+            return fetch_acu_logs(log_types=log_types, ut_ip=ip, date_filters=date_filters, dest_folder_path=dest_path, should_has_var_log=should_has_var_logs)
 
         if max_workers == 1:
             for ip in passwordless_ips:
@@ -192,7 +177,7 @@ def _build_result_summaries(
     return summaries
 
 
-def _summarize_fetch_results( ips: List[str], summaries: Dict[str, IpFetchSummary], has_date_filters: bool, log_output_dir: Path ) -> None:
+def _summarize_fetch_results(ips: List[str], summaries: Dict[str, IpFetchSummary], has_date_filters: bool, log_output_dir: Path) -> None:
     ip_list_str = ", ".join(str(ip) for ip in ips)
     LOG(f"Log Fetch Summary for IPs [{ip_list_str}]")
     LOG("", show_time=False)
@@ -229,42 +214,12 @@ def _format_missing_text(summary: IpFetchSummary, has_date_filters: bool) -> str
     return "None"
 
 
-def _build_pattern_analysis_command(
-    summaries: Dict[str, IpFetchSummary], patterns: List[str]
-) -> str:
-    """Build a single grep command covering all fetched log files."""
-    if not summaries or not patterns:
-        return ""
-
-    sanitized_patterns = [strip_quotes(p) for p in patterns if p]
-    sanitized_patterns = [p for p in sanitized_patterns if p]
-    if not sanitized_patterns:
-        return ""
-
-    combined_pattern = "|".join(sanitized_patterns)
-    log_file_paths: List[Path] = []
-
-    for summary in summaries.values():
-        if not summary.log_files:
-            continue
-        for file_name in summary.log_files:
-            log_file_paths.append(summary.log_directory / file_name)
-
-    if not log_file_paths:
-        return ""
-
-    unique_paths = sorted({path for path in log_file_paths})
-    file_arguments = " ".join(quote(str(path)) for path in unique_paths)
-    return f"grep -E --color=always {quote(combined_pattern)} {file_arguments}"
-
-
 def main() -> None:
     args = parse_args()
     log_types: List[str] = get_arg_value(args, ARG_LOG_TYPES)
     ips: List[str] = get_arg_value(args, ARG_LIST_IPS)
     date_filters: Optional[List[str]] = get_arg_value(args, ARG_DATE_FILTERS)
     log_output_dir = Path(get_arg_value(args, ARG_LOG_OUTPUT_PATH)).expanduser()
-    pattern_inputs: Optional[List[str]] = (get_arg_value(args, ARG_PATTERNS))
     max_thread_count: int = get_arg_value(args, ARG_MAX_THREAD_COUNT)
     log_output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -279,11 +234,6 @@ def main() -> None:
 
     summaries: Dict[str, IpFetchSummary] = _build_result_summaries(results, log_types, date_filters, log_output_dir)
     _summarize_fetch_results(ips, summaries, bool(date_filters), log_output_dir)
-
-    if pattern_inputs:
-        command: str = _build_pattern_analysis_command(summaries, pattern_inputs)
-        if command:
-            display_content_to_copy(command, purpose=f"capture patterns {pattern_inputs}", is_copy_to_clipboard=True)
 
     show_noti(title="ACU Log Fetch Summary", message="See log for details")
 

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Iterable, List, Optional
 from dataclasses import dataclass, field
 from dev_common import *
+from dev_common.tools_utils import ToolFolderMetadata, load_tools_metadata
 
 
 @dataclass
@@ -29,6 +30,11 @@ def discover_and_nest_tools(project_root: Path, folder_pattern: str, tool_prefix
         if tool.folder not in root_nodes:
             folder_path = project_root / tool.folder
             metadata: ToolFolderMetadata = load_tools_metadata(folder_path)
+            if metadata.should_ignore:
+                LOG(f"Ignoring tool folder: {tool.folder}")
+                continue
+            else:
+                LOG(f"Loading tool folder: {tool.folder} with metadata: {metadata}")
             root_nodes[tool.folder] = ToolEntryNode(
                 name=tool.folder.upper(), metadata=metadata, folder_name=tool.folder, )
 

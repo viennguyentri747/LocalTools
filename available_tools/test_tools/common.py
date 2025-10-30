@@ -60,8 +60,8 @@ def batch_fetch_acu_logs_for_days(list_ips: List[str], extra_days_before_today: 
     return valid_fetch_infos
 
 
-def fetch_acu_logs(ut_ip: str, log_types: List[str], dest_folder_path: str | Path,
-                   ssh_key_type: str = SSH_KEY_TYPE_RSA, date_filters: List[str] = None, clear_dest_folder: bool = True, should_has_var_log: bool = False) -> AcuLogInfo:
+def fetch_acu_logs(ut_ip: str, log_types: List[str], dest_folder_path: str | Path, ssh_key_type: str = SSH_KEY_TYPE_RSA,
+                   date_filters: List[str] = None, clear_dest_folder: bool = True, should_has_var_log: bool = False) -> AcuLogInfo:
     """Fetch all logs in a single scp command to minimize password prompts."""
     if not ping_host(ut_ip, total_pings=2, time_out_per_ping=3):
         LOG(f"{LOG_PREFIX_MSG_ERROR} Jump host {ut_ip} is not reachable. Aborting.", file=sys.stderr)

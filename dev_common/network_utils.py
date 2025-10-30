@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
 from pathlib import Path
 import shlex
 import subprocess
@@ -9,6 +10,15 @@ from dev_common.core_utils import LOG, run_shell
 
 SSH_KEY_TYPE_RSA = 'rsa'
 KEY_TYPE_ED25519 = 'ed25519'
+
+
+@dataclass
+class SshPwlessStatuses:
+    """Categorized results for SSH passwordless checks."""
+
+    passwordless_ips: List[str] = field(default_factory=list)
+    password_required_ips: List[str] = field(default_factory=list)
+    unreachable_ips: List[str] = field(default_factory=list)
 
 
 def ping_host(host: str, total_pings: int = 3, time_out_per_ping: int = 3, mute: bool = False) -> bool:
@@ -71,18 +81,77 @@ def remove_known_hosts_entries(hosts: List[str]) -> None:
             LOG(f"[WARNING] Failed to remove known_hosts entry for {host}: {e}")
 
 
-def check_ssh_pwless_statuses(ips: List[str], user: str, public_key_path: Path, max_workers: int = 10) -> Tuple[List[str], List[str]]:
+def check_ssh_pwless_statuses(ips: List[str], user: str, public_key_path: Path, max_workers: int = 10) -> SshPwlessStatuses:
     """Check SSH key status for multiple hosts in parallel.
 
     Returns:
-        Tuple of (passwordless_ips, password_required_ips)
+        SshPwlessStatuses with passwordless, password required, and unreachable IPs.
     """
-    passwordless_ips = []
-    password_required_ips = []
+    statuses = SshPwlessStatuses()
 
-    def _check_single_ip(ip: str) -> Tuple[str, bool]:
-        has_key = is_ssh_key_already_installed(user, ip, public_key_path)
-        return (ip, has_key)
+    try:
+        with open(public_key_path, 'r') as f:
+            public_key = f.read().strip()
+        key_parts = public_key.split()
+        key_fingerprint = key_parts[1] if len(key_parts) > 1 else public_key
+    except Exception as exc:
+        LOG(f"{LOG_PREFIX_MSG_WARNING} Unable to read public key at {public_key_path}: {exc}")
+        key_fingerprint = None
+
+    unreachable_markers = (
+        "connection timed out",
+        "no route to host",
+        "could not resolve hostname",
+        "name or service not known",
+        "connection refused",
+        "connection closed by remote host",
+        "connection reset",
+        "network is unreachable",
+        "host is down",
+    )
+
+    permission_markers = (
+        "permission denied",
+        "authentication failed",
+        "publickey,password",
+        "publickey,keyboard-interactive",
+    )
+
+    def _check_single_ip(ip: str) -> Tuple[str, str]:
+        if not key_fingerprint:
+            # Without a readable key we cannot check remotely; treat as requiring setup.
+            return ip, "password_required"
+
+        cmd = (
+            f'ssh -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=5 '
+            f'{user}@{ip} \'grep -q "{key_fingerprint}" ~/.ssh/authorized_keys 2>/dev/null\''
+        )
+        try:
+            result = run_shell(
+                cmd,
+                show_cmd=False,
+                capture_output=True,
+                timeout=10,
+                check_throw_exception_on_exit_code=False,
+            )
+        except Exception as exc:
+            LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to execute SSH status check for {ip}: {exc}")
+            return ip, "unreachable"
+
+        combined_output = f"{result.stdout or ''}\n{result.stderr or ''}".lower()
+
+        if result.returncode == 0:
+            return ip, "passwordless"
+
+        if any(marker in combined_output for marker in unreachable_markers):
+            return ip, "unreachable"
+
+        if any(marker in combined_output for marker in permission_markers):
+            return ip, "password_required"
+
+        # Default to password-required for other failures so we attempt remediation.
+        LOG(f"{LOG_PREFIX_MSG_WARNING} {ip} SSH check failed with unexpected output (treating as password-required). Raw: {combined_output.strip()}")
+        return ip, "password_required"
 
     LOG(f"{LOG_PREFIX_MSG_INFO} Checking SSH key status for {len(ips)} hosts in parallel with max_workers={max_workers}")
     with ThreadPoolExecutor(max_workers=min(max_workers, len(ips))) as executor:
@@ -91,18 +160,21 @@ def check_ssh_pwless_statuses(ips: List[str], user: str, public_key_path: Path, 
         for future in as_completed(future_map):
             ip = future_map[future]
             try:
-                checked_ip, has_key = future.result()
-                if has_key:
-                    passwordless_ips.append(checked_ip)
+                checked_ip, status = future.result()
+                if status == "passwordless":
+                    statuses.passwordless_ips.append(checked_ip)
                     LOG(f"{LOG_PREFIX_MSG_INFO} ✓ {checked_ip} - SSH key already installed")
-                else:
-                    password_required_ips.append(checked_ip)
+                elif status == "password_required":
+                    statuses.password_required_ips.append(checked_ip)
                     LOG(f"{LOG_PREFIX_MSG_WARNING} {checked_ip} - SSH key not found, will require password")
+                else:
+                    statuses.unreachable_ips.append(checked_ip)
+                    LOG(f"{LOG_PREFIX_MSG_WARNING} {checked_ip} - Host unreachable, skipping")
             except Exception as exc:
                 LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to check SSH status for {ip}: {exc}")
-                password_required_ips.append(ip)
+                statuses.unreachable_ips.append(ip)
 
-    return passwordless_ips, password_required_ips
+    return statuses
 
 
 

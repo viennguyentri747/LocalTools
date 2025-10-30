@@ -6,34 +6,27 @@ from pathlib import Path
 import sys
 from typing import Dict, Iterable, List, Tuple
 
-from available_tools.test_tools import test_pattern_in_acu_logs as pattern_tool
-from available_tools.test_tools import test_ut_status_since_startup as status_tool
+from available_tools.test_tools import test_ins_monitor_msg_on_acu as ins_monitor_tool
 from dev_common import *
-
+from dev_common.custom_structures import ForwardedTool
 
 ARG_TEST_MODE = f"{ARGUMENT_LONG_PREFIX}mode"
 
-MODE_STATUS = "status_since_startup"
-MODE_ACU_PATTERN = "acu_log_pattern"
-AVAILABLE_TEST_MODES = (MODE_STATUS, MODE_ACU_PATTERN)
+MODE_INS_MONITOR = "ins_monitor"
+AVAILABLE_TEST_MODES = (MODE_INS_MONITOR,)
 
 FORWARDED_TOOLS: Dict[str, ForwardedTool] = {
-    MODE_STATUS: ForwardedTool(
-        mode=MODE_STATUS,
-        description="Reboot UT and check status endpoints after startup.",
-        main=status_tool.main,
-        get_templates=status_tool.get_tool_templates,
-    ),
-    MODE_ACU_PATTERN: ForwardedTool(
-        mode=MODE_ACU_PATTERN,
-        description="Generate grep commands to search downloaded ACU logs.",
-        main=pattern_tool.main,
-        get_templates=pattern_tool.get_tool_templates,
+    MODE_INS_MONITOR: ForwardedTool(
+        mode=MODE_INS_MONITOR,
+        description="Copy and run INS monitor message checks on a UT.",
+        main=ins_monitor_tool.main,
+        get_templates=ins_monitor_tool.get_tool_templates,
     ),
 }
 
+
 def get_tool_templates() -> List[ToolTemplate]:
-    """Provide ready-to-run templates for the combined tool."""
+    """Provide ready-to-run templates for remote UT helpers."""
 
     def clone_with_mode(mode: str, templates: Iterable[ToolTemplate]) -> List[ToolTemplate]:
         cloned: List[ToolTemplate] = []
@@ -62,28 +55,22 @@ def get_tool_templates() -> List[ToolTemplate]:
 
 
 def parse_args(argv: List[str]) -> Tuple[argparse.Namespace, List[str]]:
-    """Parse known arguments while preserving the remaining args for the selected tool."""
-
     parser = argparse.ArgumentParser(
-        description="Run UT helper tools from a single entry point.",
+        description="Run UT remote helper tools from a single entry point.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument(
         ARG_TEST_MODE,
         choices=AVAILABLE_TEST_MODES,
         required=True,
-        help=f"Which UT helper to run. '{MODE_STATUS}' forwards to test_ut_status_since_startup.py. "
-             f"'{MODE_ACU_PATTERN}' forwards to test_pattern_in_acu_logs.py.",
+        help=f"Which UT remote helper to run. '{MODE_INS_MONITOR}' forwards to test_ins_monitor_msg_on_acu.py.",
     )
 
     parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
-
     return parser.parse_known_args(argv)
 
 
 def _run_forwarded_tool(forwarded_tool: ForwardedTool, passthrough_args: List[str]) -> None:
-    """Invoke the forwarded tool with the provided passthrough arguments."""
-
     LOG(f"{LOG_PREFIX_MSG_INFO} Running mode '{forwarded_tool.mode}': {forwarded_tool.description}")
     original_argv = sys.argv
 

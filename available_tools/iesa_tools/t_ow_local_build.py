@@ -162,6 +162,33 @@ def main() -> None:
                     tisdk_ref, overwrite_repos, force_remove_tmp_build, repo_sync, use_current_ow_branch=use_current_local_ow_branch)
     run_build(build_type, get_arg_value(args, ARG_INTERACTIVE), make_clean, is_debug_build)
 
+    # Always display binary build finish + command to copy
+    LOG(f"{MAIN_STEP_LOG_PREFIX} Binary build finished.")
+    LOG(f"Find output binary files in '{OW_BUILD_BINARY_OUTPUT_PATH}'")
+    LOG(f"{LINE_SEPARATOR}")
+    command = (
+        f'sudo chmod -R 755 {OW_BUILD_BINARY_OUTPUT_PATH} && '
+        f'while true; do '
+        f'read -e -p "Enter binary path: " -i "{OW_BUILD_BINARY_OUTPUT_PATH}/" BIN_PATH && '
+        f'if [ -f "$BIN_PATH" ]; then break; else echo "Error: File $BIN_PATH does not exist. Please try again."; fi; '
+        f'done && '
+        f'BIN_NAME=$(basename "$BIN_PATH") && '
+        f'DEST_NAME="$BIN_NAME" && '
+        f'original_md5=$(md5sum "$BIN_PATH" | cut -d" " -f1) && '
+        f'read -e -p "Enter target IP: " -i "192.168.10" TARGET_IP && '
+        f'ping_acu_ip "$TARGET_IP" --mute && '
+        f'scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -rJ root@$TARGET_IP "$BIN_PATH" root@192.168.100.254:/home/root/download/"$DEST_NAME" && '
+        f'{{ '
+        f'echo "SCP copy completed successfully"; '
+        f'echo -e "Binary copied completed. Setup symlink on target UT $TARGET_IP with this below command:\\n"; '
+        f'echo "actual_md5=\\$(md5sum /home/root/download/$DEST_NAME | cut -d\\" \\" -f1) && if [ \\"$original_md5\\" = \\"\\$actual_md5\\" ]; then echo \\"MD5 match! Proceeding...\\" && cp /opt/bin/$BIN_NAME /home/root/download/backup_$BIN_NAME && ln -sf /home/root/download/$DEST_NAME /opt/bin/$BIN_NAME && echo \\"Backup created and symlink updated: /opt/bin/$BIN_NAME -> /home/root/download/$DEST_NAME\\"; else echo \\"MD5 MISMATCH! Aborting.\\"; fi"; '
+        f'}} || {{ '
+        f'echo "SCP copy failed"; '
+        f'}}'
+    )
+
+    display_content_to_copy(command, purpose="Copy BINARY to target IP", is_copy_to_clipboard=(build_type == BUILD_TYPE_BINARY))
+
     # TODO: improve handling on interactive mode (check it actually success before print copy commands)
     if build_type == BUILD_TYPE_IESA:
         LOG(f"{MAIN_STEP_LOG_PREFIX} IESA build finished. Renaming artifact...")
@@ -190,35 +217,8 @@ def main() -> None:
             LOG(
                 f"ERROR: Expected IESA artifact not found at '{OW_OUTPUT_IESA_PATH}' or it's not a file.", file=sys.stderr)
             sys.exit(1)
-    else:
-        LOG(f"{MAIN_STEP_LOG_PREFIX} Binary build finished.")
-        LOG(f"Find output binary files in '{OW_BUILD_BINARY_OUTPUT_PATH}'")
-        LOG(f"{LINE_SEPARATOR}")
-        command = (
-            f'sudo chmod -R 755 {OW_BUILD_BINARY_OUTPUT_PATH} && '
-            f'while true; do '
-            f'read -e -p "Enter binary path: " -i "{OW_BUILD_BINARY_OUTPUT_PATH}/" BIN_PATH && '
-            f'if [ -f "$BIN_PATH" ]; then break; else echo "Error: File $BIN_PATH does not exist. Please try again."; fi; '
-            f'done && '
-            f'BIN_NAME=$(basename "$BIN_PATH") && '
-            f'DEST_NAME="$BIN_NAME" && '
-            f'original_md5=$(md5sum "$BIN_PATH" | cut -d" " -f1) && '
-            f'read -e -p "Enter target IP: " -i "192.168.10" TARGET_IP && '
-            f'ping_acu_ip "$TARGET_IP" --mute && '
-            f'scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -rJ root@$TARGET_IP "$BIN_PATH" root@192.168.100.254:/home/root/download/"$DEST_NAME" && '
-            f'{{ '
-            f'echo "SCP copy completed successfully"; '
-            f'echo -e "Binary copied completed. Setup symlink on target UT $TARGET_IP with this below command:\\n"; '
-            f'echo "actual_md5=\\$(md5sum /home/root/download/$DEST_NAME | cut -d\\" \\" -f1) && if [ \\"$original_md5\\" = \\"\\$actual_md5\\" ]; then echo \\"MD5 match! Proceeding...\\" && cp /opt/bin/$BIN_NAME /home/root/download/backup_$BIN_NAME && ln -sf /home/root/download/$DEST_NAME /opt/bin/$BIN_NAME && echo \\"Backup created and symlink updated: /opt/bin/$BIN_NAME -> /home/root/download/$DEST_NAME\\"; else echo \\"MD5 MISMATCH! Aborting.\\"; fi"; '
-            f'}} || {{ '
-            f'echo "SCP copy failed"; '
-            f'}}'
-        )
-
-        display_content_to_copy(command, purpose="Copy BINARY to target IP", is_copy_to_clipboard=True)
 
 # ───────────────────────────  helpers / actions  ─────────────────────── #
-
 
 def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: str, input_tisdk_ref: str, overwrite_repos: List[str], use_current_ow_branch: bool, current_local_branch: str):
     ow_sw_path_str = str(OW_SW_PATH)
@@ -417,7 +417,7 @@ def reset_or_create_tmp_build(force_remove_tmp_build: bool) -> None:
     manifests_git_head = repo_dir / 'manifests' / '.git' / 'HEAD'
 
     if OW_BUILD_FOLDER_PATH.exists():
-        should_reset: bool = False
+        should_remove: bool = False
         is_reset_instead_clearing: bool = not force_remove_tmp_build and repo_dir.is_dir(
         ) and manifest_file.is_file() and manifests_git_head.is_file()
         if (is_reset_instead_clearing):
@@ -426,11 +426,18 @@ def reset_or_create_tmp_build(force_remove_tmp_build: bool) -> None:
                 run_shell("repo forall -c 'git reset --hard' && repo forall -c 'git clean -fdx'", cwd=OW_BUILD_FOLDER_PATH)
             except subprocess.CalledProcessError:
                 LOG(f"Warning: 'repo forall' failed in {OW_BUILD_FOLDER_PATH}. Assuming broken repo and clearing...")
-                should_reset = True
+                should_remove = True
         else:
             LOG(f"Force removing tmp_build folder at {OW_BUILD_FOLDER_PATH}...")
-            should_reset = True
-        if should_reset:
+            should_remove = True
+        if should_remove:
+            # Move back to parent directory before removing tmp_build
+            original_cwd = Path.cwd()
+            if is_current_relative_to(Path.cwd(), OW_BUILD_FOLDER_PATH):
+                LOG(f"{LOG_PREFIX_MSG_WARNING} Current directory is inside tmp_build, changing to {OW_SW_PATH}...")
+                os.chdir(OW_SW_PATH)
+            else:
+                LOG(f"Current directory {original_cwd} is outside tmp_build, no need to change directory.")
             run_shell("sudo rm -rf " + str(OW_BUILD_FOLDER_PATH))
             OW_BUILD_FOLDER_PATH.mkdir(parents=True)
     else:

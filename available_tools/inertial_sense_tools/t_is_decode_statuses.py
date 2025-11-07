@@ -5,6 +5,10 @@ from pathlib import Path
 from typing import List, Tuple
 
 from dev_common.tools_utils import ToolTemplate, build_examples_epilog
+from available_tools.inertial_sense_tools.decode_gen_fault_status_utils import (
+    decode_gen_fault_status,
+    print_decoded_status as print_gen_fault_status,
+)
 from available_tools.inertial_sense_tools.decode_gps_status_utils import print_gps_status_report
 from available_tools.inertial_sense_tools.decode_hdw_status_utils import (
     decode_hdw_status,
@@ -15,7 +19,7 @@ from available_tools.inertial_sense_tools.decode_ins_status_utils import (
     print_decoded_status as print_ins_status,
 )
 
-SUPPORTED_TYPES: Tuple[str, ...] = ("gps", "hdw", "ins")
+SUPPORTED_TYPES: Tuple[str, ...] = ("gen_fault", "gps", "hdw", "ins")
 
 def get_tool_templates() -> List[ToolTemplate]:
     return [
@@ -37,10 +41,18 @@ def get_tool_templates() -> List[ToolTemplate]:
         ),
         ToolTemplate(
             name="Decode HDW Status",
-            extra_description="Decode hardware status integer",
+            extra_description="Decode hardware status integer, check it with `tail -F /var/log/ins_monitor_log | grep -i INS1Msg`",
             args={
                 "--type": "hdw",
                 "--status": "0x2088010",
+            },
+        ),
+        ToolTemplate(
+            name="Decode General Fault Status",
+            extra_description="Use enum eGenFaultCodes, check it with `tail -F /var/log/ins_monitor_log | grep -i DID_SYS_PARAMS`",
+            args={
+                "--type": "gen_fault",
+                "--status": "0x800",
             },
         ),
     ]
@@ -56,7 +68,7 @@ def main() -> None:
         "--type",
         required=True,
         choices=sorted(SUPPORTED_TYPES),
-        help="Message type to decode (e.g. gps, ins, hdw).",
+        help="Message type to decode (e.g. gps, ins, hdw, gen_fault).",
     )
     parser.add_argument(
         "-s",
@@ -88,6 +100,13 @@ def decode_message(message_type: str, status_value: str) -> None:
         print(f"\nDecoding HDW Status: 0x{status_value:08X} ({status_value})")
         decoded = decode_hdw_status(status_value)
         print_hdw_status(decoded)
+        print("\n" + "=" * 60 + "\n")
+        return
+
+    if message_type == "gen_fault":
+        print(f"\nDecoding General Fault Status: 0x{status_value:08X} ({status_value})")
+        decoded = decode_gen_fault_status(status_value)
+        print_gen_fault_status(decoded)
         print("\n" + "=" * 60 + "\n")
         return
 

@@ -1,6 +1,6 @@
 #!/home/vien/local_tools/MyVenvFolder/bin/python
 from dev_common import *
-from misc_tools.t_get_acu_logs import AcuLogInfo
+from available_tools.misc_hidden_tools.t_get_acu_logs import AcuLogInfo
 from unit_tests.acu_log_tests.periodic_log_helper import *
 from unit_tests.acu_log_tests.common import batch_fetch_acu_logs_for_days
 

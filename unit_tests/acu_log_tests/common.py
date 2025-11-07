@@ -2,7 +2,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import List
 from dev_common import *
-from misc_tools.t_get_acu_logs import AcuLogInfo, fetch_acu_logs
+from available_tools.misc_hidden_tools.t_get_acu_logs import AcuLogInfo, fetch_acu_logs
 
 
 def _get_last_n_days(n: int) -> List[str]:

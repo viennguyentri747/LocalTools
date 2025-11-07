@@ -42,7 +42,7 @@ SEARCH_MODE_SYMBOL = "fzf-symbols"
 SEARCH_MODE_FILE = "fzf-files"
 SEARCH_MODE_TEXT = "fzf-text"
 SYMBOL_PLACEHOLDER_STR = "SYMBOL_PLACEHOLDER"
-
+FZF_RELOAD_KEYWORD = 'reload'
 # Template definitions
 C_CPP_EXTS = ["c", "cpp", "cc", "cxx", "h", "hpp", "hxx"]
 
@@ -125,14 +125,56 @@ def build_rg_base_command(args: TemplateArgs, file_exts: List[str], is_regex_fil
     return " ".join(quote(part) for part in parts)
 
 
+# def _build_fzf_wrapper_command(description: str, prompt: str, bind_command: str, initial_query_str: str, search_dir: str, prerequisite_commands: str = "", query_variable_name: str = "Query") -> str:
+#     """
+#     Builds the fzf runner command and the final shell wrapper that processes its output.
+#     This is a shared helper for different fzf-based commands.
+#     """
+
+#     query_arg = f'--query {quote(initial_query_str)} ' if initial_query_str else ''
+#     initial_input = f'rg --color=always -n {quote(initial_query_str)} {quote(search_dir)} 2>/dev/null' if initial_query_str else 'echo ""'
+#     fzf_runner = (
+#         f'{initial_input} | fzf '
+#         rf'--header "{description} ({search_dir}). Type to filter ..." '
+#         f'{query_arg}'
+#         f'--prompt {quote(prompt)} '
+#         f'--print-query '  # Print the query as the first line
+#         f'--bind {quote(bind_command)} '  # Bind to the specific reload command
+#         f'--preview-window "up:80%" '
+#         # --ansi: interpret colors from rg
+#         # --disabled: disable fzf's own search
+#         # --no-sort: keep rg's output order
+#         f'--ansi --disabled --no-sort'
+#     )
+
 def _build_fzf_wrapper_command(description: str, prompt: str, bind_command: str, initial_query_str: str, search_dir: str, prerequisite_commands: str = "", query_variable_name: str = "Query") -> str:
     """
     Builds the fzf runner command and the final shell wrapper that processes its output.
     This is a shared helper for different fzf-based commands.
     """
+    
+    # Extract the reload command (after "FZF_RELOAD_PREFIX") from the bind_command (sth like "change:{FZF_RELOAD_PREFIX}:<reload_command>").
+    reload_cmd_match = bind_command.split(f"{FZF_RELOAD_KEYWORD}:")
+    # if len(reload_cmd_match) > 1:
+    #     reload_template = reload_cmd_match[1]
+    #     # Replace {q} with the initial query string.
+    #     # Ex: if initial_query_str = "search_term", reload_template = "rg --color=always -n {q} /path"
+    #     # -> initial_input = "rg --color=always -n 'search_term' /path"
+    #     initial_input = reload_template.replace('{q}', quote(initial_query_str) if initial_query_str else '')
+    # else:
+    #     LOG_EXCEPTION_STR(f"Failed to extract reload command from bind_command: {bind_command}", exit=True)
+    
+    if len(reload_cmd_match) > 1:
+        reload_template = reload_cmd_match[1]
+        # Replace {q} with the initial query string
+        initial_input = reload_template.replace('{q}', quote(initial_query_str) if initial_query_str else '')
+    else:
+        # Fallback if bind_command doesn't have reload
+        initial_input = f'rg --color=always -n {quote(initial_query_str)} {quote(search_dir)} 2>/dev/null' if initial_query_str else 'echo ""'
+
 
     query_arg = f'--query {quote(initial_query_str)} ' if initial_query_str else ''
-    initial_input = f'rg --color=always -n {quote(initial_query_str)} {quote(search_dir)} 2>/dev/null' if initial_query_str else 'echo ""'
+    
     fzf_runner = (
         f'{initial_input} | fzf '
         rf'--header "{description} ({search_dir}). Type to filter ..." '
@@ -161,8 +203,9 @@ def _build_fzf_wrapper_command(description: str, prompt: str, bind_command: str,
         f'  query_result=$(echo "$selection" | head -n 1); '
         # The line from rg is the last line
         f'  line=$(echo "$selection" | tail -n 1); '
+        f'  echo "{LINE_SEPARATOR}"; '
         # Use `echo -e` to add color to the labels
-        f'  echo -e "${{GREEN}}Selected {query_variable_name}:${{NC}} $query_result"; '
+        f'  echo -e "${{GREEN}}Query {query_variable_name}:${{NC}} $query_result"; '
         f'  echo -e "${{GREEN}}Selected line:${{NC}}   $line"; '
         f'else '
         f'  echo -e "${{GREEN}}No selection made!${{NC}}"; '
@@ -221,7 +264,7 @@ def build_fzf_rgrep_c_command(
     return _build_fzf_wrapper_command(
         description=description,
         prompt="Symbol> ",
-        bind_command=f"change:reload:{search_function_name} {{q}}",
+        bind_command=f"change:{FZF_RELOAD_KEYWORD}:{search_function_name} {{q}}",
         initial_query_str=initial_query,
         search_dir=search_dir,
         prerequisite_commands=prerequisite_commands,

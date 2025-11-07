@@ -1,0 +1,8 @@
+== Info:   Trying 192.168.101.97:80...
+== Info: Connected to 192.168.101.97 (192.168.101.97) port 80 (#0)
+=> Send header, 118 bytes (0x76)
+0000: GET /aim/api/lui/download/complete/log.tar.gz HTTP/1.1
+0038: Host: 192.168.101.97
+004e: User-Agent: curl/7.81.0
+0067: Accept: */*
+0074: 

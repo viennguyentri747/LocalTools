@@ -18,9 +18,9 @@ _git_qpush() {
     return 1
   fi
 
-  # Check if there are any changes to stage
-  if command git diff --quiet && command git diff --cached --quiet; then
-    echo "No changes to commit."
+  # Check if there are any changes or extra untracked files to stage
+  if command git diff --quiet && command git diff --cached --quiet && [ -z "$(command git ls-files --others --exclude-standard)" ]; then
+    echo "No changes or untracked files to commit."
     return 0
   fi
 
@@ -36,6 +36,14 @@ _git_qpush() {
   if ! command git diff --cached --quiet; then
     echo "  Already staged files:"
     command git diff --cached --name-status | sed 's/^/    /'
+  fi
+  echo
+
+  # Show untracked files
+  _untracked=$(command git ls-files --others --exclude-standard)
+  if [ -n "$_untracked" ]; then
+    echo "  Untracked files (will be added):"
+    echo "$_untracked" | sed 's/^/    ?? /'
   fi
   echo
 

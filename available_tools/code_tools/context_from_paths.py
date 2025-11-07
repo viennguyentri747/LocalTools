@@ -16,7 +16,7 @@ CONTEXT_FOLDER_PREFIX_PATHS = 'context_paths_'
 def get_paths_tool_templates():
     return [
         ToolTemplate(
-            name="[paths] Context from multiple paths with exclude GLOB patterns",
+            name="[paths] Context from multiple PATHs",
             args={
                 ARG_EXTRACT_MODE: EXTRACT_MODE_PATHS,
                 ARG_INCLUDE_PATHS_PATTERN: ["*"],

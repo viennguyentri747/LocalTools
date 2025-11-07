@@ -47,9 +47,9 @@ def gen_content_markdown(ticket: JiraTicket, coding_task_info: Optional[CodingTa
     spacing_between_line_around_headers = "\n\n"
     spacing_between_lines = "\n"
     md_content_to_gen: str = (
-        f"# Ticket Overview:{spacing_between_line_around_headers}"
+        f"# Ticket Overview{spacing_between_line_around_headers}"
         f"- Title: {ticket.title}{spacing_between_lines}"
-        f"- Link: {ticket.url}"
+        f"- Link: {ticket.url}{spacing_between_line_around_headers}"
     )
 
     # has_body = False
@@ -77,13 +77,15 @@ def gen_content_markdown(ticket: JiraTicket, coding_task_info: Optional[CodingTa
         repo_list_str = "".join([f"- [ ] {repo}\n" for repo in repo_names if (CORE_REPOS_PATH / repo).is_dir()])
         
         md_content_to_gen += (
-            f"# Repos to make change:\n\n"
-            f"{repo_list_str}\n"
-            f"# Create branch command:\n\n"
-            f"```bash\n"
-            f"{gen_checkout_command(ticket, coding_task_info.main_ow_branch)}\n"
-            f"```"
+            f"# Repos to make change:{spacing_between_line_around_headers}"
+            f"{repo_list_str}{spacing_between_line_around_headers}"
+            f"# Create branch command:{spacing_between_line_around_headers}"
+            f"```bash{spacing_between_lines}"
+            f"{gen_checkout_command(ticket, coding_task_info.main_ow_branch)}{spacing_between_lines}"
+            f"```{spacing_between_line_around_headers}"
         )
+
+    md_content_to_gen += f"# Notes{spacing_between_line_around_headers}"
 
     return md_content_to_gen
 

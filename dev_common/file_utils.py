@@ -102,3 +102,20 @@ def is_same_xml(f1: Union[str, Path], f2: Union[str, Path]) -> bool:
         norm(root)
         return ET.tostring(root, encoding='utf-8')
     return canonicalize(f1) == canonicalize(f2)
+
+def is_current_relative_to(current: Union[str, Path], target: Union[str, Path]) -> bool:
+    """
+    Check if the current path is relative to the target path. This also support symlinks by resolving both paths.
+    """
+    current_resolved = Path(current).resolve()
+    target_resolved = Path(target).resolve()
+    
+    try:
+        return current_resolved.is_relative_to(target_resolved)
+    except (ValueError, AttributeError):
+        # Fallback for older Python versions without is_relative_to
+        try:
+            current_resolved.relative_to(target_resolved)
+            return True
+        except ValueError:
+            return False

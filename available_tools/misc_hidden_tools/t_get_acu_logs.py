@@ -19,6 +19,7 @@ DEFAULT_MAX_THREAD_COUNT = 20
 
 def get_tool_templates() -> List[ToolTemplate]:
     default_dates = [
+        get_acu_log_datename_from_date(datetime.now() - timedelta(days=2)),
         get_acu_log_datename_from_date(datetime.now() - timedelta(days=1)),
         get_acu_log_datename_from_date(datetime.now()),
     ]
@@ -47,7 +48,7 @@ def parse_args() -> argparse.Namespace:
         ARG_LOG_TYPES,
         nargs='+',
         choices=DEFAULT_LOG_TYPE_PREFIXES,
-        default=list(DEFAULT_LOG_TYPE_PREFIXES),
+        required=True,
         help='Log filename prefix(es) (P, T, or E).',
     )
     parser.add_argument(

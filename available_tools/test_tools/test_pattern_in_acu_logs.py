@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Sequence, Set
 
 from available_tools.test_tools.common import *
-from available_tools.misc_hidden_tools.t_get_acu_logs import batch_fetch_acu_logs
+from available_tools.test_tools.t_get_acu_logs import batch_fetch_acu_logs
 from dev_common import *
 
 DEFAULT_LOG_TYPE_PREFIXES = [P_LOG_PREFIX, T_LOG_PREFIX, E_LOG_PREFIX]

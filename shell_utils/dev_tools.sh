@@ -6,6 +6,10 @@ tools(){
 	tool "$@"
 }
 
+all_tools(){
+    ~/local_tools/main_tools.py  --folder_pattern "^.*_tools$"
+}
+
 extract_context() {
 	~/local_tools/tool_invoker_cli.py '/home/vien/local_tools/available_tools/code_tools/t_extract_code_context.py'
 }

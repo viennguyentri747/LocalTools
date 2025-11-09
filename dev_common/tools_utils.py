@@ -24,6 +24,8 @@ class ToolFolderPriority(IntEnum):
     inertial_sense_tool = auto()
     remote_tool = auto()
     # TODO: Add more priorities
+
+    misc_hidden_tools = auto()
     LAST = 999
 
 
@@ -51,7 +53,6 @@ class ToolFolderMetadata:
     always_expand: bool = False
     start_collapsed: Optional[bool] = None
     priority: ToolFolderPriority = ToolFolderPriority.LAST
-    should_ignore: bool = False
 
     def __init__(self, **kwargs: Any):
         for key, value in kwargs.items():
@@ -87,6 +88,7 @@ def discover_tool_folders(root: Path, folder_pattern: str) -> List[Path]:
     pattern = re.compile(folder_pattern)
     folders: List[Path] = []
     for p in sorted(root.iterdir()):
+        LOG(f"Discovered tool folder: {p}, pattern: {folder_pattern}")
         if p.is_dir() and pattern.match(p.name):
             folders.append(p)
     return folders

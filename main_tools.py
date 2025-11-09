@@ -30,11 +30,7 @@ def discover_and_nest_tools(project_root: Path, folder_pattern: str, tool_prefix
         if tool.folder not in root_nodes:
             folder_path = project_root / tool.folder
             metadata: ToolFolderMetadata = load_tools_metadata(folder_path)
-            if metadata.should_ignore:
-                LOG(f"Ignoring tool folder: {tool.folder}")
-                continue
-            else:
-                LOG(f"Loading tool folder: {tool.folder} with metadata: {metadata}")
+            LOG(f"Loading tool folder: {tool.folder} with metadata: {metadata}")
             root_nodes[tool.folder] = ToolEntryNode(
                 name=tool.folder.upper(), metadata=metadata, folder_name=tool.folder, )
 
@@ -89,7 +85,8 @@ def diplay_templates(tool_path: Path, templates: List[ToolTemplate]) -> int:
 
         # Build command preview for this template
         preview_cmd = build_template_command(tool_path, template)
-        title = f"[{i}] {template.name}. Note: {template.extra_description}\n    → {preview_cmd}"
+        note_part = f". Note: {template.extra_description}" if template.extra_description else ""
+        title = f"[{i}] {template.name}{note_part}\n→ {preview_cmd}"
         option_data.append(OptionData(title=title, selectable=True, data=template))
         option_data.append(OptionData(title="", selectable=False))  # Spacer
     if not option_data:
@@ -141,10 +138,9 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Discover and run local tool scripts")
 
     p.add_argument(ARG_TOOL_PREFIX, default="t_", help="Filename prefix for tool scripts (default: t_)")
-
     p.add_argument(
         ARG_TOOL_FOLDER_PATTERN,
-        default=r"^(?!misc_tools$).*_tools$",
+        default=r"^.*(?<!hidden)_tools$",
         help=r"Regex to match tool folders at project root, excluding 'ignore_tools' (default: ^(?!ignore_tools$).*_tools$)"
     )
 

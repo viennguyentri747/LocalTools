@@ -7,13 +7,15 @@ import sys
 from typing import Dict, Iterable, List, Tuple
 
 from available_tools.test_tools import test_ins_monitor_msg_on_acu as ins_monitor_tool
+from available_tools.test_tools import test_tail_p_log_on_acu as tail_p_log_tool
 from dev_common import *
 from dev_common.custom_structures import ForwardedTool
 
 ARG_TEST_MODE = f"{ARGUMENT_LONG_PREFIX}mode"
 
 MODE_INS_MONITOR = "ins_monitor"
-AVAILABLE_TEST_MODES = (MODE_INS_MONITOR,)
+MODE_TAIL_P_LOG = "tail_p_log"
+AVAILABLE_TEST_MODES = (MODE_INS_MONITOR, MODE_TAIL_P_LOG)
 
 FORWARDED_TOOLS: Dict[str, ForwardedTool] = {
     MODE_INS_MONITOR: ForwardedTool(
@@ -21,6 +23,12 @@ FORWARDED_TOOLS: Dict[str, ForwardedTool] = {
         description="Copy and run INS monitor message checks on a UT.",
         main=ins_monitor_tool.main,
         get_templates=ins_monitor_tool.get_tool_templates,
+    ),
+    MODE_TAIL_P_LOG: ForwardedTool(
+        mode=MODE_TAIL_P_LOG,
+        description="Generate ACU periodic log tail command snippets.",
+        main=tail_p_log_tool.main,
+        get_templates=tail_p_log_tool.get_tool_templates,
     ),
 }
 
@@ -63,7 +71,7 @@ def parse_args(argv: List[str]) -> Tuple[argparse.Namespace, List[str]]:
         ARG_TEST_MODE,
         choices=AVAILABLE_TEST_MODES,
         required=True,
-        help=f"Which UT remote helper to run. '{MODE_INS_MONITOR}' forwards to test_ins_monitor_msg_on_acu.py.",
+        help="Which UT remote helper to run (e.g. ins_monitor, tail_p_log).",
     )
 
     parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))

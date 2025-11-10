@@ -53,19 +53,21 @@ PATTERN_KEY_MACRO_DEFINITION = "c-macro-definition"
 PATTERN_KEY_TYPEDEF_DEFINITION = "c-typedef-definition"
 PATTERN_KEY_ENUM_DEFINITION = "c-enum-definition"
 PATTERN_KEY_ENUM_VALUE_DEFINITION = "c-enum-value-definition"
+PATTERN_KEY_FUNCTION_DECLARATION = "c-function-declaration"
 PATTERN_KEY_FUNCTION_CALL = "c-function-call"
 PATTERN_KEY_SYMBOL_USAGE = "c-symbol-usage"
 
 PATTERNS_KEYS_DISPLAY_NAME_MAP: Dict[str, str] = {
-    PATTERN_KEY_FUNCTION_DEFINITION: "Function",
-    PATTERN_KEY_VARIABLE_DEFINITION: "Variable",
-    PATTERN_KEY_CLASS_STRUCT_DEFINITION: "Class/Struct",
-    PATTERN_KEY_MACRO_DEFINITION: "Macro",
-    PATTERN_KEY_TYPEDEF_DEFINITION: "Typedef",
-    PATTERN_KEY_ENUM_DEFINITION: "Enum",
-    PATTERN_KEY_ENUM_VALUE_DEFINITION: "Enum Value",
-    PATTERN_KEY_FUNCTION_CALL: "Function Calls",
-    PATTERN_KEY_SYMBOL_USAGE: "Symbol References",
+    PATTERN_KEY_FUNCTION_DEFINITION: "Function DEF",
+    PATTERN_KEY_FUNCTION_DECLARATION: "Function DECL",
+    PATTERN_KEY_VARIABLE_DEFINITION: "Variable DEF",
+    PATTERN_KEY_CLASS_STRUCT_DEFINITION: "Class/Struct DEF",
+    PATTERN_KEY_MACRO_DEFINITION: "Macro DEF",
+    PATTERN_KEY_TYPEDEF_DEFINITION: "Typedef DEF",
+    PATTERN_KEY_ENUM_DEFINITION: "Enum DEF",
+    PATTERN_KEY_ENUM_VALUE_DEFINITION: "Enum Value DEF",
+    PATTERN_KEY_FUNCTION_CALL: "Function CALL",
+    PATTERN_KEY_SYMBOL_USAGE: "Symbol REF",
 }
 
 DEFINITION_PATTERN_KEYS = [
@@ -76,6 +78,10 @@ DEFINITION_PATTERN_KEYS = [
     PATTERN_KEY_ENUM_VALUE_DEFINITION,
     PATTERN_KEY_MACRO_DEFINITION,
     PATTERN_KEY_VARIABLE_DEFINITION,
+]
+
+DECLARATION_PATTERN_KEYS = [
+    PATTERN_KEY_FUNCTION_DECLARATION,
 ]
 
 USAGE_PATTERN_KEYS = [
@@ -92,6 +98,7 @@ def get_patterns_map() -> Dict[str, SearchPattern]:
         PATTERN_KEY_TYPEDEF_DEFINITION: SearchPattern(regex_c_typedef_definition),
         PATTERN_KEY_ENUM_DEFINITION: SearchPattern(regex_c_enum_definition),
         PATTERN_KEY_ENUM_VALUE_DEFINITION: SearchPattern(regex_c_enum_value_definition),
+        PATTERN_KEY_FUNCTION_DECLARATION: SearchPattern(regex_c_function_declaration),
         PATTERN_KEY_FUNCTION_CALL: SearchPattern(regex_c_function_call),
         PATTERN_KEY_SYMBOL_USAGE: SearchPattern(regex_c_symbol_usage),
     }
@@ -342,15 +349,12 @@ def _regex_not_c_keyword_prefix() -> str:
     return "".join(parts)
 
 
-def regex_c_function_definition(symbol: str, literal: bool) -> str:
+def _regex_c_function_signature(symbol: str, literal: bool) -> str:
     """
-    Matches a likely C/C++ *definition* header line for a function whose name
-    starts with `symbol` (or exactly equals if literal=True).
-    Keeps your original
-    shape but uses the shared negative-lookahead cluster.
+    Shared prefix for function definition/declaration detection.
     """
     sym = build_symbol_regex(symbol, literal, just_match_prefix=True)
-    pattern = (
+    return (
         rf"^\s*"
         rf"{_regex_not_c_keyword_prefix()}"
         rf"(?:\[\[[\w\s:]+\]\]\s*)*"                # [[attributes]]
@@ -364,7 +368,22 @@ def regex_c_function_definition(symbol: str, literal: bool) -> str:
         rf"{sym}"
         rf"\s*\("                                    # open paren for params
     )
-    return pattern
+
+
+def regex_c_function_definition(symbol: str, literal: bool) -> str:
+    """
+    Matches a likely C/C++ function definition header (line should not end with ';').
+    """
+    signature = _regex_c_function_signature(symbol, literal)
+    return rf"{signature}(?![^;]*;)"
+
+
+def regex_c_function_declaration(symbol: str, literal: bool) -> str:
+    """
+    Matches a likely C/C++ function declaration/prototype (requires trailing `;`).
+    """
+    signature = _regex_c_function_signature(symbol, literal)
+    return rf"{signature}(?=[^;]*;)"
 
 
 def regex_c_variable_definition(symbol: str, literal: bool) -> str:
@@ -493,6 +512,18 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_DISPLAY_NAME: "Fzf C/C++ definitions (functions, variables, etc.)",
                 ARG_SEARCH_MODE: SEARCH_MODE_SYMBOL,
                 ARG_PATTERN_KEYS: DEFINITION_PATTERN_KEYS,
+                ARG_FILE_EXTS: C_CPP_EXTS,
+                ARG_PATH_LONG: "~/core_repos/",
+            },
+            should_run_now=True,
+        ),
+        ToolTemplate(
+            name="Fzf C/C++ declarations",
+            extra_description="Interactively search function declarations/prototypes using fzf",
+            args={
+                ARG_DISPLAY_NAME: "Fzf C/C++ declarations (function prototypes)",
+                ARG_SEARCH_MODE: SEARCH_MODE_SYMBOL,
+                ARG_PATTERN_KEYS: DECLARATION_PATTERN_KEYS,
                 ARG_FILE_EXTS: C_CPP_EXTS,
                 ARG_PATH_LONG: "~/core_repos/",
             },

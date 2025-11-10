@@ -27,6 +27,10 @@ fdef() {
     $_DT_GREP_TOOL --display-name "Search C/C++ Definitions" --search-mode fzf-symbols --case-sensitive False --ordered-pattern-keys c-class-struct-definition c-typedef-definition c-function-definition c-enum-definition c-enum-value-definition c-macro-definition c-variable-definition --file-exts $_DT_C_EXTS --path $_DT_CORE_REPOS_PATH ${1:+--initial-query "$*"}
 }
 
+fdecl() {
+    $_DT_GREP_TOOL --display-name "Search C/C++ Declarations" --search-mode fzf-symbols --case-sensitive False --ordered-pattern-keys c-function-declaration --file-exts $_DT_C_EXTS --path $_DT_CORE_REPOS_PATH ${1:+--initial-query "$*"}
+}
+
 fsymbol() {
     $_DT_GREP_TOOL --display-name "Search C/C++ Symbols" --search-mode fzf-symbols --case-sensitive False --ordered-pattern-keys c-function-call c-symbol-usage --file-exts $_DT_C_EXTS --path $_DT_CORE_REPOS_PATH ${1:+--initial-query "$*"}
 }

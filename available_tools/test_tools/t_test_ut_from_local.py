@@ -38,8 +38,9 @@ def get_tool_templates() -> List[ToolTemplate]:
     def clone_with_mode(mode: str, templates: Iterable[ToolTemplate]) -> List[ToolTemplate]:
         cloned: List[ToolTemplate] = []
         for template in templates:
-            templated_args = dict(template.args or {})
+            templated_args = {}
             templated_args[ARG_TEST_MODE] = mode
+            templated_args.update(template.args)
             cloned.append(
                 ToolTemplate(
                     name=template.name,

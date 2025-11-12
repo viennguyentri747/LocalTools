@@ -15,14 +15,14 @@ ARG_DATE_FILTERS = f"{ARGUMENT_LONG_PREFIX}date"
 ARG_LOG_OUTPUT_PATH = f"{ARGUMENT_LONG_PREFIX}log_output_path"
 ARG_MAX_THREAD_COUNT = f"{ARGUMENT_LONG_PREFIX}max_threads"
 DEFAULT_MAX_THREAD_COUNT = 20
-
+DEFAULT_EXTRA_DAYS = 4
+DEFAULT_DATE_VALUES = [
+    get_acu_log_datename_from_date(datetime.now() - timedelta(days=days_back))
+    for days_back in range(DEFAULT_EXTRA_DAYS, -1, -1) # range from [-DEFAULT_EXTRA_DAYS, 0].
+]
 
 def get_tool_templates() -> List[ToolTemplate]:
-    default_dates = [
-        get_acu_log_datename_from_date(datetime.now() - timedelta(days=2)),
-        get_acu_log_datename_from_date(datetime.now() - timedelta(days=1)),
-        get_acu_log_datename_from_date(datetime.now()),
-    ]
+
     return [
         ToolTemplate(
             name="Get ACU Logs",
@@ -31,7 +31,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_LOG_OUTPUT_PATH: str(DEFAULT_LOG_OUTPUT_PATH),
                 ARG_LOG_TYPES: list(DEFAULT_LOG_TYPE_PREFIXES),
                 ARG_LIST_IPS: LIST_MP_IPS,
-                ARG_DATE_FILTERS: default_dates,
+                ARG_DATE_FILTERS: DEFAULT_DATE_VALUES,
             },
         ),
     ]

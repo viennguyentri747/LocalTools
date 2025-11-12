@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Sequence, Set
 
 from available_tools.test_tools.common import *
-from available_tools.test_tools.t_get_acu_logs import batch_fetch_acu_logs
+from available_tools.test_tools.t_get_acu_logs import DEFAULT_DATE_VALUES, batch_fetch_acu_logs
 from dev_common import *
 
 DEFAULT_LOG_TYPE_PREFIXES = [P_LOG_PREFIX, T_LOG_PREFIX, E_LOG_PREFIX]
@@ -21,22 +21,17 @@ ARG_PATTERNS = f"{ARGUMENT_LONG_PREFIX}patterns"
 ARG_MAX_THREAD_COUNT = f"{ARGUMENT_LONG_PREFIX}max_threads"
 DEFAULT_MAX_THREAD_COUNT = 20
 ARG_SHOULD_HAS_VAR_LOG = f"{ARGUMENT_LONG_PREFIX}has_var_log"
-DEFAULT_EXTRA_DAYS = 3
 
 def get_tool_templates() -> List[ToolTemplate]:
-    default_dates = [
-        get_acu_log_datename_from_date(datetime.now() - timedelta(days=i))
-        for i in range(DEFAULT_EXTRA_DAYS, -1, -1)
-    ]
     return [
         ToolTemplate(
-            name="Find motion detection in ACU logs",
+            name="Get ACU Logs + Find motion detection in ACU logs",
             extra_description="Generate a grep command against fetched ACU logs.",
             args={
                 ARG_LOG_OUTPUT_PATH: str(DEFAULT_LOG_OUTPUT_PATH),
                 ARG_LOG_TYPES: [E_LOG_PREFIX],
                 ARG_LIST_IPS: LIST_MP_IPS,
-                ARG_DATE_FILTERS: default_dates,
+                ARG_DATE_FILTERS: DEFAULT_DATE_VALUES,
                 ARG_PATTERNS: [quote(pattern) for pattern in DEFAULT_PATTERNS],
                 ARG_MAX_THREAD_COUNT: DEFAULT_MAX_THREAD_COUNT,
                 ARG_SHOULD_HAS_VAR_LOG: True,

@@ -19,8 +19,8 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_VAULT_PATH: f"{Path.home()}/obsidian_work_vault/",
                 ARG_NOTE_REL_PATH: f"{PATH_TO_WORKING_NOTES}",
                 ARG_NOTE_REL_PATHS_TO_ADD_CONTENT: [f"{PATH_TO_WORKING_NOTES}/_Intellian Note working, diary (work log).md"],
-                ARG_IS_GEN_CODING_TASK: False,
                 ARG_DEFAULT_OW_MANIFEST_BRANCH: BRANCH_MANPACK_MASTER,
+                ARG_IS_GEN_CODING_TASK: False,
                 ARG_TICKET_URL: f"{JIRA_COMPANY_URL}/browse/FPA-3",
             },
         )

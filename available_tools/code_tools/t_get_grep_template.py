@@ -54,7 +54,7 @@ PATTERN_KEY_TYPEDEF_DEFINITION = "c-typedef-definition"
 PATTERN_KEY_ENUM_DEFINITION = "c-enum-definition"
 PATTERN_KEY_ENUM_VALUE_DEFINITION = "c-enum-value-definition"
 PATTERN_KEY_FUNCTION_DECLARATION = "c-function-declaration"
-PATTERN_KEY_FUNCTION_CALL = "c-function-call"
+# PATTERN_KEY_FUNCTION_CALL = "c-function-call"
 PATTERN_KEY_SYMBOL_USAGE = "c-symbol-usage"
 
 PATTERNS_KEYS_DISPLAY_NAME_MAP: Dict[str, str] = {
@@ -66,7 +66,7 @@ PATTERNS_KEYS_DISPLAY_NAME_MAP: Dict[str, str] = {
     PATTERN_KEY_TYPEDEF_DEFINITION: "Typedef DEF",
     PATTERN_KEY_ENUM_DEFINITION: "Enum DEF",
     PATTERN_KEY_ENUM_VALUE_DEFINITION: "Enum Value DEF",
-    PATTERN_KEY_FUNCTION_CALL: "Function CALL",
+    # PATTERN_KEY_FUNCTION_CALL: "Function CALL",
     PATTERN_KEY_SYMBOL_USAGE: "Symbol REF",
 }
 
@@ -85,7 +85,7 @@ DECLARATION_PATTERN_KEYS = [
 ]
 
 USAGE_PATTERN_KEYS = [
-    PATTERN_KEY_FUNCTION_CALL,
+    # PATTERN_KEY_FUNCTION_CALL,
     PATTERN_KEY_SYMBOL_USAGE,
 ]
 
@@ -99,7 +99,7 @@ def get_patterns_map() -> Dict[str, SearchPattern]:
         PATTERN_KEY_ENUM_DEFINITION: SearchPattern(regex_c_enum_definition),
         PATTERN_KEY_ENUM_VALUE_DEFINITION: SearchPattern(regex_c_enum_value_definition),
         PATTERN_KEY_FUNCTION_DECLARATION: SearchPattern(regex_c_function_declaration),
-        PATTERN_KEY_FUNCTION_CALL: SearchPattern(regex_c_function_call),
+        # PATTERN_KEY_FUNCTION_CALL: SearchPattern(regex_c_function_call),
         PATTERN_KEY_SYMBOL_USAGE: SearchPattern(regex_c_symbol_usage),
     }
     return registry
@@ -132,29 +132,7 @@ def build_rg_base_command(args: TemplateArgs, file_exts: List[str], is_regex_fil
     return " ".join(quote(part) for part in parts)
 
 
-# def _build_fzf_wrapper_command(description: str, prompt: str, bind_command: str, initial_query_str: str, search_dir: str, prerequisite_commands: str = "", query_variable_name: str = "Query") -> str:
-#     """
-#     Builds the fzf runner command and the final shell wrapper that processes its output.
-#     This is a shared helper for different fzf-based commands.
-#     """
-
-#     query_arg = f'--query {quote(initial_query_str)} ' if initial_query_str else ''
-#     initial_input = f'rg --color=always -n {quote(initial_query_str)} {quote(search_dir)} 2>/dev/null' if initial_query_str else 'echo ""'
-#     fzf_runner = (
-#         f'{initial_input} | fzf '
-#         rf'--header "{description} ({search_dir}). Type to filter ..." '
-#         f'{query_arg}'
-#         f'--prompt {quote(prompt)} '
-#         f'--print-query '  # Print the query as the first line
-#         f'--bind {quote(bind_command)} '  # Bind to the specific reload command
-#         f'--preview-window "up:80%" '
-#         # --ansi: interpret colors from rg
-#         # --disabled: disable fzf's own search
-#         # --no-sort: keep rg's output order
-#         f'--ansi --disabled --no-sort'
-#     )
-
-def _build_fzf_wrapper_command(description: str, prompt: str, bind_command: str, initial_query_str: str, search_dir: str, prerequisite_commands: str = "", query_variable_name: str = "Query") -> str:
+def _build_fzf_wrapper_command(description: str, prompt: str, bind_command: str, initial_query_str: str, search_dir: str, prerequisite_commands: str = "") -> str:
     """
     Builds the fzf runner command and the final shell wrapper that processes its output.
     This is a shared helper for different fzf-based commands.
@@ -162,38 +140,29 @@ def _build_fzf_wrapper_command(description: str, prompt: str, bind_command: str,
     
     # Extract the reload command (after "FZF_RELOAD_PREFIX") from the bind_command (sth like "change:{FZF_RELOAD_PREFIX}:<reload_command>").
     reload_cmd_match = bind_command.split(f"{FZF_RELOAD_KEYWORD}:")
-    # if len(reload_cmd_match) > 1:
-    #     reload_template = reload_cmd_match[1]
-    #     # Replace {q} with the initial query string.
-    #     # Ex: if initial_query_str = "search_term", reload_template = "rg --color=always -n {q} /path"
-    #     # -> initial_input = "rg --color=always -n 'search_term' /path"
-    #     initial_input = reload_template.replace('{q}', quote(initial_query_str) if initial_query_str else '')
-    # else:
-    #     LOG_EXCEPTION_STR(f"Failed to extract reload command from bind_command: {bind_command}", exit=True)
-    
+ 
     if len(reload_cmd_match) > 1:
         reload_template = reload_cmd_match[1]
         # Replace {q} with the initial query string
         initial_input = reload_template.replace('{q}', quote(initial_query_str) if initial_query_str else '')
     else:
-        # Fallback if bind_command doesn't have reload
-        initial_input = f'rg --color=always -n {quote(initial_query_str)} {quote(search_dir)} 2>/dev/null' if initial_query_str else 'echo ""'
+        LOG_EXCEPTION_STR(f"Failed to extract reload command from bind_command: {bind_command}", exit=True)
 
+    LOG("Initial input:", initial_input)
+    # old_initial_input = f'rg --color=always -n {quote(initial_query_str)} {quote(search_dir)} 2>/dev/null' if initial_query_str else 'echo ""'
 
-    query_arg = f'--query {quote(initial_query_str)} ' if initial_query_str else ''
-    
+    query_arg = f'--query {quote(initial_query_str)} ' if initial_query_str else ''    
     fzf_runner = (
         f'{initial_input} | fzf '
         rf'--header "{description} ({search_dir}). Type to filter ..." '
         f'{query_arg}'
         f'--prompt {quote(prompt)} '
-        f'--print-query '  # Print the query as the first line
+        # f'--print-query '  # Print the query as the first line
         f'--bind {quote(bind_command)} '  # Bind to the specific reload command
         f'--preview-window "up:80%" '
-        # --ansi: interpret colors from rg
-        # --disabled: disable fzf's own search
-        # --no-sort: keep rg's output order
-        f'--ansi --disabled --no-sort'
+        f'--ansi ' # interpret colors from rg
+        f'--disabled ' # disable fzf's own search
+        f'--no-sort ' # keep rg's output order
     )
 
     # This logic is extracted from the original build_fzf_rgrep_command
@@ -211,9 +180,19 @@ def _build_fzf_wrapper_command(description: str, prompt: str, bind_command: str,
         # The line from rg is the last line
         f'  line=$(echo "$selection" | tail -n 1); '
         f'  echo "{LINE_SEPARATOR}"; '
+        # Strip the [] prefix from the line if it exists
+        f'  clean_line=$(echo "$line" | sed "s/^\\[[^]]*\\] //"); '
+        f'  IFS=\':\' read -r file_path file_line _ <<< "$clean_line"; '
+        f'  line_content=${{clean_line#"$file_path:$file_line:"}}; ' # Remove the file path and line number
+        f'  line_content=$(echo "$line_content" | sed "s/^[[:space:]]*//"); ' # Remove all leading whitespace (spaces AND tabs)
         # Use `echo -e` to add color to the labels
-        f'  echo -e "${{GREEN}}Query {query_variable_name}:${{NC}} $query_result"; '
-        f'  echo -e "${{GREEN}}Selected line:${{NC}}   $line"; '
+        f'  echo -e "${{GREEN}}Result line:${{NC}} $line_content"; '
+        f'  echo -e "${{GREEN}}Selected line:${{NC}} $file_path:$file_line"; '
+        f'  if command -v code >/dev/null 2>&1 && [ -n "$file_path" ] && [ -n "$file_line" ]; then '
+        f'    code --goto "$file_path:$file_line" >/dev/null 2>&1 & ' # Open in VS Code in the background
+        f'  else '
+        f'    echo -e "${{GREEN}}(Skipping VS Code open — missing code command or parse failure)${{NC}}"; '
+        f'  fi; '
         f'else '
         f'  echo -e "${{GREEN}}No selection made!${{NC}}"; '
         f'fi; '
@@ -275,7 +254,6 @@ def build_fzf_rgrep_c_command(
         initial_query_str=initial_query,
         search_dir=search_dir,
         prerequisite_commands=prerequisite_commands,
-        query_variable_name="Symbol"
     )
 
 
@@ -298,7 +276,6 @@ def build_fzf_rg_text_command(description: str, template_args: TemplateArgs, fil
         initial_query_str=initial_query,
         search_dir=search_dir,
         prerequisite_commands="",  # No prerequisites
-        query_variable_name="Query"
     )
 
 
@@ -352,21 +329,54 @@ def _regex_not_c_keyword_prefix() -> str:
 def _regex_c_function_signature(symbol: str, literal: bool) -> str:
     """
     Shared prefix for function definition/declaration detection.
+    Much more permissive/robust return-type matcher.
     """
     sym = build_symbol_regex(symbol, literal, just_match_prefix=True)
+
+    # Attributes: [[nodiscard]], __attribute__((...)), __declspec(...)
+    attrs = (
+        rf"(?:"
+        rf"(?:\[\[[^\]]*\]\]\s*)|"                  # C++11 attributes [[...]]
+        rf"(?:__attribute__\s*\(\([^)]*\)\)\s*)|"   # GNU attributes
+        rf"(?:__declspec\s*\([^)]*\)\s*)"           # MS declspec
+        rf")*"
+    )
+
+    # Storage/specifiers
+    specs = (
+        rf"(?:(?:static|extern|inline|virtual|explicit|constexpr|consteval|constinit|friend|typename)\s+)*"
+    )
+
+    # Optional leading cv, signedness, and type-category keywords. Ex: 'unsigned int', 'long long', 'const volatile', 'struct Foo', etc.
+    leading_cv_signed = (
+        rf"(?:(?:const|volatile|mutable|signed|unsigned|short|long|struct|class|enum|union)\s+)*"
+    )
+
+    # Pointer/reference qualifiers and cv/restrict (can be leading/trailing)
+    ptr_ref_cv = r"(?:\s*[\*&]+|\s+(?:const|volatile|restrict))*"
+
+    # Base type: simple identifier with optional namespace/scope and template args
+    base_type = (
+        r"[\w:]+"                                     # Type name with optional ::
+        r"(?:\s*<[^<>]*(?:<[^<>]*>[^<>]*)*>)?"       # Optional template args
+    )
+
+    # Optional scope before symbol (if user passed unscoped sym, still ok)
+    scope_before_sym = r"(?:[A-Za-z_]\w*::)*"
+
     return (
         rf"^\s*"
         rf"{_regex_not_c_keyword_prefix()}"
-        rf"(?:\[\[[\w\s:]+\]\]\s*)*"                # [[attributes]]
-        rf"(?:(?:static|extern|inline|virtual|explicit|constexpr|friend)\s+)*"
-        rf"(?:(?:const|volatile)\s+)*"
-        rf"[\w:]+"                                  # base type
-        rf"(?:\s*<[^>]+>)?"                         # template params
-        rf"(?:\s*[\*&]+)*"                          # ptr/ref qualifiers
-        rf"(?:\s+(?:const|volatile))*"              # trailing cv
+        rf"{attrs}"
+        rf"{specs}"
+        rf"{leading_cv_signed}"
+        rf"{ptr_ref_cv}"              # Before base type
+        rf"{base_type}"
+        rf"{ptr_ref_cv}"              # After base type
         rf"\s+"
+        rf"{scope_before_sym}"
         rf"{sym}"
-        rf"\s*\("                                    # open paren for params
+        rf"\s*\("
     )
 
 
@@ -403,18 +413,31 @@ def regex_c_class_struct_definition(symbol: str, literal: bool) -> str:
     """Generates a regex to find C/C++ class or struct definitions."""
     symbol_name = build_symbol_regex(symbol, literal, word_boundaries=True, just_match_prefix=True)
 
+    # return (
+    #     rf"^\s*"
+    #     rf"(?:\[\[[\w\s:,()]+\]\]\s*)*"  # Attributes like [[nodiscard]]
+    #     rf"(?:template\s*<[^>]*>\s*)?"  # Template declaration
+    #     rf"(?:typedef\s+)?"  # Typedef keyword
+    #     rf"(?:(?:static|extern|inline|virtual|explicit|constexpr|friend)\s+)*"  # Storage/specifiers
+    #     rf"(class|struct)"  # Class or struct keyword
+    #     rf"(?:\s+(?:alignas|__declspec|__attribute__)\s*\([^)]*\))?"  # Attribute specifiers
+    #     rf"(?:\s+(?:final|abstract))?"  # Class specifiers
+    #     rf"\s+"
+    #     rf"{symbol_name}"
+    #     rf"\b"
+    # )
+
     return (
         rf"^\s*"
-        rf"(?:\[\[[\w\s:,()]+\]\]\s*)*"  # Attributes like [[nodiscard]]
-        rf"(?:template\s*<[^>]*>\s*)?"  # Template declaration
-        rf"(?:typedef\s+)?"  # Typedef keyword
-        rf"(?:(?:static|extern|inline|virtual|explicit|constexpr|friend)\s+)*"  # Storage/specifiers
-        rf"(class|struct)"  # Class or struct keyword
-        rf"(?:\s+(?:alignas|__declspec|__attribute__)\s*\([^)]*\))?"  # Attribute specifiers
-        rf"(?:\s+(?:final|abstract))?"  # Class specifiers
-        rf"\s+"
-        rf"{symbol_name}"
-        rf"\b"
+        rf"(?:\[\[[\w\s:,()]+\]\]\s*)*"
+        rf"(?:template\s*<[^>]*>\s*)?"
+        rf"(?:typedef\s+)?"
+        rf"(?:(?:static|extern|inline|virtual|explicit|constexpr|friend)\s+)*"
+        rf"(class|struct)"
+        rf"(?:\s+(?:alignas|__declspec|__attribute__)\s*\([^)]*\))?"
+        rf"(?:\s+(?:final|abstract))?"
+        rf"(?:\s+{symbol_name}\b)?"  # Optional tag name
+        rf"(?:\s*\{{[^}}]*\}}\s*{symbol_name}\b)?"  # Or typedef alias after closing brace
     )
 
 
@@ -457,13 +480,22 @@ def regex_c_enum_value_definition(symbol: str, literal: bool) -> str:
     return rf"^\s*{sym}\s*{optional_enum_assigment}\s*,?\s*$"
 
 
-def regex_c_function_call(symbol: str, literal: bool) -> str:
-    sym = build_symbol_regex(symbol, literal, just_match_prefix=True)
-    return rf"{sym}\s*\("
+# def regex_c_function_call(symbol: str, literal: bool) -> str:
+#     sym = build_symbol_regex(symbol, literal, just_match_prefix=True)
+#     definition_guard = _strip_line_start_anchor(regex_c_function_definition(symbol, literal))
+#     declaration_guard = _strip_line_start_anchor(regex_c_function_declaration(symbol, literal))
+#     # Build negative lookaheads to avoid matching definitions/declarations
+#     guards = "".join(rf"(?!{guard})" for guard in (definition_guard, declaration_guard))
+#     return rf"^{guards}.*{sym}\s*\("
 
 
 def regex_c_symbol_usage(symbol: str, literal: bool) -> str:
-    return build_symbol_regex(symbol, literal, just_match_prefix=True)
+    sym = build_symbol_regex(symbol, literal, just_match_prefix=True)
+    definition_guard = _strip_line_start_anchor(regex_c_function_definition(symbol, literal))
+    declaration_guard = _strip_line_start_anchor(regex_c_function_declaration(symbol, literal))
+    # Build negative lookaheads to avoid matching definitions/declarations
+    guards = "".join(rf"(?!{guard})" for guard in (definition_guard, declaration_guard))
+    return rf"^{guards}.*{sym}\s*\("
 
 
 def build_symbol_regex(symbol: str, literal: bool, word_boundaries: bool = True, just_match_prefix: bool = False) -> str:
@@ -487,6 +519,11 @@ def build_symbol_regex(symbol: str, literal: bool, word_boundaries: bool = True,
             body = rf"(?:{body})\w*"
 
     return rf"\b{body}\b" if word_boundaries else body
+
+
+def _strip_line_start_anchor(pattern: str) -> str:
+    """Drop a leading caret so the pattern can live inside a lookahead."""
+    return pattern[1:] if pattern.startswith("^") else pattern
 
 
 def get_ordered_patterns(pattern_keys: List[str]) -> List[Tuple[str, SearchPattern]]:

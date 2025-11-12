@@ -32,7 +32,7 @@ fdecl() {
 }
 
 fsymbol() {
-    $_DT_GREP_TOOL --display-name "Search C/C++ Symbols" --search-mode fzf-symbols --case-sensitive False --ordered-pattern-keys c-function-call c-symbol-usage --file-exts $_DT_C_EXTS --path $_DT_CORE_REPOS_PATH ${1:+--initial-query "$*"}
+    $_DT_GREP_TOOL --display-name "Search C/C++ Symbols" --search-mode fzf-symbols --case-sensitive False --ordered-pattern-keys c-symbol-usage --file-exts $_DT_C_EXTS --path $_DT_CORE_REPOS_PATH ${1:+--initial-query "$*"}
 }
 
 ffile() {

@@ -149,6 +149,7 @@ def _build_fzf_wrapper_command(description: str, prompt: str, bind_command: str,
         LOG_EXCEPTION_STR(f"Failed to extract reload command from bind_command: {bind_command}", exit=True)
 
     LOG("Initial input:", initial_input)
+    # Currently we have a bug where reload will clear the prompt, but still display the results correctly -> Require extra typing to reload. This is unfixable for now due to not having ":start" support in fzf (current is 0.29 as Ubuntu 22.04 default).
     # old_initial_input = f'rg --color=always -n {quote(initial_query_str)} {quote(search_dir)} 2>/dev/null' if initial_query_str else 'echo ""'
 
     query_arg = f'--query {quote(initial_query_str)} ' if initial_query_str else ''    

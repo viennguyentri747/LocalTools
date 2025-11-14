@@ -14,6 +14,7 @@ DEFAULT_SSM_REBOOT_TIMEOUT = 90  # seconds to wait for SSM to respond after rebo
 DEFAULT_REQUEST_INTERVAL = 1  # seconds between url request attempts
 DEFAULT_GPX_FIX_TIMEOUT = 200  # seconds to wait for gpx fix
 DEFAULT_ONLINE_TIMEOUT = 800  # seconds to wait for the host to come back online
+DEFAULT_PING_TIMEOUT = 240  # seconds to wait for UT ping to succeed
 DEFAULT_TOTAL_ITERATIONS = 10  # number of reboot cycles to execute
 
 ARG_SSM_IP = f"{ARGUMENT_LONG_PREFIX}ssm"
@@ -21,6 +22,7 @@ ARG_SSM_REBOOT_TIMEOUT = f"{ARGUMENT_LONG_PREFIX}ssm-reboot-timeout"
 ARG_REQUEST_INTERVAL = f"{ARGUMENT_LONG_PREFIX}request-interval-secs"
 ARG_GPX_FIX_TIMEOUT = f"{ARGUMENT_LONG_PREFIX}gpx-fix-timeout"
 ARG_ONLINE_TIMEOUT = f"{ARGUMENT_LONG_PREFIX}online-timeout"    
+ARG_PING_TIMEOUT = f"{ARGUMENT_LONG_PREFIX}ping-timeout"
 
 ARG_TOTAL_ITERATIONS = f"{ARGUMENT_LONG_PREFIX}total-iterations"
 
@@ -34,6 +36,7 @@ class RebootSequenceConfig:
     ssm_reboot_timeout: int = DEFAULT_SSM_REBOOT_TIMEOUT
     gpx_fix_timeout: int = DEFAULT_GPX_FIX_TIMEOUT
     aim_status_timeout: int = 200
+    ping_timeout: int = DEFAULT_PING_TIMEOUT
     apn_online_timeout: int = DEFAULT_ONLINE_TIMEOUT
     total_iterations: int = DEFAULT_TOTAL_ITERATIONS
 
@@ -44,6 +47,7 @@ class RebootSequenceConfig:
             request_interval=int(get_arg_value(args, ARG_REQUEST_INTERVAL)),
             ssm_reboot_timeout=int(get_arg_value(args, ARG_SSM_REBOOT_TIMEOUT)),
             gpx_fix_timeout=int(get_arg_value(args, ARG_GPX_FIX_TIMEOUT)),
+            ping_timeout=int(get_arg_value(args, ARG_PING_TIMEOUT)),
             apn_online_timeout=int(get_arg_value(args, ARG_ONLINE_TIMEOUT)),
             total_iterations=int(get_arg_value(args, ARG_TOTAL_ITERATIONS)),
         )
@@ -57,6 +61,7 @@ def get_tool_templates() -> List[ToolTemplate]:
         ARG_REQUEST_INTERVAL: DEFAULT_REQUEST_INTERVAL,
         ARG_SSM_REBOOT_TIMEOUT: DEFAULT_SSM_REBOOT_TIMEOUT,
         ARG_GPX_FIX_TIMEOUT: DEFAULT_GPX_FIX_TIMEOUT,
+        ARG_PING_TIMEOUT: DEFAULT_PING_TIMEOUT,
         ARG_ONLINE_TIMEOUT: DEFAULT_ONLINE_TIMEOUT,
         ARG_TOTAL_ITERATIONS: DEFAULT_TOTAL_ITERATIONS,
         ARG_SSM_IP: default_ssm,
@@ -85,6 +90,8 @@ def parse_args() -> argparse.Namespace:
                         help=f"Seconds to wait for the SSM to respond after reboot (default: {DEFAULT_SSM_REBOOT_TIMEOUT}).", )
     parser.add_argument(ARG_GPX_FIX_TIMEOUT, type=int, default=DEFAULT_GPX_FIX_TIMEOUT,
                         help=f"Seconds to wait for the host to go offline (default: {DEFAULT_GPX_FIX_TIMEOUT}).", )
+    parser.add_argument(ARG_PING_TIMEOUT, type=int, default=DEFAULT_PING_TIMEOUT,
+                        help=f"Seconds to wait for the UT ping to succeed (default: {DEFAULT_PING_TIMEOUT}).", )
     parser.add_argument(ARG_ONLINE_TIMEOUT, type=int, default=DEFAULT_ONLINE_TIMEOUT,
                         help=f"Seconds to wait for the host to respond to ping again (default: {DEFAULT_ONLINE_TIMEOUT}).", )
     parser.add_argument(ARG_TOTAL_ITERATIONS, type=int, default=DEFAULT_TOTAL_ITERATIONS,
@@ -103,8 +110,8 @@ def build_reboot_sequence_command(config: RebootSequenceConfig) -> str:
     """
     if config.request_interval <= 0:
         raise ValueError("ping-interval must be positive.")
-    if config.gpx_fix_timeout < 0 or config.apn_online_timeout < 0:
-        raise ValueError("offline-timeout and online-timeout must be non-negative.")
+    if config.gpx_fix_timeout < 0 or config.apn_online_timeout < 0 or config.ping_timeout < 0:
+        raise ValueError("offline-timeout, online-timeout, and ping-timeout must be non-negative.")
     if config.total_iterations <= 0:
         raise ValueError("total-iterations must be positive.")
 
@@ -114,6 +121,7 @@ def build_reboot_sequence_command(config: RebootSequenceConfig) -> str:
     f'SSM_URL={config.ssm_ip} && '
     f'REQ_INTERVAL={config.request_interval} && '
     f'GPS_FIX_TIMEOUT={config.gpx_fix_timeout} && '
+    f'PING_TIMEOUT={config.ping_timeout} && '
     f'APN_TIMEOUT={config.apn_online_timeout} && '
     f'AIM_STATUS_TIMEOUT={config.aim_status_timeout} && '
     f'TOTAL_ITERATIONS={config.total_iterations} && '
@@ -193,7 +201,7 @@ def build_reboot_sequence_command(config: RebootSequenceConfig) -> str:
 
     # Ordinary shell assignments and procedural logic can safely use &&
     f'server_up_times="" && gps_fix_times="" && connect_times="" && total_times="" && '
-    f'ping_times="" && antenna_ready_times="" && mdm_ready_times="" && '
+    f'ping_times="" && antenna_ready_times="" && '
 
     f'for iteration in $(seq 1 $TOTAL_ITERATIONS); do '
     f'  log "======================================"; '
@@ -218,10 +226,10 @@ def build_reboot_sequence_command(config: RebootSequenceConfig) -> str:
     f'  server_up_time=$(( ssm_start - reboot_start )); '
     f'  log "SSM up after $server_up_time sec, checking parallel statuses..."; '
 
-    f'  gps_fixed=0 && ping_ok=0 && antenna_ready=0 && modem_ready=0 && '
-    f'  gps_fix_time=0 && ping_time=0 && antenna_ready_time=0 && mdm_ready_time=0; '
+    f'  gps_fixed=0 && ping_ok=0 && antenna_ready=0 && '
+    f'  gps_fix_time=0 && ping_time=0 && antenna_ready_time=0; '
 
-    f'  until [ $gps_fixed -eq 1 ] && [ $ping_ok -eq 1 ] && [ $antenna_ready -eq 1 ] && [ $modem_ready -eq 1 ]; do '
+    f'  until [ $gps_fixed -eq 1 ] && [ $ping_ok -eq 1 ] && [ $antenna_ready -eq 1 ]; do '
     f'    elapsed=$(( $(date +%s) - ssm_start )); '
     f'    [ $elapsed -ge "$GPS_FIX_TIMEOUT" ] && [ $elapsed -ge "$AIM_STATUS_TIMEOUT" ] && log "Timed out waiting for all statuses!" && exit 0; '
 
@@ -234,33 +242,33 @@ def build_reboot_sequence_command(config: RebootSequenceConfig) -> str:
     f'      gps_fixed=1 && gps_fix_time=$(( $(date +%s) - reboot_start )) && log "GPS 3D fix achieved after $gps_fix_time sec"; '
     f'    fi; '
 
-    # --- UPDATED PING BLOCK: reuse SSH_TARGET, no weird -J call ---
+    # --- UPDATED PING BLOCK: reuse SSH_TARGET, enforce timeout, check fallback jump host ---
     f'    if [ $ping_ok -eq 0 ]; then '
+    f'      ping_elapsed=$(( $(date +%s) - reboot_start )); '
+    f'      [ $ping_elapsed -ge "$PING_TIMEOUT" ] && log "Timed out waiting for 192.168.100.254 to respond to ping!" && exit 0; '
     f'      ssh "$SSH_TARGET" "ping -c 1 -W 2 192.168.100.254 >/dev/null 2>&1" >/dev/null 2>&1 && '
     f'      ping_ok=1 && ping_time=$(( $(date +%s) - reboot_start )) && log "192.168.100.254 pingable after $ping_time sec"; '
     f'    fi; '
 
     f'    if [ $ping_ok -eq 0 ]; then '
+    f'      ping_elapsed=$(( $(date +%s) - reboot_start )); '
+    f'      [ $ping_elapsed -ge "$PING_TIMEOUT" ] && log "Timed out waiting for 192.168.100.254 to respond to ping!" && exit 0; '
     f'      ssh -J root@$SSM_URL "ping -c 1 -W 2 192.168.100.254 >/dev/null 2>&1" >/dev/null 2>&1 && '
     f'      ping_ok=1 && ping_time=$(( $(date +%s) - reboot_start )) && log "192.168.100.254 pingable after $ping_time sec"; '
     f'    fi; '
 
-    f'    curl_with_log "$SSM_URL/api/system/status" "| jq -r \'.aim, .modem\'"; '
+    f'    curl_with_log "$SSM_URL/api/system/status" "| jq -r \'.amc\'"; '
     f'    STATUS_DATA="$CURL_RESPONSE"; '
     f'    [ -n "$STATUS_DATA" ] && '
     f'      if [ $antenna_ready -eq 0 ]; then '
     f'        echo "$STATUS_DATA" | grep -q \'"amc":"0.0.0"\' && '
     f'        antenna_ready=1 && antenna_ready_time=$(( $(date +%s) - reboot_start )) && log "AIM ready (0.0.0) after $antenna_ready_time sec"; '
     f'      fi; '
-    f'      if [ $modem_ready -eq 0 ]; then '
-    f'        echo "$STATUS_DATA" | grep -q \'"modem":"4.3.2"\' && '
-    f'        modem_ready=1 && mdm_ready_time=$(( $(date +%s) - reboot_start )) && log "Modem ready (4.3.2) after $mdm_ready_time sec"; '
-    f'      fi; '
     f'    print_dup_summary; '
     f'    sleep "$REQ_INTERVAL"; '
     f'  done; '
     f'  printf "\\n" >&2; '
-    f'  log "All parallel checks completed! GPS:$gps_fix_time PING:$ping_time AIM:$antenna_ready_time MODEM:$mdm_ready_time"; '
+    f'  log "All parallel checks completed! GPS:$gps_fix_time PING:$ping_time AIM:$antenna_ready_time"; '
     f'  log "Waiting for CONNECTED status with timeout = $APN_TIMEOUT..."; '
 
     f'  until curl_with_log "$SSM_URL/api/cnx/connection_status" "| jq -r \'.connection_status\'" && '
@@ -281,7 +289,6 @@ def build_reboot_sequence_command(config: RebootSequenceConfig) -> str:
     f'  total_times="$total_times $total_time"; '
     f'  ping_times="$ping_times $ping_time"; '
     f'  antenna_ready_times="$antenna_ready_times $antenna_ready_time"; '
-    f'  mdm_ready_times="$mdm_ready_times $mdm_ready_time"; '
 
     f'  log "======================================"; '
     f'  log "CYCLE RESULTS ON {config.ssm_ip}"; '
@@ -293,14 +300,12 @@ def build_reboot_sequence_command(config: RebootSequenceConfig) -> str:
     f'    tot=$(echo $total_times | cut -d" " -f$i); '
     f'    ptime=$(echo $ping_times | cut -d" " -f$i); '
     f'    atime=$(echo $antenna_ready_times | cut -d" " -f$i); '
-    f'    mtime=$(echo $mdm_ready_times | cut -d" " -f$i); '
     f'    log "Iteration $i:"; '
     f'    log "  Total: $tot sec"; '
     f'    log "  SSM up: $sup sec"; '
     f'    log "  GPS 3D fix: $gfix sec"; '
     f'    log "  Ping 192.168.100.254: $ptime sec"; '
     f'    log "  AIM ready: $atime sec"; '
-    f'    log "  Modem ready: $mtime sec"; '
     f'    log "  Connected: $conn sec"; '
     f'    log "--------------------------------------"; '
     f'    i=$((i + 1)); '
@@ -326,7 +331,6 @@ def build_reboot_sequence_command(config: RebootSequenceConfig) -> str:
     f'  calc_stats "$gps_fix_times" "GPS 3D Fix Time"; '
     f'  calc_stats "$ping_times" "Ping Time"; '
     f'  calc_stats "$antenna_ready_times" "AIM Ready Time"; '
-    f'  calc_stats "$mdm_ready_times" "Modem Ready Time"; '
     f'  calc_stats "$connect_times" "Connected Time"; '
     f'  log "======================================"; '
     f'done; '

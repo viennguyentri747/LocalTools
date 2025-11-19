@@ -80,3 +80,7 @@ sync_from_tmp_build() {
   echo "🚀 Performance Check: Total elapsed time was $elapsed_seconds seconds."
   echo "--------------------------------------------------"
 }
+
+iesa_docker(){
+  docker run -it --rm -v $(pwd):$(pwd) oneweb_sw
+}

@@ -96,10 +96,10 @@ explorer() {
         return 1
     fi
     
-    echo "Windows path: $windows_path"
-    # Open Explorer with file selected
-    explorer.exe /select,"$windows_path"
-    
+    cmd="explorer.exe /select,\"$windows_path\""
+    echo "Opening Explorer to highlight '$file_path' with command: $cmd"
+    $cmd
+
     if [ $? -eq 0 ]; then
         echo "Opened Explorer to highlight '$file_path'"
     else

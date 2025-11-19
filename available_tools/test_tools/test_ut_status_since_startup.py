@@ -15,7 +15,7 @@ DEFAULT_REQUEST_INTERVAL = 1  # seconds between url request attempts
 DEFAULT_GPX_FIX_TIMEOUT = 200  # seconds to wait for gpx fix
 DEFAULT_ONLINE_TIMEOUT = 800  # seconds to wait for the host to come back online
 DEFAULT_PING_TIMEOUT = 240  # seconds to wait for UT ping to succeed
-DEFAULT_TOTAL_ITERATIONS = 10  # number of reboot cycles to execute
+DEFAULT_TOTAL_ITERATIONS = 10  # number of test cycles to execute
 
 ARG_SSM_IP = f"{ARGUMENT_LONG_PREFIX}ssm"
 ARG_SSM_REBOOT_TIMEOUT = f"{ARGUMENT_LONG_PREFIX}ssm-reboot-timeout"
@@ -28,7 +28,7 @@ ARG_TOTAL_ITERATIONS = f"{ARGUMENT_LONG_PREFIX}total-iterations"
 
 
 @dataclass(frozen=True)
-class RebootSequenceConfig:
+class TestSequenceConfig:
     """Configuration for constructing the reboot + status command."""
 
     ssm_ip: str
@@ -41,7 +41,7 @@ class RebootSequenceConfig:
     total_iterations: int = DEFAULT_TOTAL_ITERATIONS
 
     @classmethod
-    def from_args(cls, args: argparse.Namespace) -> "RebootSequenceConfig":
+    def from_args(cls, args: argparse.Namespace) -> "TestSequenceConfig":
         return cls(
             ssm_ip=get_arg_value(args, ARG_SSM_IP),
             request_interval=int(get_arg_value(args, ARG_REQUEST_INTERVAL)),
@@ -95,12 +95,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(ARG_ONLINE_TIMEOUT, type=int, default=DEFAULT_ONLINE_TIMEOUT,
                         help=f"Seconds to wait for the host to respond to ping again (default: {DEFAULT_ONLINE_TIMEOUT}).", )
     parser.add_argument(ARG_TOTAL_ITERATIONS, type=int, default=DEFAULT_TOTAL_ITERATIONS,
-                        help=f"Number of reboot iterations to perform (default: {DEFAULT_TOTAL_ITERATIONS}).", )
+                        help=f"Number of test iterations to perform (default: {DEFAULT_TOTAL_ITERATIONS}).", )
 
     return parser.parse_args()
 
 
-def build_reboot_sequence_command(config: RebootSequenceConfig) -> str:
+def build_reboot_sequence_command(config: TestSequenceConfig) -> str:
     """
     Construct the bash command that:
     1. Issues a reboot via curl.
@@ -138,7 +138,7 @@ def build_reboot_sequence_command(config: RebootSequenceConfig) -> str:
     f'  log "SSH key auth not working, setting it up (may prompt for password once)..."; '
     f'  [ -f "$HOME/.ssh/id_rsa.pub" ] || ssh-keygen -t rsa -N "" -f "$HOME/.ssh/id_rsa" >&2; '
     f'  if command -v ssh-copy-id >/dev/null 2>&1; then '
-    f'    ssh-copy-id -i "$HOME/.ssh/id_rsa.pub" "$SSH_TARGET"; '
+    f'    ssh-copy-id -fi "$HOME/.ssh/id_rsa.pub" "$SSH_TARGET"; '
     f'  else '
     f'    cat "$HOME/.ssh/id_rsa.pub" | ssh "$SSH_TARGET" '
     f'      "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"; '
@@ -231,7 +231,7 @@ def build_reboot_sequence_command(config: RebootSequenceConfig) -> str:
 
     f'  until [ $gps_fixed -eq 1 ] && [ $ping_ok -eq 1 ] && [ $antenna_ready -eq 1 ]; do '
     f'    elapsed=$(( $(date +%s) - ssm_start )); '
-    f'    [ $elapsed -ge "$GPS_FIX_TIMEOUT" ] && [ $elapsed -ge "$AIM_STATUS_TIMEOUT" ] && log "Timed out waiting for all statuses!" && exit 0; '
+    f'    [ $elapsed -ge "$GPS_FIX_TIMEOUT" ] && [ $elapsed -ge "$AIM_STATUS_TIMEOUT" ] && log "" && log "Timed out waiting for all statuses!" && exit 0; '
 
     f'    if [ $gps_fixed -eq 0 ]; then '
     f'      curl_with_log "$SSM_URL/api/gnss/gnssstats" "| jq -r \'.nmea_data.fix_type, .nmea_data.fix_quality\'"; '
@@ -239,7 +239,7 @@ def build_reboot_sequence_command(config: RebootSequenceConfig) -> str:
     f'      [ -n "$GPS_DATA" ] && '
     f'      GPS_FILTERED=$(echo "$GPS_DATA" | jq -r \'paths(scalars) as $p | ($p | join(".")) as $key | getpath($p) as $val | "\\($key): \\($val)"\' | grep -i "fix"); '
     f'      echo "$GPS_FILTERED" | grep -q "fix_quality: GPS fix (SPS)" && echo "$GPS_FILTERED" | grep -q "fix_type: 3D" && '
-    f'      gps_fixed=1 && gps_fix_time=$(( $(date +%s) - reboot_start )) && log "GPS 3D fix achieved after $gps_fix_time sec"; '
+    f'      gps_fixed=1 && gps_fix_time=$(( $(date +%s) - reboot_start )) && log "" && log "GPS 3D fix achieved after $gps_fix_time sec"; '
     f'    fi; '
 
     # --- UPDATED PING BLOCK: reuse SSH_TARGET, enforce timeout, check fallback jump host ---
@@ -247,14 +247,7 @@ def build_reboot_sequence_command(config: RebootSequenceConfig) -> str:
     f'      ping_elapsed=$(( $(date +%s) - reboot_start )); '
     f'      [ $ping_elapsed -ge "$PING_TIMEOUT" ] && log "Timed out waiting for 192.168.100.254 to respond to ping!" && exit 0; '
     f'      ssh "$SSH_TARGET" "ping -c 1 -W 2 192.168.100.254 >/dev/null 2>&1" >/dev/null 2>&1 && '
-    f'      ping_ok=1 && ping_time=$(( $(date +%s) - reboot_start )) && log "192.168.100.254 pingable after $ping_time sec"; '
-    f'    fi; '
-
-    f'    if [ $ping_ok -eq 0 ]; then '
-    f'      ping_elapsed=$(( $(date +%s) - reboot_start )); '
-    f'      [ $ping_elapsed -ge "$PING_TIMEOUT" ] && log "Timed out waiting for 192.168.100.254 to respond to ping!" && exit 0; '
-    f'      ssh -J root@$SSM_URL "ping -c 1 -W 2 192.168.100.254 >/dev/null 2>&1" >/dev/null 2>&1 && '
-    f'      ping_ok=1 && ping_time=$(( $(date +%s) - reboot_start )) && log "192.168.100.254 pingable after $ping_time sec"; '
+    f'      ping_ok=1 && ping_time=$(( $(date +%s) - reboot_start )) && log "" && log "192.168.100.254 pingable after $ping_time sec"; '
     f'    fi; '
 
     f'    curl_with_log "$SSM_URL/api/system/status" "| jq -r \'.amc\'"; '
@@ -262,7 +255,7 @@ def build_reboot_sequence_command(config: RebootSequenceConfig) -> str:
     f'    [ -n "$STATUS_DATA" ] && '
     f'      if [ $antenna_ready -eq 0 ]; then '
     f'        echo "$STATUS_DATA" | grep -q \'"amc":"0.0.0"\' && '
-    f'        antenna_ready=1 && antenna_ready_time=$(( $(date +%s) - reboot_start )) && log "AIM ready (0.0.0) after $antenna_ready_time sec"; '
+    f'        antenna_ready=1 && antenna_ready_time=$(( $(date +%s) - reboot_start )) && log "" && log "AIM ready (0.0.0) after $antenna_ready_time sec"; '
     f'      fi; '
     f'    print_dup_summary; '
     f'    sleep "$REQ_INTERVAL"; '
@@ -312,7 +305,7 @@ def build_reboot_sequence_command(config: RebootSequenceConfig) -> str:
     f'  done; '
 
     f'  log "======================================"; '
-    f'  log "SUMMARY ANALYSIS ($iteration of $TOTAL_ITERATIONS iterations)"; '
+    f'  log "SUMMARY ANALYSIS ON {config.ssm_ip} ($iteration of $TOTAL_ITERATIONS iterations)"; '
     f'  log "======================================"; '
     f'  calc_stats() {{ '
     f'    local values="$1" label="$2"; '
@@ -335,13 +328,14 @@ def build_reboot_sequence_command(config: RebootSequenceConfig) -> str:
     f'  log "======================================"; '
     f'done; '
     f'log "All $TOTAL_ITERATIONS iterations completed successfully!"'
+    f'noti "All $TOTAL_ITERATIONS iterations completed successfully!"; '
 )
     return command.strip()
 
 
 def main() -> None:
     args = parse_args()
-    config = RebootSequenceConfig.from_args(args)
+    config = TestSequenceConfig.from_args(args)
 
     try:
         command = build_reboot_sequence_command(config)

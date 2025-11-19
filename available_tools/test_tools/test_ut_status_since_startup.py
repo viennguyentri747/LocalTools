@@ -202,6 +202,8 @@ def build_reboot_sequence_command(config: TestSequenceConfig) -> str:
     # Ordinary shell assignments and procedural logic can safely use &&
     f'server_up_times="" && gps_fix_times="" && connect_times="" && total_times="" && '
     f'ping_times="" && antenna_ready_times="" && '
+    f'server_up_timestamps="" && gps_fix_timestamps="" && connect_timestamps="" && '
+    f'ping_timestamps="" && antenna_ready_timestamps="" && '
 
     f'for iteration in $(seq 1 $TOTAL_ITERATIONS); do '
     f'  log "======================================"; '
@@ -224,10 +226,12 @@ def build_reboot_sequence_command(config: TestSequenceConfig) -> str:
 
     f'  ssm_start=$(date +%s); '
     f'  server_up_time=$(( ssm_start - reboot_start )); '
+    f'  server_up_timestamp=$(date -d "@$ssm_start" \'+%Y-%m-%d %H:%M:%S\'); '
     f'  log "SSM up after $server_up_time sec, checking parallel statuses..."; '
 
     f'  gps_fixed=0 && ping_ok=0 && antenna_ready=0 && '
     f'  gps_fix_time=0 && ping_time=0 && antenna_ready_time=0; '
+    f'  gps_fix_timestamp="" && ping_timestamp="" && antenna_ready_timestamp=""; '
 
     f'  until [ $gps_fixed -eq 1 ] && [ $ping_ok -eq 1 ] && [ $antenna_ready -eq 1 ]; do '
     f'    elapsed=$(( $(date +%s) - ssm_start )); '
@@ -239,7 +243,9 @@ def build_reboot_sequence_command(config: TestSequenceConfig) -> str:
     f'      [ -n "$GPS_DATA" ] && '
     f'      GPS_FILTERED=$(echo "$GPS_DATA" | jq -r \'paths(scalars) as $p | ($p | join(".")) as $key | getpath($p) as $val | "\\($key): \\($val)"\' | grep -i "fix"); '
     f'      echo "$GPS_FILTERED" | grep -q "fix_quality: GPS fix (SPS)" && echo "$GPS_FILTERED" | grep -q "fix_type: 3D" && '
-    f'      gps_fixed=1 && gps_fix_time=$(( $(date +%s) - reboot_start )) && log "" && log "GPS 3D fix achieved after $gps_fix_time sec"; '
+    f'      gps_fixed=1 && gps_fix_time=$(( $(date +%s) - reboot_start )) && '
+    f'      gps_fix_timestamp=$(date \'+%Y-%m-%d %H:%M:%S\') && '
+    f'      log "" && log "GPS 3D fix achieved after $gps_fix_time sec"; '
     f'    fi; '
 
     # --- UPDATED PING BLOCK: reuse SSH_TARGET, enforce timeout, check fallback jump host ---
@@ -247,7 +253,9 @@ def build_reboot_sequence_command(config: TestSequenceConfig) -> str:
     f'      ping_elapsed=$(( $(date +%s) - reboot_start )); '
     f'      [ $ping_elapsed -ge "$PING_TIMEOUT" ] && log "Timed out waiting for 192.168.100.254 to respond to ping!" && exit 0; '
     f'      ssh "$SSH_TARGET" "ping -c 1 -W 2 192.168.100.254 >/dev/null 2>&1" >/dev/null 2>&1 && '
-    f'      ping_ok=1 && ping_time=$(( $(date +%s) - reboot_start )) && log "" && log "192.168.100.254 pingable after $ping_time sec"; '
+    f'      ping_ok=1 && ping_time=$(( $(date +%s) - reboot_start )) && '
+    f'      ping_timestamp=$(date \'+%Y-%m-%d %H:%M:%S\') && '
+    f'      log "" && log "192.168.100.254 pingable after $ping_time sec"; '
     f'    fi; '
 
     f'    curl_with_log "$SSM_URL/api/system/status" "| jq -r \'.amc\'"; '
@@ -255,7 +263,9 @@ def build_reboot_sequence_command(config: TestSequenceConfig) -> str:
     f'    [ -n "$STATUS_DATA" ] && '
     f'      if [ $antenna_ready -eq 0 ]; then '
     f'        echo "$STATUS_DATA" | grep -q \'"amc":"0.0.0"\' && '
-    f'        antenna_ready=1 && antenna_ready_time=$(( $(date +%s) - reboot_start )) && log "" && log "AIM ready (0.0.0) after $antenna_ready_time sec"; '
+    f'        antenna_ready=1 && antenna_ready_time=$(( $(date +%s) - reboot_start )) && '
+    f'        antenna_ready_timestamp=$(date \'+%Y-%m-%d %H:%M:%S\') && '
+    f'        log "" && log "AIM ready (0.0.0) after $antenna_ready_time sec"; '
     f'      fi; '
     f'    print_dup_summary; '
     f'    sleep "$REQ_INTERVAL"; '
@@ -274,6 +284,7 @@ def build_reboot_sequence_command(config: TestSequenceConfig) -> str:
     f'  printf "\\n" >&2; '
 
     f'  connect_time=$(( $(date +%s) - ssm_start )); '
+    f'  connect_timestamp=$(date \'+%Y-%m-%d %H:%M:%S\'); '
     f'  total_time=$(( $(date +%s) - reboot_start )); '
 
     f'  server_up_times="$server_up_times $server_up_time"; '
@@ -282,6 +293,11 @@ def build_reboot_sequence_command(config: TestSequenceConfig) -> str:
     f'  total_times="$total_times $total_time"; '
     f'  ping_times="$ping_times $ping_time"; '
     f'  antenna_ready_times="$antenna_ready_times $antenna_ready_time"; '
+    f'  server_up_timestamps="$server_up_timestamps,$server_up_timestamp"; '
+    f'  gps_fix_timestamps="$gps_fix_timestamps,$gps_fix_timestamp"; '
+    f'  connect_timestamps="$connect_timestamps,$connect_timestamp"; '
+    f'  ping_timestamps="$ping_timestamps,$ping_timestamp"; '
+    f'  antenna_ready_timestamps="$antenna_ready_timestamps,$antenna_ready_timestamp"; '
 
     f'  log "======================================"; '
     f'  log "CYCLE RESULTS ON {config.ssm_ip}"; '
@@ -308,7 +324,7 @@ def build_reboot_sequence_command(config: TestSequenceConfig) -> str:
     f'  log "SUMMARY ANALYSIS ON {config.ssm_ip} ($iteration of $TOTAL_ITERATIONS iterations)"; '
     f'  log "======================================"; '
     f'  calc_stats() {{ '
-    f'    local values="$1" label="$2"; '
+    f'    local values="$1" label="$2" timestamps="$3"; '
     f'    local sum=0 count=0 min=999999 max=0; '
     f'    for val in $values; do '
     f'      sum=$((sum + val)); '
@@ -318,13 +334,14 @@ def build_reboot_sequence_command(config: TestSequenceConfig) -> str:
     f'    done; '
     f'    local avg=$((sum / count)); '
     f'    log "$label: avg=$avg sec, min=$min sec, max=$max sec"; '
-    f'  }}; '  # <--- semicolon
-    f'  calc_stats "$total_times" "Total Time"; '
-    f'  calc_stats "$server_up_times" "SSM Up Time"; '
-    f'  calc_stats "$gps_fix_times" "GPS 3D Fix Time"; '
-    f'  calc_stats "$ping_times" "Ping Time"; '
-    f'  calc_stats "$antenna_ready_times" "AIM Ready Time"; '
-    f'  calc_stats "$connect_times" "Connected Time"; '
+    f'    log "$label timestamps: $timestamps"; '
+    f'  }}; '
+    f'  calc_stats "$total_times" "Total Time" "${{total_times// /,}}"; '
+    f'  calc_stats "$server_up_times" "SSM Up Time" "${{server_up_timestamps#,}}"; '
+    f'  calc_stats "$gps_fix_times" "GPS 3D Fix Time" "${{gps_fix_timestamps#,}}"; '
+    f'  calc_stats "$ping_times" "Ping Time" "${{ping_timestamps#,}}"; '
+    f'  calc_stats "$antenna_ready_times" "AIM Ready Time" "${{antenna_ready_timestamps#,}}"; '
+    f'  calc_stats "$connect_times" "Connected Time" "${{connect_timestamps#,}}"; '
     f'  log "======================================"; '
     f'done; '
     f'log "All $TOTAL_ITERATIONS iterations completed successfully!"'

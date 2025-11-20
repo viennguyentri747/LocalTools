@@ -8,6 +8,7 @@ import os
 import sys
 from typing import List, Tuple
 from available_tools.code_tools.common_utils import *
+from available_tools.code_tools.custom_gitingest import CustomGitingestResult, ingest_path
 
 DEFAULT_MAX_WORKERS = 10
 CONTEXT_FOLDER_PREFIX_PATHS = 'context_paths_'
@@ -21,7 +22,7 @@ def get_paths_tool_templates():
             args={
                 ARG_EXTRACT_MODE: EXTRACT_MODE_PATHS,
                 ARG_INCLUDE_PATHS_PATTERN: ["*"],
-                ARG_EXCLUDE_PATHS_PATTERN: [".git", ".vscode"],
+                ARG_EXCLUDE_PATHS_PATTERN: [".git", ".vscode", "__pycache__", ".venv", "venv"],
                 ARG_PATHS_LONG: ["path1", "path2"],
             }
         )
@@ -57,7 +58,7 @@ def main_paths(args: argparse.Namespace) -> None:
     original_abs_paths = []
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_path: dict[Future[Tuple[bool, str, Path, str]], str] = {
+        future_to_path: dict[Future[Tuple[bool, str, Path]], str] = {
             executor.submit(run_gitingest, Path(p), final_output_dir, include_paths_pattern, exclude_paths_pattern): p
             for p in paths
         }
@@ -141,33 +142,28 @@ def merge_output_files(output_files: List[Path], original_abs_paths: List[str], 
     return merged_path
 
 
-def run_gitingest(input_path: Path, output_dir: Path, include_pattern_list: List[str], exclude_pattern_list: List[str]) -> Tuple[bool, str, Path, str]:
+def run_gitingest(input_path: Path, output_dir: Path, include_pattern_list: List[str], exclude_pattern_list: List[str]) -> Tuple[bool, str, Path]:
     """
-    Constructs and runs a single gitingest command for a given path.
-    Returns: (success, message, output_path, raw_file_name)
+    Build a context file for the provided path using the local custom gitingest implementation.
+    Returns: (success, message, output_path)
     """
-    # Construct a descriptive output filename and capture raw name
     if input_path.is_dir():
-        folder_name = input_path.name
-        raw_file_name = folder_name
-        full_file_name = f"{FOLDER_PREFIX}{raw_file_name}{TXT_EXTENSION}"
+        dir_name = input_path.name or input_path.resolve().name
+        full_file_name = f"{FOLDER_PREFIX}{dir_name}{TXT_EXTENSION}"
     else:
-        raw_file_name = input_path.name
-        full_file_name = f"{FILE_PREFIX}{raw_file_name}{TXT_EXTENSION}"
+        full_file_name = f"{FILE_PREFIX}{input_path.name}{TXT_EXTENSION}"
 
     output_path = output_dir / full_file_name
 
-    gitingest_cmd = [CMD_GITINGEST, str(input_path), GIT_INGEST_OUTPUT_FLAG, str(output_path)]
-    for pattern in include_pattern_list:
-        gitingest_cmd.extend([GIT_INGEST_INCLUDE_FLAG, quote(pattern)])
-    for pattern in exclude_pattern_list:
-        gitingest_cmd.extend([GIT_INGEST_EXCLUDE_FLAG, quote(pattern)])
+    LOG(f"Starting custom gitingest for '{input_path}'.")
+    try:
+        result: CustomGitingestResult = ingest_path( input_path, output_path, include_patterns=include_pattern_list, exclude_patterns=exclude_pattern_list, )
+    except Exception as exc:
+        error_msg = f"{LOG_PREFIX_MSG_ERROR} Failed to ingest '{input_path}': {exc}"
+        return False, error_msg, output_path
 
-    str_cmd = ' '.join(gitingest_cmd)
-    LOG(f"Starting gitingest for '{input_path}'.")
-    process = run_shell(str_cmd, check_throw_exception_on_exit_code=True,
-                        capture_output=True, text=True, encoding='utf-8', shell=True)
-    success_msg = f"{LOG_PREFIX_MSG_SUCCESS} Finished gitingest for '{input_path}'. Output saved to '{output_path}'."
-    if process.stdout:
-        success_msg += f"\n{process.stdout.strip()}"
+    success_msg = (
+        f"{LOG_PREFIX_MSG_SUCCESS} Finished gitingest for '{input_path}'. Output saved to '{output_path}'.\n"
+        f"{result.summary_text(input_path)}"
+    )
     return True, success_msg, output_path

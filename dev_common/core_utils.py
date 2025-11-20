@@ -21,13 +21,16 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
     if show_cmd:
         LOG(f">>> {cmd} (cwd={cwd or Path.cwd()})")
 
-    return subprocess.run( cmd, shell=shell, cwd=cwd, check=check_throw_exception_on_exit_code, stdout=stdout, stderr=stderr, text=text, capture_output=capture_output, encoding=encoding, executable=executable, timeout=timeout )
-
+    return subprocess.run(cmd, shell=shell, cwd=cwd, check=check_throw_exception_on_exit_code, stdout=stdout, stderr=stderr, text=text, capture_output=capture_output, encoding=encoding, executable=executable, timeout=timeout)
 
 
 def change_dir(path: str):
     LOG(f"Changing directory to {path}")
     os.chdir(path)
+
+
+def get_cwd_path_str():
+    return str(Path.cwd())
 
 
 def LOG(*values: object, sep: str = " ", end: str = "\n", file=None, highlight: bool = False, show_time=True, show_traceback: bool = False, flush: bool = True) -> None:

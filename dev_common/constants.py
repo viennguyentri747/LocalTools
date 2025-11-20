@@ -108,6 +108,7 @@ BUILD_TYPE_BINARY = "binary"
 
 # File extensions and suffixes
 FILE_PREFIX = "file_"
+FOLDER_PREFIX = "folder_"
 GIT_SUFFIX = ".git"
 TXT_EXTENSION = ".txt"
 

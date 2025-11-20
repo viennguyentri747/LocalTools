@@ -1,5 +1,5 @@
 import argparse
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 import tiktoken
 import platform
 from pathlib import Path
@@ -11,6 +11,7 @@ from available_tools.code_tools.common_utils import *
 
 DEFAULT_MAX_WORKERS = 10
 CONTEXT_FOLDER_PREFIX_PATHS = 'context_paths_'
+HEADER_TITLE = "FILE(S) CONTEXT BELOW..."
 
 
 def get_paths_tool_templates():
@@ -53,9 +54,10 @@ def main_paths(args: argparse.Namespace) -> None:
     successes = []
     failures = []
     output_files = []
+    original_abs_paths = []
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_path = {
+        future_to_path: dict[Future[Tuple[bool, str, Path, str]], str] = {
             executor.submit(run_gitingest, Path(p), final_output_dir, include_paths_pattern, exclude_paths_pattern): p
             for p in paths
         }
@@ -68,6 +70,8 @@ def main_paths(args: argparse.Namespace) -> None:
                 if is_success:
                     successes.append(path)
                     output_files.append(output_path)
+                    # Store absolute path of the original input
+                    original_abs_paths.append(str(Path(path).resolve()))
                 else:
                     failures.append(path)
             except Exception as exc:
@@ -80,16 +84,16 @@ def main_paths(args: argparse.Namespace) -> None:
         LOG(f"{FAILURE_EMOJI} Failed to process {len(failures)} paths:", file=sys.stderr)
         for f in failures:
             LOG(f"  - {f}", file=sys.stderr)
+        LOG_EXCEPTION_STR("Some paths failed to process...", exit=True)
 
     output_file_path = None
     LOG(f"Output files collected: {output_files}")
     for f in output_files:
         LOG(f"  - {f} (exists: {os.path.exists(f)})")
 
-    if len(output_files) == 1:
-        output_file_path = output_files[0]
-    elif len(output_files) > 1:
-        output_file_path = merge_output_files(output_files, final_output_dir)
+    # Always create a merged result file for consistency
+    if output_files:
+        output_file_path = merge_output_files(output_files, original_abs_paths, final_output_dir)
 
     if output_file_path:
         with open(output_file_path, "r", encoding="utf-8") as f:
@@ -107,42 +111,51 @@ def main_paths(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
-def merge_output_files(output_files: List[Path], output_dir: Path) -> Path:
+def merge_output_files(output_files: List[Path], original_abs_paths: List[str], output_dir: Path) -> Path:
     """
-    Merge multiple output files into a single file.
+    Merge multiple output files into a single file with standardized format.
+    Always creates a result file even for single files to ensure consistent format.
+    Uses absolute paths of original input files in the headers.
     """
-    file_names = [f.name for f in output_files]
-    LOG(f"Merging files {', '.join(file_names)} into a single file...")
-
     merged_filename = f"file_merged_context{TXT_EXTENSION}"
     merged_path = output_dir / merged_filename
 
+    LOG(f"Creating result file with {len(output_files)} source(s): '{merged_path}'")
+
     with open(merged_path, 'w', encoding='utf-8') as merged_file:
-        for i, file_path in enumerate(output_files):
-            merged_file.write(f"\n\n{'='*50}\n")
-            merged_file.write(f"FILE {i+1}/{len(output_files)}: {file_path.name}\n")
-            merged_file.write(f"{'='*50}\n\n")
+        # Write header
+        merged_file.write(f"{HEADER_TITLE}\n")
+        merged_file.write(f"{LINE_SEPARATOR}")
+        
+        for i, (file_path, abs_path) in enumerate(zip(output_files, original_abs_paths)):
+            merged_file.write(f"{LINE_SEPARATOR}")
+            postfix_count = f" {i+1}/{len(output_files)}" if len(output_files) > 1 else ""
+            INPUT_TITLE = f"INPUT{postfix_count} (FOLDER)" if os.path.isdir(abs_path) else f"INPUT{postfix_count} (FILE)"
+            merged_file.write(f"{INPUT_TITLE}: {abs_path}")
+            merged_file.write(f"{LINE_SEPARATOR}")
 
             with open(file_path, 'r', encoding='utf-8') as input_file:
                 merged_file.write(input_file.read())
 
-    LOG(f"Merged {len(output_files)} files into '{merged_path}'")
+    LOG(f"Created result file from {len(output_files)} file(s): '{merged_path}'")
     return merged_path
 
 
-def run_gitingest(input_path: Path, output_dir: Path, include_pattern_list: List[str], exclude_pattern_list: List[str]) -> Tuple[bool, str, Path]:
+def run_gitingest(input_path: Path, output_dir: Path, include_pattern_list: List[str], exclude_pattern_list: List[str]) -> Tuple[bool, str, Path, str]:
     """
     Constructs and runs a single gitingest command for a given path.
+    Returns: (success, message, output_path, raw_file_name)
     """
-    # Construct a descriptive output filename
+    # Construct a descriptive output filename and capture raw name
     if input_path.is_dir():
-        parent = input_path.parent.name
-        folder = input_path.name
-        output_filename = f"{FILE_PREFIX}{parent}{HYPHEN}{folder}{TXT_EXTENSION}"
+        folder_name = input_path.name
+        raw_file_name = folder_name
+        full_file_name = f"{FOLDER_PREFIX}{raw_file_name}{TXT_EXTENSION}"
     else:
-        output_filename = f"{FILE_PREFIX}{input_path.stem}{TXT_EXTENSION}"
+        raw_file_name = input_path.name
+        full_file_name = f"{FILE_PREFIX}{raw_file_name}{TXT_EXTENSION}"
 
-    output_path = output_dir / output_filename
+    output_path = output_dir / full_file_name
 
     gitingest_cmd = [CMD_GITINGEST, str(input_path), GIT_INGEST_OUTPUT_FLAG, str(output_path)]
     for pattern in include_pattern_list:

@@ -267,7 +267,7 @@ def build_fzf_rg_text_command(description: str, template_args: TemplateArgs, fil
     # Command to run inside fzf's reload binding
     empty_query_command = 'echo "Type text to search..."'
     # Define the complex bind command,  this triggers on every input change in fzf's query field.
-    bind_command = f'change:reload(if [ -n "{{q}}" ]; then {base_rg_command} -e {{q}} {search_dir_arg} 2>/dev/null; else {empty_query_command}; fi)'
+    bind_command = f'change:{FZF_RELOAD_KEYWORD}:(if [ -n "{{q}}" ]; then {base_rg_command} -e {{q}} {search_dir_arg} 2>/dev/null; else {empty_query_command}; fi)'
 
     # --- Call the Shared Wrapper ---
     return _build_fzf_wrapper_command(
@@ -414,20 +414,6 @@ def regex_c_class_struct_definition(symbol: str, literal: bool) -> str:
     """Generates a regex to find C/C++ class or struct definitions."""
     symbol_name = build_symbol_regex(symbol, literal, word_boundaries=True, just_match_prefix=True)
 
-    # return (
-    #     rf"^\s*"
-    #     rf"(?:\[\[[\w\s:,()]+\]\]\s*)*"  # Attributes like [[nodiscard]]
-    #     rf"(?:template\s*<[^>]*>\s*)?"  # Template declaration
-    #     rf"(?:typedef\s+)?"  # Typedef keyword
-    #     rf"(?:(?:static|extern|inline|virtual|explicit|constexpr|friend)\s+)*"  # Storage/specifiers
-    #     rf"(class|struct)"  # Class or struct keyword
-    #     rf"(?:\s+(?:alignas|__declspec|__attribute__)\s*\([^)]*\))?"  # Attribute specifiers
-    #     rf"(?:\s+(?:final|abstract))?"  # Class specifiers
-    #     rf"\s+"
-    #     rf"{symbol_name}"
-    #     rf"\b"
-    # )
-
     return (
         rf"^\s*"
         rf"(?:\[\[[\w\s:,()]+\]\]\s*)*"
@@ -551,7 +537,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_SEARCH_MODE: SEARCH_MODE_SYMBOL,
                 ARG_PATTERN_KEYS: DEFINITION_PATTERN_KEYS,
                 ARG_FILE_EXTS: C_CPP_EXTS,
-                ARG_PATH_LONG: "~/core_repos/",
+                ARG_PATH_LONG: f"{get_cwd_path_str()}",
             },
             should_run_now=True,
         ),
@@ -563,7 +549,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_SEARCH_MODE: SEARCH_MODE_SYMBOL,
                 ARG_PATTERN_KEYS: DECLARATION_PATTERN_KEYS,
                 ARG_FILE_EXTS: C_CPP_EXTS,
-                ARG_PATH_LONG: "~/core_repos/",
+                ARG_PATH_LONG: f"{get_cwd_path_str()}",
             },
             should_run_now=True,
         ),
@@ -575,7 +561,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_SEARCH_MODE: SEARCH_MODE_SYMBOL,
                 ARG_PATTERN_KEYS: USAGE_PATTERN_KEYS,
                 ARG_FILE_EXTS: C_CPP_EXTS,
-                ARG_PATH_LONG: "~/core_repos/",
+                ARG_PATH_LONG: f"{get_cwd_path_str()}",
             },
             should_run_now=True,
         ),
@@ -585,7 +571,7 @@ def get_tool_templates() -> List[ToolTemplate]:
             args={
                 ARG_DISPLAY_NAME: "Fzf file name",
                 ARG_SEARCH_MODE: SEARCH_MODE_FILE,
-                ARG_PATH_LONG: "~/core_repos/",
+                ARG_PATH_LONG: f"{get_cwd_path_str()}",
             },
             should_run_now=True,
         ),
@@ -606,7 +592,7 @@ def parse_args() -> argparse.Namespace:
                         help="Pattern keys to include when using symbol search. Order will be preserved when displaying results.")
     parser.add_argument(ARG_FILE_EXTS, nargs='*', default=[],
                         help="File extensions to filter when searching with ripgrep.")
-    parser.add_argument(ARG_PATH_LONG, default=".", help="Root search path (default: current directory)")
+    parser.add_argument(ARG_PATH_LONG, default=f"{get_cwd_path_str()}", help="Root search path (default: current directory)")
     parser.add_argument(ARG_CASE_SENSITIVE, type=lambda x: x.lower() == TRUE_STR_VALUE, default=False,
                         help="Enable case-sensitive search (true or false). Default: false (i.e., ignore case).")
     parser.add_argument(ARG_REGEX_INPUT, type=lambda x: x.lower() == TRUE_STR_VALUE, default=False,

@@ -184,10 +184,10 @@ def interactive_tool_select(message: str, tool_nodes: List[ToolEntryNode]) -> Op
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = parse_args(argv)
-    project_root = AVAILABLE_TOOLS_PATH
+    tools_folder_root = AVAILABLE_TOOLS_PATH
 
     tool_nodes: ToolEntryNode = discover_and_nest_tools(
-        project_root,
+        tools_folder_root,
         get_arg_value(args, ARG_TOOL_FOLDER_PATTERN),
         get_arg_value(args, ARG_TOOL_PREFIX)
     )
@@ -200,8 +200,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
 
     # Only show templates for Python tools
     if tool.path.suffix == ".py":
-        if str(project_root) not in sys.path:
-            sys.path.insert(0, str(project_root))
+        if str(tools_folder_root) not in sys.path:
+            sys.path.insert(0, str(tools_folder_root))
         try:
             module = importlib.import_module(f"{tool.folder}.{tool.stem}")
             if hasattr(module, 'get_tool_templates'):

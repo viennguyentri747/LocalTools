@@ -133,11 +133,24 @@ def LOG_EXCEPTION(exception: Exception, msg=None, exit: bool = True):
         if hasattr(exception, 'filename') and exception.filename:
             LOG(f"File: {exception.filename}", file=sys.stderr)
 
-    # Compact traceback (just the relevant line)
+    # Show full traceback but filter out library internals
     tb = traceback.extract_tb(exception.__traceback__)
     if tb:
-        last_frame = tb[-1]
-        LOG(f"- Location: {last_frame.filename}:{last_frame.lineno} in {last_frame.name}()", file=sys.stderr)
+        LOG("- Call stack:", file=sys.stderr)
+        
+        # Get the directory of your main script to identify "your" code
+        main_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+        for frame in tb:
+            # Highlight frames from your code vs library code
+            is_local = frame.filename.startswith(main_dir)
+            prefix = "  →" if is_local else "   "
+            # Make filename relative if it's in your project
+            display_filename = frame.filename
+            if is_local:
+                display_filename = os.path.relpath(frame.filename, main_dir)
+            
+            LOG(f"{prefix} {display_filename}:{frame.lineno} in {frame.name}()", 
+                file=sys.stderr, highlight=is_local)
 
     if exit:
         sys.exit(1)

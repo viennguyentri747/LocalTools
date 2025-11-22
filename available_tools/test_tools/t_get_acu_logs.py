@@ -1,5 +1,8 @@
 #!/home/vien/local_tools/MyVenvFolder/bin/python
 import argparse
+import sys
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -25,12 +28,22 @@ def get_tool_templates() -> List[ToolTemplate]:
 
     return [
         ToolTemplate(
-            name="Get ACU Logs",
+            name="Get MP ACU Logs",
             extra_description="Copy flash log files from remote",
             args={
                 ARG_LOG_OUTPUT_PATH: str(DEFAULT_LOG_OUTPUT_PATH),
                 ARG_LOG_TYPES: list(DEFAULT_LOG_TYPE_PREFIXES),
                 ARG_LIST_IPS: LIST_MP_IPS,
+                ARG_DATE_FILTERS: DEFAULT_DATE_VALUES,
+            },
+        ),
+        ToolTemplate(
+            name="Get All ACU Logs",
+            extra_description="Copy flash log files from remote",
+            args={
+                ARG_LOG_OUTPUT_PATH: str(DEFAULT_LOG_OUTPUT_PATH),
+                ARG_LOG_TYPES: list(DEFAULT_LOG_TYPE_PREFIXES),
+                ARG_LIST_IPS: LIST_MP_IPS + LIST_FD_IPS + LIST_HD_IPS,
                 ARG_DATE_FILTERS: DEFAULT_DATE_VALUES,
             },
         ),
@@ -88,10 +101,91 @@ class IpFetchSummary:
     fetch_success: bool = False
 
 
+class FetchProgressTracker:
+    """Compact console status tracker that rewrites a single line for all IPs."""
+
+    STATUS_LABELS = {
+        "pending": "waiting",
+        "copying": "copying",
+        "done": "done",
+        "failed": "failed",
+        "skipped": "skipped",
+    }
+    STATUS_ORDER = ("pending", "copying", "done", "failed", "skipped")
+
+    def __init__(self, ips: List[str], min_render_interval: float = 0.2) -> None:
+        self._status_by_ip: Dict[str, str] = {ip: "pending" for ip in ips}
+        self._lock = threading.Lock()
+        self._min_render_interval = min_render_interval
+        self._start_time = time.time()
+        self._last_render_ts = 0.0
+        self._last_line_len = 0
+        self._active = bool(ips)
+        if self._active:
+            self._render(force=True)
+
+    def set_status(self, ip: str, status: str) -> None:
+        if not self._active:
+            return
+        with self._lock:
+            if ip not in self._status_by_ip:
+                return
+            self._status_by_ip[ip] = status
+            self._render()
+
+    def finish(self) -> None:
+        if not self._active:
+            return
+        with self._lock:
+            self._render(force=True)
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+            self._active = False
+
+    def _render(self, force: bool = False) -> None:
+        now = time.time()
+        if not force and (now - self._last_render_ts) < self._min_render_interval:
+            return
+        self._last_render_ts = now
+        elapsed = self._format_elapsed(now - self._start_time)
+
+        parts: List[str] = []
+        for status in self.STATUS_ORDER:
+            ips = [ip for ip, stat in self._status_by_ip.items() if stat == status]
+            if not ips:
+                continue
+            parts.append(self._format_group(self.STATUS_LABELS.get(status, status), ips))
+
+        parts_str = " | ".join(parts) if parts else "no hosts to track"
+        line = f"[Elapsed {elapsed}] {parts_str}"
+        padding = ""
+        if len(line) < self._last_line_len:
+            padding = " " * (self._last_line_len - len(line))
+        sys.stdout.write(f"\r{line}{padding}")
+        sys.stdout.flush()
+        self._last_line_len = len(line)
+
+    @staticmethod
+    def _format_elapsed(total_seconds: float) -> str:
+        seconds = max(0, int(total_seconds))
+        hours, remainder = divmod(seconds, 3600)
+        minutes, secs = divmod(remainder, 60)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+    @staticmethod
+    def _format_group(label: str, ips: List[str]) -> str:
+        display_ips = ", ".join(ips[:3])
+        if len(ips) > 3:
+            display_ips += f"...(+{len(ips) - 3})"
+        display_ips = display_ips or "-"
+        return f"{label}:{len(ips)}[{display_ips}]"
+
+
 def batch_fetch_acu_logs(ips: List[str], log_types: List[str], date_filters: Optional[List[str]], log_output_dir: Path, max_thread_count: int, user: str = "root", public_key_path: Path = Path.home() / ".ssh" / "id_rsa.pub", should_has_var_logs: bool = False) -> List[AcuLogInfo]:
     if not ips:
         return []
 
+    progress_tracker = FetchProgressTracker(ips)
     # Separate IPs into those with and without passwordless access
     passwordless_ips = []
     password_required_ips = []
@@ -108,6 +202,7 @@ def batch_fetch_acu_logs(ips: List[str], log_types: List[str], date_filters: Opt
         LOG(f"{LOG_PREFIX_MSG_WARNING} Skipping {len(ssh_statuses.unreachable_ips)} unreachable host(s): {', '.join(ssh_statuses.unreachable_ips)}")
         for ip in ssh_statuses.unreachable_ips:
             results_by_ip[ip] = AcuLogInfo(is_valid=False, ip=ip)
+            progress_tracker.set_status(ip, "skipped")
 
     # First, handle hosts that need password (sequentially)
     if password_required_ips:
@@ -121,6 +216,7 @@ def batch_fetch_acu_logs(ips: List[str], log_types: List[str], date_filters: Opt
             else:
                 LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to copy SSH key to {ip}, skipping...")
                 results_by_ip[ip] = AcuLogInfo(is_valid=False, ip=ip)
+                progress_tracker.set_status(ip, "failed")
                 LOG_EXCEPTION(f"Failed to copy SSH key to {ip}, quitting, check make sure enter correct PW!")
 
     # Now fetch logs from all hosts with passwordless access (parallel)
@@ -131,7 +227,14 @@ def batch_fetch_acu_logs(ips: List[str], log_types: List[str], date_filters: Opt
         def _fetch_single_ip(ip: str) -> AcuLogInfo:
             LOG(f"{LOG_PREFIX_MSG_INFO} Attempting batch download for {ip}...")
             dest_path = log_output_dir / ip
-            return fetch_acu_logs(log_types=log_types, ut_ip=ip, date_filters=date_filters, dest_folder_path=dest_path, should_has_var_log=should_has_var_logs)
+            progress_tracker.set_status(ip, "copying")
+            try:
+                fetch_info = fetch_acu_logs(log_types=log_types, ut_ip=ip, date_filters=date_filters, dest_folder_path=dest_path, should_has_var_log=should_has_var_logs)
+            except Exception:
+                progress_tracker.set_status(ip, "failed")
+                raise
+            progress_tracker.set_status(ip, "done" if fetch_info.is_valid else "failed")
+            return fetch_info
 
         if max_workers == 1:
             for ip in passwordless_ips:
@@ -147,9 +250,12 @@ def batch_fetch_acu_logs(ips: List[str], log_types: List[str], date_filters: Opt
                     except Exception as exc:
                         LOG(f"{LOG_PREFIX_MSG_ERROR} Unexpected error while fetching logs for {ip}: {exc}")
                         results_by_ip[ip] = AcuLogInfo(is_valid=False, ip=ip)
+                        progress_tracker.set_status(ip, "failed")
             LOG(f"All fetch tasks completed in {time.time() - start_time:.1f} seconds.")
 
-    return [results_by_ip.get(ip, AcuLogInfo(is_valid=False, ip=ip)) for ip in ips]
+    consolidated_results = [results_by_ip.get(ip, AcuLogInfo(is_valid=False, ip=ip)) for ip in ips]
+    progress_tracker.finish()
+    return consolidated_results
 
 
 def _build_result_summaries(

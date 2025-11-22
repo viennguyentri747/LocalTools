@@ -632,7 +632,7 @@ class JiraClient:
                 print(f"DEBUG: Failed to get ticket {ticket_key}: {response.text}")
                 return None
         except Exception as e:
-            LOG_EXCEPTION(exception=e, msg=f"DEBUG: Exception getting ticket {ticket_key}")
+            LOG_EXCEPTION(exception=e)
             return None
 
 

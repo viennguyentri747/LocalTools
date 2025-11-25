@@ -42,8 +42,7 @@ _git_qpush() {
       return 0
     fi
     
-    echo "Found unpushed commits. Proceeding to push..."
-    # Skip to pushing section (continue with push logic below)
+    echo "Found unpushed commits. Proceeding ..."
   else
     # Show what files would be changed
     echo "Files to be committed:"

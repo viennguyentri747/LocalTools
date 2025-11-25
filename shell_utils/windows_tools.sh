@@ -1,23 +1,17 @@
 explorer() {
     local file_path="$1"
     
-    # Convert WSL path to Windows path
     local windows_path
     if ! windows_path=$(wslpath -w "$file_path" 2>&1); then
         echo "Failed to convert path: $windows_path" >&2
         return 1
     fi
     
-    cmd="explorer.exe /select,\"$windows_path\""
-    echo "Opening Explorer to highlight '$file_path' with command: $cmd"
-    $cmd
-
-    if [ $? -eq 0 ]; then
-        echo "Opened Explorer to highlight '$file_path'"
-    else
-        echo "Failed to open Explorer" >&2
-        return 1
-    fi
+    # Print the command
+    printf "Running: explorer.exe /select,%q\n" "$windows_path"
+    
+    # Execute it
+    explorer.exe /select,"$windows_path"
 }
 
 win_home_dir="/mnt/c/Users/Vien.Nguyen"

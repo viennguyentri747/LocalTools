@@ -153,11 +153,10 @@ def run_ingest(config: IngestConfig) -> CustomIngestResult:
 
     with open(config.output_path, "w", encoding="utf-8") as out_f:
         # Write Tree Diagram
-        _write_tree_diagram(out_f, resolved_input_path, entries, is_directory)
+        _render_tree_diagram(out_f, resolved_input_path, entries, is_directory)
 
         # Write Files Content
-        sorted_entries = sorted(entries, key=lambda entry: entry.relative_path.as_posix())
-        for entry in sorted_entries:
+        for entry in entries:
             display_name = entry.display_name
             display_names.append(display_name)
 
@@ -283,6 +282,7 @@ def collect_file_entries(
         walk_directory(path, Path(), [])
     else:
         raise ValueError(f"Path is neither a regular file nor directory?: {path}")
+
     return entries
 
 
@@ -293,7 +293,7 @@ def _is_binary_file(filepath):
         return has_null_byte
 
 
-def _write_tree_diagram(out_f: TextIO, root_path: Path, entries: List[FileEntry], is_directory: bool) -> None:
+def _render_tree_diagram(out_f: TextIO, root_path: Path, entries: List[FileEntry], is_directory: bool) -> None:
     """Generates and writes the tree diagram directly to the file object (streaming to file)."""
     out_f.write("DIRECTORY TREE:\n")
 

@@ -143,6 +143,11 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         default=r"^.*(?<!hidden)_tools$",
         help=r"Regex to match tool folders at project root, excluding 'ignore_tools' (default: ^(?!ignore_tools$).*_tools$)"
     )
+    p.add_argument(
+        ARG_TOOLS_DIR,
+        default=str(AVAILABLE_TOOLS_PATH),
+        help="Root folder that contains tool subdirectories (default: ~/local_tools/available_tools)"
+    )
 
     return p.parse_args(argv)
 
@@ -184,10 +189,10 @@ def interactive_tool_select(message: str, tool_nodes: List[ToolEntryNode]) -> Op
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = parse_args(argv)
-    tools_folder_root = AVAILABLE_TOOLS_PATH
+    tools_dir = Path(get_arg_value(args, ARG_TOOLS_DIR))
 
     tool_nodes: ToolEntryNode = discover_and_nest_tools(
-        tools_folder_root,
+        tools_dir,
         get_arg_value(args, ARG_TOOL_FOLDER_PATTERN),
         get_arg_value(args, ARG_TOOL_PREFIX)
     )
@@ -200,8 +205,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
 
     # Only show templates for Python tools
     if tool.path.suffix == ".py":
-        if str(tools_folder_root) not in sys.path:
-            sys.path.insert(0, str(tools_folder_root))
+        if str(tools_dir) not in sys.path:
+            sys.path.insert(0, str(tools_dir))
         try:
             module = importlib.import_module(f"{tool.folder}.{tool.stem}")
             if hasattr(module, 'get_tool_templates'):

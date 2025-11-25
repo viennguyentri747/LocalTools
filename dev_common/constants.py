@@ -119,6 +119,8 @@ ARG_VERSION_OR_FW_PATH = f"{ARGUMENT_LONG_PREFIX}version_or_fw_path"
 ARG_DEFAULT_OW_MANIFEST_BRANCH = f"{ARGUMENT_LONG_PREFIX}ow_default_manifest_branch"
 ARG_TOOL_PREFIX = f"{ARGUMENT_LONG_PREFIX}prefix"
 ARG_TOOL_FOLDER_PATTERN = f"{ARGUMENT_LONG_PREFIX}folder_pattern"
+# Allow overriding the root directory containing all tool folders
+ARG_TOOLS_DIR = f"{ARGUMENT_LONG_PREFIX}tools_dir"
 # ARG_TOOL_ROOT_PATH = f"{ARGUMENT_LONG_PREFIX}root_path"
 ARG_PATH_LONG = f"{ARGUMENT_LONG_PREFIX}path"
 ARG_PATHS_LONG = f"{ARGUMENT_LONG_PREFIX}paths"

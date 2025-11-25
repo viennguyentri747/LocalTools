@@ -36,3 +36,7 @@ fi
 echo "Running startup scripts..."
 mount_h
 monitor_stock not_restart_if_running
+
+# # Configure bash completion behavior
+# bind 'set show-all-if-ambiguous on'
+# bind 'TAB:menu-complete'

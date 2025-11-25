@@ -6,6 +6,11 @@ tools(){
 	tool "$@"
 }
 
+is_tools(){
+	local tools_dir=~/local_tools/available_tools/inertial_sense_tools
+	tool --tools_dir "$tools_dir" "$@"
+}
+
 all_tools(){
     ~/local_tools/main_tools.py  --folder_pattern "^.*_tools$"
 }

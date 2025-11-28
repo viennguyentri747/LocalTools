@@ -2,12 +2,9 @@
 from __future__ import annotations
 
 import argparse
-import shlex
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Tuple
-from urllib.parse import urlparse
-
+from typing import List
 from dev_common import *
 
 DEFAULT_SSM_REBOOT_TIMEOUT = 90  # seconds to wait for SSM to respond after reboot
@@ -21,9 +18,8 @@ ARG_SSM_IP = f"{ARGUMENT_LONG_PREFIX}ssm"
 ARG_SSM_REBOOT_TIMEOUT = f"{ARGUMENT_LONG_PREFIX}ssm-reboot-timeout"
 ARG_REQUEST_INTERVAL = f"{ARGUMENT_LONG_PREFIX}request-interval-secs"
 ARG_GPX_FIX_TIMEOUT = f"{ARGUMENT_LONG_PREFIX}gpx-fix-timeout"
-ARG_ONLINE_TIMEOUT = f"{ARGUMENT_LONG_PREFIX}online-timeout"    
+ARG_ONLINE_TIMEOUT = f"{ARGUMENT_LONG_PREFIX}online-timeout"
 ARG_PING_TIMEOUT = f"{ARGUMENT_LONG_PREFIX}ping-timeout"
-
 ARG_TOTAL_ITERATIONS = f"{ARGUMENT_LONG_PREFIX}total-iterations"
 
 
@@ -104,9 +100,7 @@ def build_reboot_sequence_command(config: TestSequenceConfig) -> str:
     """
     Construct the bash command that:
     1. Issues a reboot via curl.
-    2. Waits for the host to drop off ping (optional timeout).
-    3. Waits for ping to succeed again.
-    4. Retrieves GNSS stats and connection status.
+    2. Retrieves GNSS stats and connection status.
     """
     if config.request_interval <= 0:
         raise ValueError("ping-interval must be positive.")
@@ -125,12 +119,14 @@ def build_reboot_sequence_command(config: TestSequenceConfig) -> str:
         f'APN_TIMEOUT={config.apn_online_timeout} && '
         f'AIM_STATUS_TIMEOUT={config.aim_status_timeout} && '
         f'TOTAL_ITERATIONS={config.total_iterations} && '
-        # New time-based threshold in seconds
         f'THRESHOLD_DUP_SECS=5; '
+        f'LAST_WAS_SAMELINE=0; '
 
-        # All functions defined using semicolon at the end (no && between them)
-        f'log() {{ printf "[%s] %s\\n" "$(date \'+%Y-%m-%d %H:%M:%S\')" "$1" >&2; }}; '
-        f'log_sameline() {{ printf "\\r[%s] %s" "$(date \'+%Y-%m-%d %H:%M:%S\')" "$1" >&2; }}; '
+        # f'log() {{ printf "[%s] %s\\n" "$(date \'+%Y-%m-%d %H:%M:%S\')" "$1" >&2; }}; '
+        f'log() {{ [ "$LAST_WAS_SAMELINE" = "1" ] && printf "\\n" >&2; printf "[%s] %s\\n" "$(date \'+%Y-%m-%d %H:%M:%S\')" "$1" >&2; LAST_WAS_SAMELINE=0; }}; '
+
+        #f'log_sameline() {{ printf "\\r[%s] %s" "$(date \'+%Y-%m-%d %H:%M:%S\')" "$1" >&2; }}; '
+        f'log_sameline() {{ printf "\\r[%s] %s" "$(date \'+%Y-%m-%d %H:%M:%S\')" "$1" >&2; LAST_WAS_SAMELINE=1; }}; '
 
         f'SSH_TARGET="root@$SSM_URL"; '
         f'log "Ensuring SSH key authentication to $SSH_TARGET..."; '
@@ -147,65 +143,84 @@ def build_reboot_sequence_command(config: TestSequenceConfig) -> str:
         f'  log "SSH key auth to $SSH_TARGET already works."; '
         f'fi; '
 
-        f'declare -A curl_count; declare -A curl_prev_resp_filtered; declare -A last_check_timestamps; CURL_RESPONSE=""; '
-        f'curl_with_log() {{ '
-        f'  local url="$1"; '
-        f'  local filter="$2"; '
-        f'  local cmd_key="GET $url"; '
-        f'  CURL_RESPONSE=$(curl -fsS --max-time {curl_timeout_secs} "$url" 2>&1); '
-        f'  local exit_code=$?; '
-        f'  local curr_resp="$CURL_RESPONSE"; '
-        f'  local curr_resp_filtered=""; '
-        f'  if [ -n "$filter" ]; then '
-        f'    curr_resp_filtered=$(echo "$curr_resp" | eval "$filter" 2>/dev/null); '
-        f'  else '
-        f'    curr_resp_filtered="$curr_resp"; '
-        f'  fi; '
-
-        f'  local now=$(date +%s); '
-        f'  [ -z "${{curl_count[$cmd_key]}}" ] && curl_count[$cmd_key]=0 && curl_prev_resp_filtered[$cmd_key]="" && last_check_timestamps[$cmd_key]=0; '
-        f'  if [ "$curr_resp_filtered" = "${{curl_prev_resp_filtered[$cmd_key]}}" ]; then '
-        f'    curl_count[$cmd_key]=$((curl_count[$cmd_key] + 1)); '
-        f'    local last_time_check=${{last_check_timestamps[$cmd_key]}}; '
-        f'    local elapsed=$((now - last_time_check)); '
-        f'    if [ $elapsed -gt $THRESHOLD_DUP_SECS ]; then '
-        f'      [ ${{curl_count[$cmd_key]}} -gt 1 ] && printf "\\n" >&2; '
-        f'      log "REQUEST: $cmd_key (Elapsed $elapsed s > threshold $THRESHOLD_DUP_SECS s)"; '
-        f'      log "RESPONSE: $curr_resp"; '
-        f'      curl_count[$cmd_key]=0; '
-        f'    fi; '
-        f'    last_check_timestamps[$cmd_key]=$now; '
-        f'  else '
-        f'    [ ${{curl_count[$cmd_key]}} -gt 0 ] && printf "\\n" >&2; '
-        f'    log "REQUEST: $cmd_key", FILTER: "$filter"; '
-        f'    log "RESPONSE: $curr_resp"; '
-        f'    curl_prev_resp_filtered[$cmd_key]="$curr_resp_filtered"; '
-        f'    last_check_timestamps[$cmd_key]=$now; '
-        f'    curl_count[$cmd_key]=0; '
-        f'  fi; '
-        f'  return $exit_code; '
-        f'}}; '
-
-        f'print_dup_summary() {{ '
-        f'  local dup_str=""; '
-        f'  local now=$(date +%s); '
-        f'  for cmd_key in "${{!curl_count[@]}}"; do '
-        f'    local count=${{curl_count[$cmd_key]}}; '
-        f'    if [ $count -gt 0 ]; then '
-        f'      [ -n "$dup_str" ] && dup_str="${{dup_str}}, "; '
-        f'      dup_str="${{dup_str}}$cmd_key (x$count)"; '
-        f'    fi; '
-        f'  done; '
-        f'  [ -n "$dup_str" ] && log_sameline "Duplicates: $dup_str"; '
-        f'}}; '
-
-        # Ordinary shell assignments and procedural logic can safely use &&
         f'server_up_times="" && gps_fix_times="" && connect_times="" && total_times="" && '
         f'ping_times="" && antenna_ready_times="" && '
         f'server_up_timestamps="" && gps_fix_timestamps="" && connect_timestamps="" && '
         f'ping_timestamps="" && antenna_ready_timestamps="" && '
 
         f'for iteration in $(seq 1 $TOTAL_ITERATIONS); do '
+
+        # --- Move declarations INSIDE the loop to reset counters per iteration ---
+        f'  declare -A curl_count; declare -A curl_prev_resp_filtered; declare -A last_check_timestamps; CURL_RESPONSE=""; '
+
+        f'  curl_with_log() {{ '
+        f'    local url="$1"; '
+        f'    local filter="$2"; '
+        f'    local cmd_key="GET $url"; '
+        f'    CURL_RESPONSE=$(curl -fsS --max-time {curl_timeout_secs} "$url" 2>&1); '
+        f'    local exit_code=$?; '
+        f'    local curr_resp="$CURL_RESPONSE"; '
+        f'    local curr_resp_filtered=""; '
+        f'    if [ -n "$filter" ]; then '
+        f'      curr_resp_filtered=$(echo "$curr_resp" | eval "$filter" 2>/dev/null); '
+        f'    else '
+        f'      curr_resp_filtered="$curr_resp"; '
+        f'    fi; '
+
+        f'    local now=$(date +%s); '
+        # --- Initialize timestamp to $now (not 0) to prevent 1.7 billion sec bug ---
+        f'    [ -z "${{curl_count[$cmd_key]}}" ] && curl_count[$cmd_key]=0 && curl_prev_resp_filtered[$cmd_key]="" && last_check_timestamps[$cmd_key]=$now; '
+
+        f'    if [ "$curr_resp_filtered" = "${{curl_prev_resp_filtered[$cmd_key]}}" ]; then '
+        f'      curl_count[$cmd_key]=$((curl_count[$cmd_key] + 1)); '
+        f'      local last_time_check=${{last_check_timestamps[$cmd_key]}}; '
+        f'      local elapsed=$((now - last_time_check)); '
+        f'      if [ $elapsed -le $THRESHOLD_DUP_SECS ]; then '
+        f'        return $exit_code; '
+        f'      fi; '
+        f'    fi; '
+        # Common logging path for both new responses and threshold-exceeded duplicates
+        f'    [ ${{curl_count[$cmd_key]}} -gt 1 ] && printf "\\n" >&2; '
+        f'    log "REQUEST: $cmd_key${{filter:+, FILTER: $filter}}${{elapsed:+ (Elapsed $elapsed s > threshold $THRESHOLD_DUP_SECS s)}}"; '
+        f'    log "RESPONSE${{filter:+ WITH FILTER: $filter}}: $curr_resp_filtered"; '
+        f'    curl_prev_resp_filtered[$cmd_key]="$curr_resp_filtered"; '
+        f'    last_check_timestamps[$cmd_key]=$now; '
+        f'    curl_count[$cmd_key]=0; '
+        f'    return $exit_code; '
+        f'  }}; '
+
+        f'  print_dup_summary() {{ '
+        f'    local dup_str=""; '
+        f'    local cmds_count=0; '
+        f'    for cmd_key in "${{!curl_count[@]}}"; do '
+        f'      local count=${{curl_count[$cmd_key]}}; '
+        f'      if [ $count -gt 0 ]; then '
+        f'        [ -n "$dup_str" ] && dup_str="${{dup_str}}, "; '
+        f'        dup_str="${{dup_str}}$cmd_key (x$count)"; '
+        f'        cmds_count=$((cmds_count + 1)); '
+        f'      fi; '
+        f'    done; '
+
+        # 2. Process output if duplicates exist
+        f'    if [ $cmds_count -gt 0 ]; then '
+        f'      local max_cols=$(tput cols 2>/dev/null || echo 80); '
+        f'      local extra_margin=20; '
+        #       Calculate Overhead:
+        f'      local overhead=45;' # [2025-11-26 23:22:24] Duplicates ($cmds_count cmds): "
+        f'      local avail_width=$((max_cols - overhead - extra_margin)); '
+        #       Safety: Ensure we always have at minimum 20 chars for printing
+        f'      [ $avail_width -lt 20 ] && avail_width=20; '
+
+        # 3. Truncate if too long (Bash string slicing: ${{var:start:length}})
+        f'      if [ ${{#dup_str}} -gt $avail_width ]; then '
+        f'        dup_str="${{dup_str:0:$avail_width}}..."; '
+        f'      fi; '
+
+        f'      log_sameline "Duplicates ($cmds_count cmds): $dup_str"; '
+        f'    fi; '
+        f'  }}; '
+
+
         f'  log "======================================"; '
         f'  log "STARTING ITERATION $iteration of $TOTAL_ITERATIONS"; '
         f'  log "======================================"; '
@@ -248,7 +263,6 @@ def build_reboot_sequence_command(config: TestSequenceConfig) -> str:
         f'      log "" && log "GPS 3D fix achieved after $gps_fix_time sec"; '
         f'    fi; '
 
-        # --- UPDATED PING BLOCK: reuse SSH_TARGET, enforce timeout, check fallback jump host ---
         f'    if [ $ping_ok -eq 0 ]; then '
         f'      ping_elapsed=$(( $(date +%s) - reboot_start )); '
         f'      [ $ping_elapsed -ge "$PING_TIMEOUT" ] && log "Timed out waiting for 192.168.100.254 to respond to ping!" && exit 0; '
@@ -346,7 +360,8 @@ def build_reboot_sequence_command(config: TestSequenceConfig) -> str:
         f'done; '
         f'log "All $TOTAL_ITERATIONS iterations completed successfully!"'
         f'noti "All $TOTAL_ITERATIONS iterations completed successfully!"; '
-)
+    )
+
     return command.strip()
 
 

@@ -1,18 +1,31 @@
-explorer() {
+to_windows_path() {
     local file_path="$1"
-    
     local windows_path
+
     if ! windows_path=$(wslpath -w "$file_path" 2>&1); then
         echo "Failed to convert path: $windows_path" >&2
         return 1
     fi
-    
-    # Print the command
+
+    printf "%s" "$windows_path"
+}
+
+explorer() {
+    local file_path="$1"
+
+    # Convert using helper
+    local windows_path
+    if ! windows_path=$(to_windows_path "$file_path"); then
+        return 1
+    fi
+
+    # Print what will be executed
     printf "Running: explorer.exe /select,%q\n" "$windows_path"
-    
-    # Execute it
+
+    # Execute
     explorer.exe /select,"$windows_path"
 }
+
 
 win_home_dir="/mnt/c/Users/Vien.Nguyen"
 

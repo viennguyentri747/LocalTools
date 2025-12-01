@@ -11,7 +11,7 @@ import termios
 from typing import List, Dict, Any, Optional, Set
 from enum import IntEnum, auto
 import pyperclip
-from dev_common.constants import CMD_WSLPATH, LINE_SEPARATOR, CMD_EXPLORER, WSL_SELECT_FLAG
+from dev_common.constants import LINE_SEPARATOR, CMD_EXPLORER, WSL_SELECT_FLAG
 from dev_common.custom_structures import *
 from dev_common.core_utils import LOG, run_shell
 
@@ -258,22 +258,68 @@ def copy_to_wsl_shell_prompt(content: str) -> None:
         LOG(f"! An unexpected error occurred during shell paste: {e}", show_time=False)
 
 
-def open_explorer_to_file(file_path: Path) -> None:
+def convert_win_to_wsl_path(win_path: str) -> str:
     """
-    Open Windows Explorer from WSL and highlight the specified file.
+    Converts a Windows file path to a WSL (Windows Subsystem for Linux) path.
+    """
+
+    # 1. Clean input
+    # Remove surrounding quotes if the user pasted them from "Copy as path"
+    clean_path = win_path.strip('"').strip("'")
+
+    # 2. Normalize slashes
+    # Convert Windows backslashes to Linux forward slashes
+    universal_path = clean_path.replace("\\", "/")
+
+    wsl_path = universal_path
+
+    # 3. Handle Drive Letters
+    # Look for pattern like "C:/" or "d:/" at the start
+    drive_match = re.match(r'^([a-zA-Z]):/(.*)', universal_path)
+
+    if drive_match:
+        drive_letter = drive_match.group(1).lower()  # Convert 'C' to 'c'
+        rest_of_path = drive_match.group(2)
+
+        # Construct standard WSL mount path: /mnt/<drive>/<path>
+        wsl_path = f"/mnt/{drive_letter}/{rest_of_path}"
+
+    return wsl_path
+
+
+def convert_wsl_to_win_path(file_path: Path) -> str:
+    """
+    Convert a WSL/Linux path to a Windows path using wslpath.
+    Raises an exception if conversion fails.
     """
     try:
-        # Convert WSL path to Windows path
+        CMD_WSLPATH = "wslpath"
         result = subprocess.run(
             [CMD_WSLPATH, "-w", str(file_path)],
             capture_output=True,
             text=True,
             check=True
         )
-        windows_path = result.stdout.strip()
+        return result.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"wslpath failed: {e.stderr or e}") from e
 
-        # Open Explorer with file selected
-        subprocess.run([CMD_EXPLORER, WSL_SELECT_FLAG, windows_path], check=False)
+
+def open_explorer_to_file(file_path: Path) -> None:
+    """
+    Open Windows Explorer from WSL and highlight the specified file.
+    """
+    try:
+        # Convert path using helper
+        windows_path = convert_wsl_to_win_path(file_path)
+
+        # Launch Explorer with selected file
+        subprocess.run(
+            [CMD_EXPLORER, WSL_SELECT_FLAG, windows_path],
+            check=False
+        )
+
         LOG(f"Opened Explorer to highlight '{file_path}'")
+
     except Exception as e:
         LOG(f"Failed to open Explorer: {e}")

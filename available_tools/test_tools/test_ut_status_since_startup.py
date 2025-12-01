@@ -13,6 +13,7 @@ DEFAULT_GPX_FIX_TIMEOUT = 200  # seconds to wait for gpx fix
 DEFAULT_ONLINE_TIMEOUT = 800  # seconds to wait for the host to come back online
 DEFAULT_PING_TIMEOUT = 240  # seconds to wait for UT ping to succeed
 DEFAULT_TOTAL_ITERATIONS = 10  # number of test cycles to execute
+DEFAULT_WAIT_SECS_AFTER_EACH_ITERATION = 5  # seconds to wait between cycles
 
 ARG_SSM_IP = f"{ARGUMENT_LONG_PREFIX}ssm"
 ARG_SSM_REBOOT_TIMEOUT = f"{ARGUMENT_LONG_PREFIX}ssm-reboot-timeout"
@@ -21,6 +22,7 @@ ARG_GPX_FIX_TIMEOUT = f"{ARGUMENT_LONG_PREFIX}gpx-fix-timeout"
 ARG_ONLINE_TIMEOUT = f"{ARGUMENT_LONG_PREFIX}online-timeout"
 ARG_PING_TIMEOUT = f"{ARGUMENT_LONG_PREFIX}ping-timeout"
 ARG_TOTAL_ITERATIONS = f"{ARGUMENT_LONG_PREFIX}total-iterations"
+ARG_WAIT_SECS_AFTER_EACH_ITERATION = f"{ARGUMENT_LONG_PREFIX}wait-secs-after-each-iteration"
 
 
 @dataclass(frozen=True)
@@ -35,6 +37,7 @@ class TestSequenceConfig:
     ping_timeout: int = DEFAULT_PING_TIMEOUT
     apn_online_timeout: int = DEFAULT_ONLINE_TIMEOUT
     total_iterations: int = DEFAULT_TOTAL_ITERATIONS
+    wait_secs_after_each_iteration: int = DEFAULT_WAIT_SECS_AFTER_EACH_ITERATION
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> "TestSequenceConfig":
@@ -46,6 +49,7 @@ class TestSequenceConfig:
             ping_timeout=int(get_arg_value(args, ARG_PING_TIMEOUT)),
             apn_online_timeout=int(get_arg_value(args, ARG_ONLINE_TIMEOUT)),
             total_iterations=int(get_arg_value(args, ARG_TOTAL_ITERATIONS)),
+            wait_secs_after_each_iteration=int(get_arg_value(args, ARG_WAIT_SECS_AFTER_EACH_ITERATION)),
         )
 
 
@@ -59,6 +63,7 @@ def get_tool_templates() -> List[ToolTemplate]:
         ARG_GPX_FIX_TIMEOUT: DEFAULT_GPX_FIX_TIMEOUT,
         ARG_PING_TIMEOUT: DEFAULT_PING_TIMEOUT,
         ARG_ONLINE_TIMEOUT: DEFAULT_ONLINE_TIMEOUT,
+        ARG_WAIT_SECS_AFTER_EACH_ITERATION: DEFAULT_WAIT_SECS_AFTER_EACH_ITERATION,
         ARG_TOTAL_ITERATIONS: DEFAULT_TOTAL_ITERATIONS,
         ARG_SSM_IP: default_ssm,
     }
@@ -92,6 +97,8 @@ def parse_args() -> argparse.Namespace:
                         help=f"Seconds to wait for the host to respond to ping again (default: {DEFAULT_ONLINE_TIMEOUT}).", )
     parser.add_argument(ARG_TOTAL_ITERATIONS, type=int, default=DEFAULT_TOTAL_ITERATIONS,
                         help=f"Number of test iterations to perform (default: {DEFAULT_TOTAL_ITERATIONS}).", )
+    parser.add_argument(ARG_WAIT_SECS_AFTER_EACH_ITERATION, type=int, default=DEFAULT_WAIT_SECS_AFTER_EACH_ITERATION,
+                        help=f"Seconds to wait between iterations (default: {DEFAULT_WAIT_SECS_AFTER_EACH_ITERATION}).", )
 
     return parser.parse_args()
 
@@ -108,6 +115,8 @@ def build_reboot_sequence_command(config: TestSequenceConfig) -> str:
         raise ValueError("offline-timeout, online-timeout, and ping-timeout must be non-negative.")
     if config.total_iterations <= 0:
         raise ValueError("total-iterations must be positive.")
+    if config.wait_secs_after_each_iteration < 0:
+        raise ValueError("wait-secs-after-each-iteration must be non-negative.")
 
     curl_timeout_secs = 10
 
@@ -119,7 +128,8 @@ def build_reboot_sequence_command(config: TestSequenceConfig) -> str:
         f'APN_TIMEOUT={config.apn_online_timeout} && '
         f'AIM_STATUS_TIMEOUT={config.aim_status_timeout} && '
         f'TOTAL_ITERATIONS={config.total_iterations} && '
-        f'THRESHOLD_DUP_SECS=5; '
+        f'WAIT_AFTER_ITERATION={config.wait_secs_after_each_iteration} && '
+        f'THRESHOLD_DUP_SECS=10; '
         f'LAST_WAS_SAMELINE=0; '
 
         # f'log() {{ printf "[%s] %s\\n" "$(date \'+%Y-%m-%d %H:%M:%S\')" "$1" >&2; }}; '
@@ -357,6 +367,19 @@ def build_reboot_sequence_command(config: TestSequenceConfig) -> str:
         f'  calc_stats "$antenna_ready_times" "AIM Ready Time" "${{antenna_ready_timestamps#,}}"; '
         f'  calc_stats "$connect_times" "Connected Time" "${{connect_timestamps#,}}"; '
         f'  log "======================================"; '
+
+        f'  if [ $iteration -lt $TOTAL_ITERATIONS ]; then '
+        f'    log "Waiting $WAIT_AFTER_ITERATION secs before next iteration..."; '
+        f'    wait_elapsed=0; '
+        f'    while [ $wait_elapsed -lt $WAIT_AFTER_ITERATION ]; do '
+        f'      log_sameline "Wait $WAIT_AFTER_ITERATION secs, elapsed: $wait_elapsed sec"; '
+        f'      sleep 1; '
+        f'      wait_elapsed=$((wait_elapsed + 1)); '
+        f'    done; '
+        f'    log_sameline "Wait $WAIT_AFTER_ITERATION secs, elapsed: $WAIT_AFTER_ITERATION sec"; '
+        f'    printf "\n" >&2; LAST_WAS_SAMELINE=0; '
+        f'  fi; '
+
         f'done; '
         f'log "All $TOTAL_ITERATIONS iterations completed successfully!"'
         f'noti "All $TOTAL_ITERATIONS iterations completed successfully!"; '

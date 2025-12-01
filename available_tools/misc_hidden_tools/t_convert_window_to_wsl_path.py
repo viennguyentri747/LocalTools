@@ -4,7 +4,7 @@ import argparse  # Import the argparse module for named command-line arguments
 import re  # Import regex for string pattern matching
 from pathlib import Path
 from typing import List
-from dev_common.tools_utils import ToolTemplate, build_examples_epilog, display_content_to_copy
+from dev_common.tools_utils import ToolTemplate, build_examples_epilog, convert_win_to_wsl_path, display_content_to_copy
 
 
 def get_tool_templates() -> List[ToolTemplate]:
@@ -24,35 +24,6 @@ def get_tool_templates() -> List[ToolTemplate]:
             }
         ),
     ]
-
-
-def convert_win_to_wsl_path(win_path: str) -> str:
-    """
-    Converts a Windows file path to a WSL (Windows Subsystem for Linux) path.
-    """
-
-    # 1. Clean input
-    # Remove surrounding quotes if the user pasted them from "Copy as path"
-    clean_path = win_path.strip('"').strip("'")
-
-    # 2. Normalize slashes
-    # Convert Windows backslashes to Linux forward slashes
-    universal_path = clean_path.replace("\\", "/")
-
-    wsl_path = universal_path
-
-    # 3. Handle Drive Letters
-    # Look for pattern like "C:/" or "d:/" at the start
-    drive_match = re.match(r'^([a-zA-Z]):/(.*)', universal_path)
-
-    if drive_match:
-        drive_letter = drive_match.group(1).lower()  # Convert 'C' to 'c'
-        rest_of_path = drive_match.group(2)
-
-        # Construct standard WSL mount path: /mnt/<drive>/<path>
-        wsl_path = f"/mnt/{drive_letter}/{rest_of_path}"
-
-    return wsl_path
 
 
 # --- Example Usage ---

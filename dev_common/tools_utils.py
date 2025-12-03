@@ -1,13 +1,11 @@
 from dataclasses import dataclass
-import fcntl
+# import fcntl
 import importlib.util
 import os
 from pathlib import Path
 import re
-import shutil
 import subprocess
 import sys
-import termios
 from typing import List, Dict, Any, Optional, Set, Tuple
 from enum import IntEnum, auto
 import pyperclip
@@ -230,33 +228,33 @@ def display_content_to_copy(
                     f"⚠️  Command exited with code {command_result.returncode}, error: {command_result.stderr}")
 
 
-def copy_to_wsl_shell_prompt(content: str) -> None:
-    """
-    Pushes content into the TTY's input buffer.
-    This only works on Unix-like systems (Linux, WSL, macOS).
-    """
-    if sys.platform == "win32" or fcntl is None or termios is None:
-        LOG("! Pasting to shell prompt is not supported on this platform.", show_time=False)
-        LOG("  (Content is in your clipboard for manual pasting).", show_time=False)
-        return
-    try:
-        # Get the file descriptor for standard input
-        fd = sys.stdin.fileno()
-        # Check if we are in an interactive terminal (TTY)
-        if not sys.stdin.isatty():
-            LOG("! Cannot paste to shell: Not running in an interactive TTY.", show_time=False)
-            return
+# def copy_to_wsl_shell_prompt(content: str) -> None:
+#     """
+#     Pushes content into the TTY's input buffer.
+#     This only works on Unix-like systems (Linux, WSL, macOS).
+#     """
+#     if sys.platform == "win32" or fcntl is None or termios is None:
+#         LOG("! Pasting to shell prompt is not supported on this platform.", show_time=False)
+#         LOG("  (Content is in your clipboard for manual pasting).", show_time=False)
+#         return
+#     try:
+#         # Get the file descriptor for standard input
+#         fd = sys.stdin.fileno()
+#         # Check if we are in an interactive terminal (TTY)
+#         if not sys.stdin.isatty():
+#             LOG("! Cannot paste to shell: Not running in an interactive TTY.", show_time=False)
+#             return
 
-        # Push each character into the TTY's input buffer
-        for char in content:
-            # TIOCSTI: Terminal Input Output Control, Simulate Terminal Input
-            fcntl.ioctl(fd, termios.TIOCSTI, char.encode('utf-8'))
+#         # Push each character into the TTY's input buffer
+#         for char in content:
+#             # TIOCSTI: Terminal Input Output Control, Simulate Terminal Input
+#             fcntl.ioctl(fd, termios.TIOCSTI, char.encode('utf-8'))
 
-    except (IOError, OSError) as e:
-        LOG(f"! Failed to paste to shell prompt: {e}", show_time=False)
-        LOG("  This feature (TIOCSTI) might be disabled by your system admin.", show_time=False)
-    except Exception as e:
-        LOG(f"! An unexpected error occurred during shell paste: {e}", show_time=False)
+#     except (IOError, OSError) as e:
+#         LOG(f"! Failed to paste to shell prompt: {e}", show_time=False)
+#         LOG("  This feature (TIOCSTI) might be disabled by your system admin.", show_time=False)
+#     except Exception as e:
+#         LOG(f"! An unexpected error occurred during shell paste: {e}", show_time=False)
 
 
 def convert_win_to_wsl_path(win_path: str) -> str:

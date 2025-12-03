@@ -42,32 +42,6 @@ FORWARDED_TOOLS: Dict[str, ForwardedTool] = {
 
 def get_tool_templates() -> List[ToolTemplate]:
     """Provide ready-to-run templates for the combined tool."""
-
-    # def clone_with_mode(mode: str, templates: Iterable[ToolTemplate]) -> List[ToolTemplate]:
-    #     cloned: List[ToolTemplate] = []
-    #     for template in templates:
-    #         templated_args = {}
-    #         templated_args[ARG_TEST_MODE] = mode
-    #         templated_args.update(template.args)
-    #         cloned.append(
-    #             ToolTemplate(
-    #                 name=template.name,
-    #                 extra_description=template.extra_description,
-    #                 args=templated_args,
-    #                 search_root=template.search_root,
-    #                 no_need_live_edit=template.no_need_live_edit,
-    #                 usage_note=template.usage_note,
-    #                 should_run_now=getattr(template, "run_now_without_modify", False),
-    #                 hidden=getattr(template, "should_hidden", False),
-    #             )
-    #         )
-    #     return cloned
-
-    # aggregated_templates: List[ToolTemplate] = []
-    # for mode, tool in FORWARDED_TOOLS.items():
-    #     templates: List[ToolTemplate] = tool.get_templates()
-    #     aggregated_templates.extend(clone_with_mode(mode, templates))
-
     aggregated_templates: List[ToolTemplate] = []
     for mode, tool in FORWARDED_TOOLS.items():
         templates = tool.get_templates()

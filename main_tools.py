@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Iterable, List, Optional
 from dataclasses import dataclass, field
 from dev_common import *
-from dev_common.tools_utils import ToolFolderMetadata, load_tools_metadata
+from dev_common.tools_utils import *
 
 
 @dataclass
@@ -41,9 +41,11 @@ def discover_and_nest_tools(project_root: Path, folder_pattern: str, tool_prefix
     return sorted_nodes
 
 
-def build_template_command(tool_path: Path, template: ToolTemplate) -> str:
+def build_template_run_command(tool_path: Path, template: ToolTemplate) -> str:
     """Build command line for a template"""
-    cmd_parts = [sys.executable, str(tool_path)]
+    python_executable = _resolve_python_executable(template)
+    cmd_parts = [python_executable, str(tool_path)]  # Start with tool path (Run .py file)
+
     for arg_key, arg_value in template.args.items():
         if isinstance(arg_value, list):
             cmd_parts.append(arg_key)
@@ -60,6 +62,30 @@ def build_template_command(tool_path: Path, template: ToolTemplate) -> str:
     final_cmd = ' '.join(quoted_parts)
     LOG(f"Built template command: {final_cmd}")
     return final_cmd
+
+
+def _resolve_python_executable(template: ToolTemplate) -> str:
+    """Return python executable path respecting template flags."""
+    current_python_executable = sys.executable
+    if not template.is_use_win_python:
+        return current_python_executable
+
+    stdout, stderr, returncode = run_win_cmd_command("where python")
+    if returncode != 0 or not stdout:
+        LOG(f"Failed to detect Windows python (stdout='{stdout}', stderr='{stderr}').")
+        return current_python_executable
+
+    for candidate in stdout.splitlines():
+        candidate = candidate.strip()
+        if not candidate:
+            continue
+        wsl_path = convert_win_to_wsl_path(candidate)
+        if wsl_path:
+            LOG(f"Using Windows python at {wsl_path} for template '{template.name}'.")
+            return wsl_path
+
+    LOG(f"Could not parse Windows python path from output: {stdout}.")
+    return current_python_executable
 
 
 def diplay_templates(tool_path: Path, templates: List[ToolTemplate]) -> int:
@@ -84,7 +110,7 @@ def diplay_templates(tool_path: Path, templates: List[ToolTemplate]) -> int:
             continue
 
         # Build command preview for this template
-        preview_cmd = build_template_command(tool_path, template)
+        preview_cmd = build_template_run_command(tool_path, template)
         note_part = f". Note: {template.extra_description}" if template.extra_description else ""
         title = f"[{i}] {template.name}{note_part}\n→ {preview_cmd}"
         option_data.append(OptionData(title=title, selectable=True, data=template))
@@ -100,7 +126,7 @@ def diplay_templates(tool_path: Path, templates: List[ToolTemplate]) -> int:
     selected_template: ToolTemplate = selected.data
 
     # Build and run final command
-    cmd_line = build_template_command(tool_path, selected_template)
+    cmd_line = build_template_run_command(tool_path, selected_template)
 
     if selected_template.no_need_live_edit:
         final_cmd = cmd_line

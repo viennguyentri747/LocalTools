@@ -1,12 +1,9 @@
 #!/home/vien/local_tools/MyVenvFolder/bin/python
 from __future__ import annotations
-
 import argparse
 from pathlib import Path
 import sys
-from datetime import datetime, timedelta
 from typing import List, Optional, Sequence, Set
-
 from available_tools.test_tools.common import *
 from available_tools.test_tools.t_get_acu_logs import DEFAULT_DATE_VALUES, batch_fetch_acu_logs
 from dev_common import *
@@ -38,7 +35,6 @@ def get_tool_templates() -> List[ToolTemplate]:
             },
         ),
     ]
-
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(

@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import sys
 import termios
-from typing import List, Dict, Any, Optional, Set
+from typing import List, Dict, Any, Optional, Set, Tuple
 from enum import IntEnum, auto
 import pyperclip
 from dev_common.constants import LINE_SEPARATOR, CMD_EXPLORER, WSL_SELECT_FLAG
@@ -71,8 +71,6 @@ class ToolFolderMetadata:
         if self.start_collapsed is not None:
             return self.start_collapsed
         return True
-
-    
 
 
 def discover_tools(root: Path, folder_pattern: str, prefix: str) -> List[ToolEntry]:
@@ -225,9 +223,12 @@ def display_content_to_copy(
     for post_action in post_actions:
         if post_action == PostActionType.RUN_CONTENT_IN_SHELL:
             LOG(f"▶️  Running the above command in shell...", show_time=True)
-            command_result: subprocess.CompletedProcess = run_shell(content, check_throw_exception_on_exit_code=False, shell=True, text=True)
+            command_result: subprocess.CompletedProcess = run_shell(
+                content, check_throw_exception_on_exit_code=False, shell=True, text=True)
             if command_result.returncode != 0:
-                LOG_EXCEPTION_STR(f"⚠️  Command exited with code {command_result.returncode}, error: {command_result.stderr}")
+                LOG_EXCEPTION_STR(
+                    f"⚠️  Command exited with code {command_result.returncode}, error: {command_result.stderr}")
+
 
 def copy_to_wsl_shell_prompt(content: str) -> None:
     """
@@ -323,3 +324,47 @@ def open_explorer_to_file(file_path: Path) -> None:
 
     except Exception as e:
         LOG(f"Failed to open Explorer: {e}")
+
+
+def run_win_cmd(command: str) -> Tuple[str, str, int]:
+    """
+    Run a Windows command from WSL and capture its output.
+    Returns (stdout, stderr, returncode)
+    """
+    try:
+        # Capture stdout + stderr, Decode to str instead of bytes
+        result = subprocess.run( ["cmd.exe", "/C", command], capture_output=True, text=True, check=False )
+        stdout = result.stdout.strip()
+        stderr = result.stderr.strip()
+
+        LOG(f"Executed Windows command: {command}")
+        if stdout:
+            LOG(f"[STDOUT] {stdout}")
+        if stderr:
+            LOG(f"[STDERR] {stderr}")
+
+        return stdout, stderr, result.returncode
+
+    except Exception as e:
+        LOG(f"Failed to run Windows command: {e}")
+        return "", str(e), -1
+
+
+def get_window_python_executable_path() -> Optional[Path]:
+    """
+    Returns the Windows Python executable path if running under WSL.
+    Otherwise, returns None.
+    """
+    try:
+        windows_python_path = ""
+
+        result = subprocess.run(
+            ["wslpath", "-w", "/usr/bin/python3"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        windows_python_path = result.stdout.strip()
+        return Path(windows_python_path)
+    except subprocess.CalledProcessError:
+        return None

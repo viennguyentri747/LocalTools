@@ -134,8 +134,9 @@ class ToolTemplate:
     usage_note: str = ""
     run_now_without_modify: bool = False
     should_hidden: bool = False
+    is_use_win_python: bool = False
 
-    def __init__(self, name: str, extra_description: str = "", args: Dict[str, Any] = {}, search_root: Optional[Path] = None, no_need_live_edit: bool = True, usage_note: str = "", should_run_now: bool = False, hidden: bool = False):
+    def __init__(self, name: str, extra_description: str = "", args: Dict[str, Any] = {}, search_root: Optional[Path] = None, no_need_live_edit: bool = True, usage_note: str = "", should_run_now: bool = False, hidden: bool = False, is_use_win_python: bool = False):
         self.name = name
         self.extra_description = extra_description
         self.args = args
@@ -144,6 +145,7 @@ class ToolTemplate:
         self.usage_note = usage_note
         self.run_now_without_modify = should_run_now
         self.should_hidden = hidden
+        self.is_use_win_python = is_use_win_python
 
 @dataclass(frozen=True)
 class ForwardedTool:

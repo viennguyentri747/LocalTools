@@ -8,6 +8,7 @@ from typing import Dict, Iterable, List, Tuple
 
 from available_tools.test_tools import test_pattern_in_acu_logs_from_local as pattern_tool
 from available_tools.test_tools import test_ut_status_since_startup as status_tool
+from available_tools.test_tools import test_gen_compact_log_from_plog as compact_plog_tool
 from dev_common import *
 
 
@@ -15,7 +16,8 @@ ARG_TEST_MODE = f"{ARGUMENT_LONG_PREFIX}mode"
 
 MODE_STATUS = "status_since_startup"
 MODE_ACU_PATTERN = "acu_log_pattern"
-AVAILABLE_TEST_MODES = (MODE_STATUS, MODE_ACU_PATTERN)
+MODE_COMPACT_PLOG = "compact_plog"
+AVAILABLE_TEST_MODES = (MODE_STATUS, MODE_ACU_PATTERN, MODE_COMPACT_PLOG)
 
 FORWARDED_TOOLS: Dict[str, ForwardedTool] = {
     MODE_STATUS: ForwardedTool(
@@ -30,35 +32,49 @@ FORWARDED_TOOLS: Dict[str, ForwardedTool] = {
         main=pattern_tool.main,
         get_templates=pattern_tool.get_tool_templates,
     ),
+    MODE_COMPACT_PLOG: ForwardedTool(
+        mode=MODE_COMPACT_PLOG,
+        description="Trim downloaded P-logs down to specific columns.",
+        main=compact_plog_tool.main,
+        get_templates=compact_plog_tool.get_tool_templates,
+    ),
 }
 
 def get_tool_templates() -> List[ToolTemplate]:
     """Provide ready-to-run templates for the combined tool."""
 
-    def clone_with_mode(mode: str, templates: Iterable[ToolTemplate]) -> List[ToolTemplate]:
-        cloned: List[ToolTemplate] = []
-        for template in templates:
-            templated_args = {}
-            templated_args[ARG_TEST_MODE] = mode
-            templated_args.update(template.args)
-            cloned.append(
-                ToolTemplate(
-                    name=template.name,
-                    extra_description=template.extra_description,
-                    args=templated_args,
-                    search_root=template.search_root,
-                    no_need_live_edit=template.no_need_live_edit,
-                    usage_note=template.usage_note,
-                    should_run_now=getattr(template, "run_now_without_modify", False),
-                    hidden=getattr(template, "should_hidden", False),
-                )
-            )
-        return cloned
+    # def clone_with_mode(mode: str, templates: Iterable[ToolTemplate]) -> List[ToolTemplate]:
+    #     cloned: List[ToolTemplate] = []
+    #     for template in templates:
+    #         templated_args = {}
+    #         templated_args[ARG_TEST_MODE] = mode
+    #         templated_args.update(template.args)
+    #         cloned.append(
+    #             ToolTemplate(
+    #                 name=template.name,
+    #                 extra_description=template.extra_description,
+    #                 args=templated_args,
+    #                 search_root=template.search_root,
+    #                 no_need_live_edit=template.no_need_live_edit,
+    #                 usage_note=template.usage_note,
+    #                 should_run_now=getattr(template, "run_now_without_modify", False),
+    #                 hidden=getattr(template, "should_hidden", False),
+    #             )
+    #         )
+    #     return cloned
+
+    # aggregated_templates: List[ToolTemplate] = []
+    # for mode, tool in FORWARDED_TOOLS.items():
+    #     templates: List[ToolTemplate] = tool.get_templates()
+    #     aggregated_templates.extend(clone_with_mode(mode, templates))
 
     aggregated_templates: List[ToolTemplate] = []
     for mode, tool in FORWARDED_TOOLS.items():
-        aggregated_templates.extend(clone_with_mode(mode, tool.get_templates()))
-
+        templates = tool.get_templates()
+        # Add the mode argument to each template
+        for template in templates:
+            template.args[ARG_TEST_MODE] = mode
+        aggregated_templates.extend(templates)
     return aggregated_templates
 
 
@@ -73,8 +89,12 @@ def parse_args(argv: List[str]) -> Tuple[argparse.Namespace, List[str]]:
         ARG_TEST_MODE,
         choices=AVAILABLE_TEST_MODES,
         required=True,
-        help=f"Which UT helper to run. '{MODE_STATUS}' forwards to test_ut_status_since_startup.py. "
-             f"'{MODE_ACU_PATTERN}' forwards to test_pattern_in_acu_logs.py.",
+        help=(
+            f"Which UT helper to run. "
+            f"'{MODE_STATUS}' forwards to test_ut_status_since_startup.py. "
+            f"'{MODE_ACU_PATTERN}' forwards to test_pattern_in_acu_logs.py. "
+            f"'{MODE_COMPACT_PLOG}' forwards to test_gen_compact_log_from_plog.py."
+        ),
     )
 
     parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))

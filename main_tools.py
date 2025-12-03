@@ -68,9 +68,10 @@ def _resolve_python_executable(template: ToolTemplate) -> str:
     """Return python executable path respecting template flags."""
     current_python_executable = sys.executable
     if not template.is_use_win_python:
+        LOG(f"Using current python at {current_python_executable} for template '{template.name}'.")
         return current_python_executable
 
-    stdout, stderr, returncode = run_win_cmd_command("where python")
+    stdout, stderr, returncode = run_win_cmd("where python")
     if returncode != 0 or not stdout:
         LOG(f"Failed to detect Windows python (stdout='{stdout}', stderr='{stderr}').")
         return current_python_executable

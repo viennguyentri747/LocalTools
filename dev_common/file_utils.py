@@ -1,10 +1,12 @@
 from enum import Enum
 import hashlib
 import os
-from pathlib import Path
+from pathlib import Path, PosixPath, WindowsPath
 import shutil
 from typing import Tuple, Union
 import xml.etree.ElementTree as ET
+
+from dev_common.core_utils import LOG
 
 
 def expand_and_check_path(path_str: str) -> Tuple[bool, str]:
@@ -119,3 +121,14 @@ def is_current_relative_to(current: Union[str, Path], target: Union[str, Path]) 
             return True
         except ValueError:
             return False
+
+
+def use_posix_paths():
+    """Override Path to always use POSIX-style paths in string representation."""
+    LOG("Using POSIX-style paths for all Path string representations.")
+    _original_path_str = Path.__str__
+    _original_posix_str = PosixPath.__str__
+    _original_windows_str = WindowsPath.__str__
+    Path.__str__ = lambda self: _original_path_str(self).replace('\\', '/')
+    PosixPath.__str__ = lambda self: _original_posix_str(self).replace('\\', '/')
+    WindowsPath.__str__ = lambda self: _original_windows_str(self).replace('\\', '/')

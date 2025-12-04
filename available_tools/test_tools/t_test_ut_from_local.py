@@ -8,7 +8,7 @@ from typing import Dict, Iterable, List, Tuple
 
 from available_tools.test_tools import test_pattern_in_acu_logs_local as pattern_tool
 from available_tools.test_tools import test_ut_status_since_startup as status_tool
-from available_tools.test_tools import test_gen_compact_log_from_plog_local as compact_plog_tool
+from available_tools.test_tools import test_process_plog_local as compact_plog_tool
 from dev_common import *
 
 

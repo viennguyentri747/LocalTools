@@ -72,7 +72,6 @@ def parse_args(argv: List[str]) -> Tuple[argparse.Namespace, List[str]]:
     )
 
     parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
-
     return parser.parse_known_args(argv)
 
 

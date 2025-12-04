@@ -33,11 +33,17 @@ from unit_tests.acu_log_tests.periodic_log_helper import (
 DEFAULT_TIME_WINDOW_HOURS = 0.1  # 6 minutes
 DEFAULT_COLUMNS: List[str] = [TIME_COLUMN, LAST_VELOCITY_COLUMN, LAST_RTK_COMPASS_STATUS_COLUMN]
 DEFAULT_OUTPUT_PATH = TEMP_FOLDER_PATH / "compact_plog.tsv"
+DEFAULT_CMD_INVOCATION = F"{get_win_python_executable_path()} -m available_tools.test_tools.test_gen_compact_log_from_plog"
 
 ARG_PLOG_PATH = f"{ARGUMENT_LONG_PREFIX}plog_path"
 ARG_COLUMNS = f"{ARGUMENT_LONG_PREFIX}columns"
 ARG_TIME_WINDOW = f"{ARGUMENT_LONG_PREFIX}hours"
 ARG_OUTPUT_PATH = f"{ARGUMENT_LONG_PREFIX}output"
+
+
+def _get_my_win_home_path() -> str:
+    linux_home = Path.home().as_posix().lstrip("/")
+    return f"X:/{linux_home}"
 
 
 @dataclass
@@ -68,7 +74,8 @@ def get_tool_templates() -> List[ToolTemplate]:
             },
             search_root=ACU_LOG_PATH,
             usage_note="Update --plog_path to reference the fetched P-log you want to shrink.",
-            is_use_win_python=True
+            override_cmd_invocation=DEFAULT_CMD_INVOCATION,
+            get_local_home_path=_get_my_win_home_path,
         ),
     ]
 
@@ -78,7 +85,6 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         description="Filter Intellian P-log files down to a compact TSV with selected columns.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
 
     parser.add_argument(
         ARG_PLOG_PATH,

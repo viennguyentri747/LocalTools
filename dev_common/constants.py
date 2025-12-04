@@ -1,6 +1,47 @@
+from __future__ import annotations
+
+import os
+import sys
 from pathlib import Path
 from typing import List
 
+ARGUMENT_LONG_PREFIX = "--"
+ARGUMENT_SHORT_PREFIX = "-"
+ARG_LOCAL_HOME_PATH = f"{ARGUMENT_LONG_PREFIX}local-home-path"
+
+
+def _consume_local_home_path_override() -> str | None:
+    """Pop --local-home-path (and its value) from sys.argv if present."""
+    args = sys.argv
+    idx = 0
+    while idx < len(args):
+        current = args[idx]
+        if current.startswith(f"{ARG_LOCAL_HOME_PATH}="):
+            override = current.split("=", 1)[1]
+            args.pop(idx)
+            return override
+        if current == ARG_LOCAL_HOME_PATH:
+            if idx + 1 < len(args):
+                override = args[idx + 1]
+                del args[idx: idx + 2]
+                return override
+            args.pop(idx)
+            return None
+        idx += 1
+    return None
+
+
+def _resolve_home_path() -> Path:
+    override_value = _consume_local_home_path_override()
+    if override_value:
+        resolved_path = Path(override_value)
+    else:
+        resolved_path = Path.home()
+    print(f"Using local home path: {resolved_path}")
+    return resolved_path
+
+
+HOME_PATH = _resolve_home_path()
 
 # FORMATS
 LINE_SEPARATOR = f"\n{'=' * 70}\n"
@@ -24,7 +65,7 @@ MD_CODE_BLOCK_WRAPPER = "```"
 
 # Obsidian
 OBSIDIAN_VAULT_NAME = "ObsidianWorkVault"  # The exact name of your Obsidian vault.
-OBSIDIAN_VAULT_PATH = f"{Path.home()}/obsidian_work_vault"  # The full local path to your vault.
+OBSIDIAN_VAULT_PATH = f"{HOME_PATH}/obsidian_work_vault"  # The full local path to your vault.
 
 # GL
 GL_BASE_URL = "https://gitlab.com"
@@ -63,17 +104,17 @@ LIST_MP_IPS = [F"{SSM_IP_PREFIX}.100.54", F"{SSM_IP_PREFIX}.100.56", F"{SSM_IP_P
 LIST_FD_IPS = [F"{SSM_IP_PREFIX}.101.79", F"{SSM_IP_PREFIX}.101.126"]
 LIST_HD_IPS = [F"{SSM_IP_PREFIX}.101.65", F"{SSM_IP_PREFIX}.100.70",F"{SSM_IP_PREFIX}.100.85", F"{SSM_IP_PREFIX}.101.97", F"{SSM_IP_PREFIX}.100.107"]
 # PATHS
-DOWNLOAD_FOLDER_PATH = Path.home() / "downloads"
-REPO_PATH = Path.home() / "local_tools/"
+DOWNLOAD_FOLDER_PATH = HOME_PATH / "downloads"
+REPO_PATH = HOME_PATH / "workspace/other_projects/custom_tools/LocalTools/"
 AVAILABLE_TOOLS_PATH = REPO_PATH / "available_tools"
 CREDENTIALS_FILE_PATH = REPO_PATH / ".my_credentials.env"
-OW_SW_PATH = Path.home() / "ow_sw_tools"
-CORE_REPOS_PATH = Path.home() / "workspace" / "intellian_core_repos/"
+OW_SW_PATH = HOME_PATH / "ow_sw_tools"
+CORE_REPOS_PATH = HOME_PATH / "workspace" / "intellian_core_repos/"
 TEMP_FOLDER_PATH = REPO_PATH / "temp"
 ACU_LOG_PATH = TEMP_FOLDER_PATH / "acu_logs/"
 
 INSENSE_SDK_REPO_PATH = CORE_REPOS_PATH / IESA_INSENSE_SDK_REPO_NAME
-DOWNLOADS_PATH = Path.home() / "downloads"
+DOWNLOADS_PATH = HOME_PATH / "downloads"
 
 OW_OUTPUT_IESA_PATH = OW_SW_PATH / "install_iesa_tarball.iesa"
 OW_BUILD_FOLDER_PATH = OW_SW_PATH / "tmp_build/"
@@ -112,8 +153,6 @@ GIT_SUFFIX = ".git"
 TXT_EXTENSION = ".txt"
 
 # Argument name constants
-ARGUMENT_LONG_PREFIX = "--"
-ARGUMENT_SHORT_PREFIX = "-"
 ARG_VERSION_OR_FW_PATH = f"{ARGUMENT_LONG_PREFIX}version_or_fw_path"
 ARG_DEFAULT_OW_MANIFEST_BRANCH = f"{ARGUMENT_LONG_PREFIX}ow_default_manifest_branch"
 ARG_TOOL_PREFIX = f"{ARGUMENT_LONG_PREFIX}prefix"

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import shlex
 import sys
 from pathlib import Path
 from typing import Iterable, List, Optional
@@ -43,8 +44,28 @@ def discover_and_nest_tools(project_root: Path, folder_pattern: str, tool_prefix
 
 def build_template_run_command(tool_path: Path, template: ToolTemplate) -> str:
     """Build command line for a template"""
-    python_executable = _resolve_python_executable(template)
-    cmd_parts = [python_executable, str(tool_path)]  # Start with tool path (Run .py file)
+    home_override_args: List[str] = []
+    if template.get_local_home_path:
+        try:
+            override_path = template.get_local_home_path()
+        except Exception as exc:
+            LOG(f"Failed to get local home path override: {exc}")
+            override_path = None
+
+        if override_path:
+            LOG(f"Using local home path override: {override_path}")
+            home_override_args = [ARG_LOCAL_HOME_PATH, str(override_path)]
+
+    base_cmd = template.override_cmd_invocation.strip() if template.override_cmd_invocation else ""
+    if base_cmd:
+        cmd_parts = shlex.split(base_cmd)
+        LOG(f"Using override command '{base_cmd}' for template '{template.name}'.")
+    else:
+        cmd_parts = [sys.executable, str(tool_path)]
+        LOG(f"Using default python at {sys.executable} for template '{template.name}'.")
+
+    if home_override_args:
+        cmd_parts.extend(home_override_args)
 
     for arg_key, arg_value in template.args.items():
         if isinstance(arg_value, list):
@@ -54,39 +75,10 @@ def build_template_run_command(tool_path: Path, template: ToolTemplate) -> str:
         else:
             cmd_parts.extend([arg_key, quote_arg_value_if_need(arg_value)])
 
-    quoted_parts = []
-    # LOG(f"Template command parts: {cmd_parts}")
-    for part in cmd_parts:
-        quoted_parts.append(quote_arg_value_if_need(str(part)))
-
+    quoted_parts = [quote_arg_value_if_need(str(part)) for part in cmd_parts]
     final_cmd = ' '.join(quoted_parts)
     LOG(f"Built template command: {final_cmd}")
     return final_cmd
-
-
-def _resolve_python_executable(template: ToolTemplate) -> str:
-    """Return python executable path respecting template flags."""
-    current_python_executable = sys.executable
-    if not template.is_use_win_python:
-        LOG(f"Using current python at {current_python_executable} for template '{template.name}'.")
-        return current_python_executable
-
-    stdout, stderr, returncode = run_win_cmd("where python")
-    if returncode != 0 or not stdout:
-        LOG(f"Failed to detect Windows python (stdout='{stdout}', stderr='{stderr}').")
-        return current_python_executable
-
-    for candidate in stdout.splitlines():
-        candidate = candidate.strip()
-        if not candidate:
-            continue
-        wsl_path = convert_win_to_wsl_path(candidate)
-        if wsl_path:
-            LOG(f"Using Windows python at {wsl_path} for template '{template.name}'.")
-            return wsl_path
-
-    LOG(f"Could not parse Windows python path from output: {stdout}.")
-    return current_python_executable
 
 
 def diplay_templates(tool_path: Path, templates: List[ToolTemplate]) -> int:

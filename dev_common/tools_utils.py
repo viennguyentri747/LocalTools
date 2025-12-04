@@ -331,10 +331,9 @@ def run_win_cmd(command: str) -> Tuple[str, str, int]:
     """
     try:
         # Capture stdout + stderr, Decode to str instead of bytes
-        result = subprocess.run( ["cmd.exe", "/C", command], capture_output=True, text=True, check=False )
+        result = subprocess.run(["cmd.exe", "/C", command], capture_output=True, text=True, check=False)
         stdout = result.stdout.strip()
         stderr = result.stderr.strip()
-
         LOG(f"Executed Windows command: {command}")
         if stdout:
             LOG(f"[STDOUT] {stdout}")
@@ -348,21 +347,24 @@ def run_win_cmd(command: str) -> Tuple[str, str, int]:
         return "", str(e), -1
 
 
-def get_window_python_executable_path() -> Optional[Path]:
-    """
-    Returns the Windows Python executable path if running under WSL.
-    Otherwise, returns None.
-    """
-    try:
-        windows_python_path = ""
+def get_win_python_executable_path() -> str:
+    """Return python executable path respecting template flags."""
+    current_python_executable = sys.executable
+    stdout, stderr, returncode = run_win_cmd("where python")
+    if returncode != 0 or not stdout:
+        LOG(f"Failed to detect Windows python (stdout='{stdout}', stderr='{stderr}').")
+        return current_python_executable
 
-        result = subprocess.run(
-            ["wslpath", "-w", "/usr/bin/python3"],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        windows_python_path = result.stdout.strip()
-        return Path(windows_python_path)
-    except subprocess.CalledProcessError:
-        return None
+    for candidate in stdout.splitlines():
+        candidate = candidate.strip()
+        if not candidate:
+            continue
+        wsl_path = convert_win_to_wsl_path(candidate)
+        if wsl_path:
+            LOG(f"Using Windows python at {wsl_path}.")
+            #Print stack trace
+            traceback.print_stack()
+            return wsl_path
+
+    LOG(f"Could not parse Windows python path from output: {stdout}.")
+    return current_python_executable

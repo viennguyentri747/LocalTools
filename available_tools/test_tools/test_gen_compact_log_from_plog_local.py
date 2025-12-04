@@ -1,12 +1,4 @@
 #!/home/vien/local_tools/MyVenvFolder/bin/python
-"""
-Generate a compact Intellian periodic log by selecting a subset of columns.
-
-The script:
-1) Parses a periodic log (P-log) and stores the filtered rows in a structured form.
-2) Recreates the log file but only keeps the requested columns, keeping the metadata lines intact.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -33,8 +25,7 @@ from unit_tests.acu_log_tests.periodic_log_helper import (
 DEFAULT_TIME_WINDOW_HOURS = 0.1  # 6 minutes
 DEFAULT_COLUMNS: List[str] = [TIME_COLUMN, LAST_VELOCITY_COLUMN, LAST_RTK_COMPASS_STATUS_COLUMN]
 DEFAULT_OUTPUT_PATH = TEMP_FOLDER_PATH / "compact_plog.tsv"
-DEFAULT_CMD_INVOCATION = F"{get_win_python_executable_path()} -m available_tools.test_tools.test_gen_compact_log_from_plog"
-
+DEFAULT_CMD_INVOCATION = F"{get_win_python_executable_path()} -m available_tools.test_tools.t_test_ut_from_local"
 ARG_PLOG_PATH = f"{ARGUMENT_LONG_PREFIX}plog_path"
 ARG_COLUMNS = f"{ARGUMENT_LONG_PREFIX}columns"
 ARG_TIME_WINDOW = f"{ARGUMENT_LONG_PREFIX}hours"
@@ -61,7 +52,7 @@ def get_tool_templates() -> List[ToolTemplate]:
     """
     Provide a single template pointing to the local ACU log folder so users can edit paths quickly.
     """
-    sample_log_path = ACU_LOG_PATH / "192.168.101.79" / "P_YYYYMMDD_000000.txt"
+    sample_log_path = ACU_LOG_PATH / "192.168.101.79" / "P_20251121_000000.txt"
     return [
         ToolTemplate(
             name="Compact P-log (Time/Velocity/RTK)",
@@ -86,31 +77,10 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         formatter_class=argparse.RawTextHelpFormatter,
     )
 
-    parser.add_argument(
-        ARG_PLOG_PATH,
-        required=True,
-        type=Path,
-        help="Path to the periodic log file (P_*).",
-    )
-    parser.add_argument(
-        ARG_COLUMNS,
-        nargs="+",
-        default=None,
-        metavar="COLUMN",
-        help="Space-separated list of column names to keep (default: Time/Velocity/RTK Compass).",
-    )
-    parser.add_argument(
-        ARG_TIME_WINDOW,
-        type=float,
-        default=DEFAULT_TIME_WINDOW_HOURS,
-        help=f"Time window in hours to keep from the tail of the log (default: {DEFAULT_TIME_WINDOW_HOURS}).",
-    )
-    parser.add_argument(
-        ARG_OUTPUT_PATH,
-        type=Path,
-        default=Path(DEFAULT_OUTPUT_PATH),
-        help=f"Destination file for the compact log (default: {DEFAULT_OUTPUT_PATH}).",
-    )
+    parser.add_argument( ARG_PLOG_PATH, required=True, type=Path, help="Path to the periodic log file (P_*).", )
+    parser.add_argument( ARG_COLUMNS, nargs="+", default=None, metavar="COLUMN", help="Space-separated list of column names to keep (default: Time/Velocity/RTK Compass).", )
+    parser.add_argument( ARG_TIME_WINDOW, type=float, default=DEFAULT_TIME_WINDOW_HOURS, help=f"Time window in hours to keep from the tail of the log (default: {DEFAULT_TIME_WINDOW_HOURS}).", )
+    parser.add_argument( ARG_OUTPUT_PATH, type=Path, default=Path(DEFAULT_OUTPUT_PATH), help=f"Destination file for the compact log (default: {DEFAULT_OUTPUT_PATH}).", )
 
     return parser.parse_args(argv)
 
@@ -204,7 +174,7 @@ def _build_compact_rows(plog_data: PLogData) -> List[CompactPlogRow]:
                 row_values[column] = ""
             else:
                 row_values[column] = raw_row[idx]
-        compact_rows.append(CompactPlogRow(row_values=row_values))
+        compact_rows.append(CompactPlogRow(values=row_values))
 
     return compact_rows
 

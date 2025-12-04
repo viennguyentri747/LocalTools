@@ -362,8 +362,6 @@ def get_win_python_executable_path() -> str:
         wsl_path = convert_win_to_wsl_path(candidate)
         if wsl_path:
             LOG(f"Using Windows python at {wsl_path}.")
-            #Print stack trace
-            traceback.print_stack()
             return wsl_path
 
     LOG(f"Could not parse Windows python path from output: {stdout}.")

@@ -17,7 +17,6 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
               text=None, capture_output: bool = False, encoding: str = 'utf-8',
               shell: bool = True, executable: Optional[str] = None, timeout: Optional[int] = None) -> subprocess.CompletedProcess:
     """Echo + run a shell command"""
-    # --- Windows Compatibility Fixes ---
     if is_platform_windows():
         # 1. Fix Path: Convert WSL paths and check visibility
         if cwd:

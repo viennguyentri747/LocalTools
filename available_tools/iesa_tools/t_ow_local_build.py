@@ -491,8 +491,7 @@ def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, u
                 is_same: bool = is_same_xml(manifest_full_path, manifest_local_path)
                 if not is_same:
                     # Check for uncommitted changes in the local manifest
-                    git_diff_output = run_shell(f"git diff HEAD -- {IESA_MANIFEST_RELATIVE_PATH}",
-                                                cwd=OW_SW_PATH, capture_output=True, text=True).stdout
+                    git_diff_output = git_diff_on_file(OW_SW_PATH, "HEAD", IESA_MANIFEST_RELATIVE_PATH)
                     any_unstaged_manifest_change = bool(git_diff_output.strip())
                     LOG_EXCEPTION_STR(f"Actual manifest at {manifest_full_path} does not match with local manifest at {manifest_local_path}" + (
                         f', and there are uncommitted changes in local manifest below:\n{git_diff_output}\nCommit these changes with below command:\n cd {OW_SW_PATH} && git add {IESA_MANIFEST_RELATIVE_PATH} && git commit -m "Update manifest" ' if any_unstaged_manifest_change else f', check push lastet local branch {manifest_repo_branch} to remote if needed.'), exit=True)

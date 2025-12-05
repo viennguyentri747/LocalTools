@@ -13,6 +13,17 @@ from dev_common.input_utils import prompt_confirmation
 CMD_GIT = 'git'
 
 
+def run_shell_wsl(*args, **kwargs):
+    """
+    Wrapper around run_shell that enforces WSL execution when running on Windows.
+    Normalizes legacy 'check' argument to the proper run_shell flag.
+    """
+    if 'check' in kwargs:
+        kwargs['check_throw_exception_on_exit_code'] = kwargs.pop('check')
+    kwargs['is_run_this_in_wsl'] = is_platform_windows()
+    return run_shell(*args, **kwargs)
+
+
 def sanitize_ref_for_filename(ref: str) -> str:
     """Sanitizes a git ref name to be used in a filename."""
     return re.sub(r'[^a-zA-Z0-9_-]', '_', ref)
@@ -20,15 +31,15 @@ def sanitize_ref_for_filename(ref: str) -> str:
 
 def git_get_current_branch(repo_path: Path | str) -> Optional[str]:
     """Returns the current branch name of the given repo, or None if the repo is not a git repo."""
-    current_branch = run_shell("git branch --show-current", cwd=repo_path,
-                               capture_output=True, text=True, is_run_this_in_wsl=is_platform_windows()).stdout.strip()
+    current_branch = run_shell_wsl("git branch --show-current", cwd=repo_path,
+                                   capture_output=True, text=True).stdout.strip()
     return current_branch
 
 
 def git_get_sha1_of_head_commit(repo_path: Path) -> Optional[str]:
     """Returns the SHA1 of the HEAD commit in the given repo, or None if the repo is not a git repo."""
-    commit_sha1 = run_shell("git rev-parse HEAD", cwd=repo_path, capture_output=True,
-                            text=True, is_run_this_in_wsl=is_platform_windows()).stdout.strip()
+    commit_sha1 = run_shell_wsl("git rev-parse HEAD", cwd=repo_path, capture_output=True,
+                                text=True).stdout.strip()
     return commit_sha1
 
 
@@ -45,19 +56,18 @@ def git_is_ancestor(ancestor_ref: str, descentdant_ref: str, cwd: Union[str, Pat
         True if the ancestry condition is met, False otherwise.
     """
     cmd = f"git merge-base --is-ancestor {ancestor_ref} {descentdant_ref}"
-    result = run_shell(cmd, cwd=cwd, check_throw_exception_on_exit_code=False)
+    result = run_shell_wsl(cmd, cwd=cwd, check_throw_exception_on_exit_code=False)
     return result.returncode == 0
 
 
 def git_is_ref_or_branch_existing(repo_path: Path, branch_name: str) -> bool:
     """Checks if a branch exists in the given repo."""
-    result = run_shell(
+    result = run_shell_wsl(
         f"git rev-parse --verify {branch_name}",
         cwd=repo_path,
         capture_output=True,
         text=True,
-        check_throw_exception_on_exit_code=False,
-        is_run_this_in_wsl=is_platform_windows()
+        check_throw_exception_on_exit_code=False
     )
     return result.returncode == 0
 
@@ -85,7 +95,7 @@ def checkout_branch(repo_path: Path, branch_name: str, *, create_when_missing: b
         checkout_cmd = [CMD_GIT, 'checkout', branch_name]
     else:
         checkout_cmd = [CMD_GIT, 'checkout', '-b', branch_name]
-    run_shell(checkout_cmd, cwd=repo_path, check=True, is_run_this_in_wsl=is_platform_windows())
+    run_shell_wsl(checkout_cmd, cwd=repo_path, check=True)
     LOG(f"✅ Now on branch '{branch_name}'.")
 
 
@@ -102,7 +112,7 @@ def git_fetch(repo_path: Path) -> bool:
     command = [CMD_GIT, 'fetch', '--all', '--prune']
     try:
         LOG(f"Fetching latest changes from all remotes in '{repo_path.name}'...")
-        run_shell(command, cwd=repo_path, check=True, capture_output=True, text=True, encoding='utf-8')
+        run_shell_wsl(command, cwd=repo_path, check=True, capture_output=True, text=True, encoding='utf-8')
         LOG("Fetch completed successfully.")
         return True
     except Exception as e:
@@ -125,7 +135,7 @@ def git_pull(repo_path: Path, remote_name: str, branch_name: str) -> bool:
     command = [CMD_GIT, 'pull', remote_name, branch_name]
     try:
         LOG(f"Pulling latest changes from '{remote_name}' in '{repo_path.name}'...")
-        run_shell(command, cwd=repo_path, check=True, capture_output=True, text=True, encoding='utf-8')
+        run_shell_wsl(command, cwd=repo_path, check=True, capture_output=True, text=True, encoding='utf-8')
         LOG("Pull completed successfully.")
         return True
     except Exception as e:
@@ -149,7 +159,7 @@ def git_get_git_remotes(repo_path: Path) -> List[str]:
 
     command = [CMD_GIT, 'remote']
     try:
-        process = run_shell(
+        process = run_shell_wsl(
             command,
             cwd=repo_path,
             check_throw_exception_on_exit_code=True,
@@ -192,11 +202,20 @@ def extract_git_diff(repo_local_path: Path, base_ref: str, target_ref: str) -> O
 
     try:
         LOG(f"Running git diff in '{repo_local_path}'... Command:\n{' '.join(command)}")
-        process = run_shell(command, cwd=repo_local_path, check_throw_exception_on_exit_code=True,
-                            capture_output=True, text=True, encoding='utf-8')
+        process = run_shell_wsl(command, cwd=repo_local_path, check_throw_exception_on_exit_code=True,
+                                capture_output=True, text=True, encoding='utf-8')
         return process.stdout
     except Exception as e:
         LOG_EXCEPTION(e)
+
+
+def git_diff_on_file(repo_path: Path | str, base_ref: str, rel_path: str) -> str:
+    """
+    Returns the diff output of the specified path against a given ref.
+    """
+    result = run_shell_wsl(f"{CMD_GIT} diff {base_ref} -- {rel_path}", cwd=repo_path,
+                           capture_output=True, text=True)
+    return result.stdout
 
 
 def git_stage_and_commit(
@@ -236,14 +255,14 @@ def git_stage_and_commit(
         if stage_paths and len(stage_paths) > 0:
             # Convert paths to strings (git accepts absolute or relative)
             paths = [str(p) for p in stage_paths]
-            subprocess.run([CMD_GIT, 'add', *paths], check=True, cwd=repo_path)
+            run_shell_wsl([CMD_GIT, 'add', *paths], check=True, cwd=repo_path)
         else:
-            subprocess.run([CMD_GIT, 'add', '-A'], check=True, cwd=repo_path)
+            run_shell_wsl([CMD_GIT, 'add', '-A'], check=True, cwd=repo_path)
 
         if show_diff:
-            subprocess.run([CMD_GIT, '--no-pager', 'diff', '--cached'], check=True, cwd=repo_path)
+            run_shell_wsl([CMD_GIT, '--no-pager', 'diff', '--cached'], check=True, cwd=repo_path)
 
-        subprocess.run([CMD_GIT, 'commit', '-m', message], check=True, cwd=repo_path)
+        run_shell_wsl([CMD_GIT, 'commit', '-m', message], check=True, cwd=repo_path)
         LOG("✅ Changes committed successfully.")
         return True
     except subprocess.CalledProcessError as exc:

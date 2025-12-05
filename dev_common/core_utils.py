@@ -11,19 +11,20 @@ from datetime import datetime
 import traceback
 import platform
 
+
 def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[Path] = None,
               check_throw_exception_on_exit_code: bool = True, stdout=None, stderr=None,
               text=None, capture_output: bool = False, encoding: str = 'utf-8',
               shell: bool = True, executable: Optional[str] = None, timeout: Optional[int] = None) -> subprocess.CompletedProcess:
     """Echo + run a shell command"""
     # --- Windows Compatibility Fixes ---
-    if platform.system() == 'Windows':
+    if is_platform_windows():
         # 1. Fix Path: Convert WSL paths and check visibility
         if cwd:
             cwd_str = str(cwd)
             if ":" not in cwd_str and "\\\\" not in cwd_str:
-                 cwd = convert_wsl_to_win_path(Path(cwd))
-            
+                cwd = convert_wsl_to_win_path(Path(cwd))
+
             if not os.path.exists(str(cwd)):
                 LOG(f"WARNING: CWD '{cwd}' not found. Mapped drives (X:) may be invisible to Python.")
 
@@ -32,7 +33,7 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
         if shell:
             LOG("Windows: Forcing shell=False for UNC path support.")
             shell = False
-           
+
     if shell and isinstance(cmd, List):
         LOG(f"Shell mode but cmd is a list -> Converting to string...")
         cmd = ' '.join(shlex.quote(str(arg)) for arg in cmd)
@@ -45,25 +46,25 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
 
     return subprocess.run(cmd, shell=shell, cwd=cwd, check=check_throw_exception_on_exit_code, stdout=stdout, stderr=stderr, text=text, capture_output=capture_output, encoding=encoding, executable=executable, timeout=timeout)
 
+
 def convert_wsl_to_win_path(file_path: Path) -> str:
     """
     Convert a WSL/Linux path to a Windows path using wslpath.
     Detects platform to invoke the command correctly.
     """
     path_str = str(file_path)
-    
+
     # 1. Optimization: If it's already a Windows path (has drive letter or backslash), return it.
     if ":" in path_str or "\\" in path_str:
         return path_str.replace("/", "\\")
 
     cmd = []
-    
+
     # 2. Determine how to call wslpath based on OS
-    if platform.system() == "Windows":
+    if is_platform_windows():
         # On Windows, 'wslpath' is not in PATH. We must call 'wsl.exe' with the command.
-        # Check if wsl is actually installed first
-        if not shutil.which("wsl"):
-            return str(file_path) # Return original if WSL isn't installed
+        # if not shutil.which("wsl"):
+        #     return str(file_path)  # Return original if WSL isn't installed
         cmd = ["wsl", "wslpath", "-w", path_str]
     else:
         # On Linux/WSL, wslpath is a native binary
@@ -96,7 +97,7 @@ def convert_win_to_wsl_path(win_path: str) -> str:
     # Strategy 1: Try using the native wslpath tool (most robust)
     # This works if we are currently INSIDE WSL, or if we have `wsl.exe` on Windows.
     cmd = []
-    if platform.system() == "Windows":
+    if is_platform_windows():
         if shutil.which("wsl"):
             cmd = ["wsl", "wslpath", "-u", clean_path]
     else:
@@ -107,7 +108,7 @@ def convert_win_to_wsl_path(win_path: str) -> str:
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
             return result.stdout.strip()
         except (subprocess.CalledProcessError, FileNotFoundError):
-            pass # Fall through to manual parsing logic below
+            pass  # Fall through to manual parsing logic below
 
     # Strategy 2: Manual Parsing (Fallback)
     # Normalize slashes
@@ -124,78 +125,9 @@ def convert_win_to_wsl_path(win_path: str) -> str:
 
     return wsl_path
 
-# def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[Path] = None,
-#               check_throw_exception_on_exit_code: bool = True, stdout=None, stderr=None,
-#               text=None, capture_output: bool = False, encoding: str = 'utf-8',
-#               shell: bool = True, executable: Optional[str] = None, timeout: Optional[int] = None) -> subprocess.CompletedProcess:
-#     """Echo + run a shell command"""
 
-#     # Auto-detect appropriate shell if not specified
-#     if shell and executable is None:
-#         if platform.system() == 'Windows':
-#             executable = 'cmd.exe'  # or 'powershell.exe'
-#         else:
-#             executable = '/bin/bash'
-#     if platform.system() == 'Windows':
-#         cwd = convert_wsl_to_win_path(cwd) if cwd else None
-
-#     LOG(f"Using shell executable: {executable}")
-#     if shell and isinstance(cmd, List):
-#         LOG(f"Shell mode but cmd is a list -> Converting to string...")
-#         cmd = ' '.join(shlex.quote(str(arg)) for arg in cmd)
-#     elif not shell and isinstance(cmd, str):
-#         LOG(f"Non-shell mode but cmd is a string -> Converting to list...")
-#         cmd = shlex.split(cmd)
-
-#     if show_cmd:
-#         LOG(f">>> {cmd} (cwd={cwd or Path.cwd()})")
-
-#     return subprocess.run(cmd, shell=shell, cwd=cwd, check=check_throw_exception_on_exit_code,
-#                           stdout=stdout, stderr=stderr, text=text, capture_output=capture_output,
-#                           encoding=encoding, executable=executable, timeout=timeout)
-
-
-# def convert_wsl_to_win_path(file_path: Path) -> str:
-#     """
-#     Convert a WSL/Linux path to a Windows path using wslpath.
-#     Raises an exception if conversion fails.
-#     """
-#     try:
-#         CMD_WSLPATH = "wslpath"
-#         result = subprocess.run(
-#             [CMD_WSLPATH, "-w", str(file_path)],
-#             capture_output=True,
-#             text=True,
-#             check=True
-#         )
-#         return result.stdout.strip()
-#     except subprocess.CalledProcessError as e:
-#         raise RuntimeError(f"wslpath failed: {e.stderr or e}") from e
-
-
-# def convert_win_to_wsl_path(win_path: str) -> str:
-#     """
-#     Converts a Windows file path to a WSL (Windows Subsystem for Linux) path.
-#     """
-
-#     # Remove surrounding quotes if the user pasted them from "Copy as path"
-#     clean_path = win_path.strip('"').strip("'")
-
-#     # Normalize slashes:Convert Windows backslashes to Linux forward slashes
-#     universal_path = clean_path.replace("\\", "/")
-
-#     wsl_path = universal_path
-
-#     # Handle Drive Letters: Look for pattern like "C:/" or "d:/" at the start
-#     drive_match = re.match(r'^([a-zA-Z]):/(.*)', universal_path)
-
-#     if drive_match:
-#         drive_letter = drive_match.group(1).lower()  # Convert 'C' to 'c'
-#         rest_of_path = drive_match.group(2)
-#         # Construct standard WSL mount path: /mnt/<drive>/<path>
-#         wsl_path = f"/mnt/{drive_letter}/{rest_of_path}"
-
-#     return wsl_path
+def is_platform_windows() -> bool:
+    return platform.system() == "Windows"
 
 
 def change_dir(path: str):

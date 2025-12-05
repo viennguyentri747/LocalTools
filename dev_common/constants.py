@@ -4,6 +4,7 @@ import os
 import sys
 from pathlib import Path
 from typing import List
+from dev_common.core_independent_utils import get_home_path
 
 ARGUMENT_LONG_PREFIX = "--"
 ARGUMENT_SHORT_PREFIX = "-"
@@ -30,18 +31,7 @@ def _consume_local_home_path_override() -> str | None:
         idx += 1
     return None
 
-
-def _resolve_home_path() -> Path:
-    override_value = _consume_local_home_path_override()
-    if override_value:
-        resolved_path = Path(override_value)
-    else:
-        resolved_path = Path.home()
-    print(f"Using local home path: {resolved_path}")
-    return resolved_path
-
-
-HOME_PATH = _resolve_home_path()
+HOME_PATH = get_home_path()
 
 # FORMATS
 LINE_SEPARATOR = f"\n{'=' * 70}\n"

@@ -18,38 +18,62 @@ def sanitize_ref_for_filename(ref: str) -> str:
     return re.sub(r'[^a-zA-Z0-9_-]', '_', ref)
 
 
+def git_get_current_branch(repo_path: Path | str) -> Optional[str]:
+    """Returns the current branch name of the given repo, or None if the repo is not a git repo."""
+    current_branch = run_shell("git branch --show-current", cwd=repo_path,
+                               capture_output=True, text=True, is_run_this_in_wsl=is_platform_windows()).stdout.strip()
+    return current_branch
+
+
+def git_get_sha1_of_head_commit(repo_path: Path) -> Optional[str]:
+    """Returns the SHA1 of the HEAD commit in the given repo, or None if the repo is not a git repo."""
+    commit_sha1 = run_shell("git rev-parse HEAD", cwd=repo_path, capture_output=True,
+                            text=True, is_run_this_in_wsl=is_platform_windows()).stdout.strip()
+    return commit_sha1
+
+
+def git_is_ancestor(ancestor_ref: str, descentdant_ref: str, cwd: Union[str, Path]) -> bool:
+    """
+    Checks the ancestry relationship between two Git references.
+
+    Args:
+        ref1: The first Git reference (commit hash, branch, tag).
+        ref2: The second Git reference.
+        cwd: The working directory for the Git command.
+
+    Returns:
+        True if the ancestry condition is met, False otherwise.
+    """
+    cmd = f"git merge-base --is-ancestor {ancestor_ref} {descentdant_ref}"
+    result = run_shell(cmd, cwd=cwd, check_throw_exception_on_exit_code=False)
+    return result.returncode == 0
+
+
+def git_is_ref_or_branch_existing(repo_path: Path, branch_name: str) -> bool:
+    """Checks if a branch exists in the given repo."""
+    result = run_shell(
+        f"git rev-parse --verify {branch_name}",
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check_throw_exception_on_exit_code=False,
+        is_run_this_in_wsl=is_platform_windows()
+    )
+    return result.returncode == 0
+
+
 def checkout_branch(repo_path: Path, branch_name: str, *, create_when_missing: bool = True) -> bool:
     """Checkout (optionally create) a branch inside ``repo_path``.
 
     Returns ``True`` when the checkout succeeds and ``False`` otherwise.
     """
-    try:
-        current_branch = subprocess.run(
-            [CMD_GIT, 'rev-parse', '--abbrev-ref', 'HEAD'],
-            cwd=repo_path,
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-    except subprocess.CalledProcessError as exc:
-        LOG(f"❌ ERROR: Unable to determine current branch in '{repo_path}': {exc}")
-        return False
-    except FileNotFoundError as exc:
-        LOG(f"❌ ERROR: Git executable not found while inspecting '{repo_path}': {exc}")
-        return False
-
+    current_branch = git_get_current_branch(repo_path)
     if current_branch == branch_name:
         LOG(f"✅ Already on branch '{branch_name}'.")
         return True
 
     LOG(f"🔀 Switching to branch '{branch_name}' in '{repo_path}'...")
-    branch_exists = subprocess.run(
-        [CMD_GIT, 'rev-parse', '--verify', branch_name],
-        cwd=repo_path,
-        capture_output=True,
-        text=True,
-    ).returncode == 0
-
+    branch_exists = git_is_ref_or_branch_existing(repo_path, branch_name)
     if not branch_exists and not create_when_missing:
         LOG(
             f"❌ ERROR: Branch '{branch_name}' does not exist in '{repo_path}' and auto-create is disabled."
@@ -61,17 +85,8 @@ def checkout_branch(repo_path: Path, branch_name: str, *, create_when_missing: b
         checkout_cmd = [CMD_GIT, 'checkout', branch_name]
     else:
         checkout_cmd = [CMD_GIT, 'checkout', '-b', branch_name]
-
-    try:
-        subprocess.run(checkout_cmd, cwd=repo_path, check=True)
-        LOG(f"✅ Now on branch '{branch_name}'.")
-        return True
-    except subprocess.CalledProcessError as exc:
-        LOG(f"❌ ERROR: Failed to switch to branch '{branch_name}': {exc}")
-        return False
-    except FileNotFoundError as exc:
-        LOG(f"❌ ERROR: Git executable not found while switching branches: {exc}")
-        return False
+    run_shell(checkout_cmd, cwd=repo_path, check=True, is_run_this_in_wsl=is_platform_windows())
+    LOG(f"✅ Now on branch '{branch_name}'.")
 
 
 def git_fetch(repo_path: Path) -> bool:
@@ -87,14 +102,7 @@ def git_fetch(repo_path: Path) -> bool:
     command = [CMD_GIT, 'fetch', '--all', '--prune']
     try:
         LOG(f"Fetching latest changes from all remotes in '{repo_path.name}'...")
-        subprocess.run(
-            command,
-            cwd=repo_path,
-            check=True,
-            capture_output=True,
-            text=True,
-            encoding='utf-8'
-        )
+        run_shell(command, cwd=repo_path, check=True, capture_output=True, text=True, encoding='utf-8')
         LOG("Fetch completed successfully.")
         return True
     except Exception as e:
@@ -125,7 +133,7 @@ def git_pull(repo_path: Path, remote_name: str, branch_name: str) -> bool:
         return False
 
 
-def get_git_remotes(repo_path: Path) -> List[str]:
+def git_get_git_remotes(repo_path: Path) -> List[str]:
     """
     Get a list of remote names for a git repository.
 

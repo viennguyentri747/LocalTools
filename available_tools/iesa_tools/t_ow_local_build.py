@@ -72,7 +72,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME, IESA_ADC_LIB_REPO_NAME],
             },
             override_cmd_invocation=DEFAULT_CMD_INVOCATION,
-            get_local_home_path=_get_my_win_home_path_from_wsl,
+            # get_local_home_path=_get_my_win_home_path_from_wsl,
         ),
         ToolTemplate(
             name="Build IESA using specified branch in remote manifest",
@@ -89,7 +89,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME, IESA_ADC_LIB_REPO_NAME],
             },
             override_cmd_invocation=DEFAULT_CMD_INVOCATION,
-            get_local_home_path=_get_my_win_home_path_from_wsl,
+            # get_local_home_path=_get_my_win_home_path_from_wsl,
         ),
     ]
 
@@ -144,8 +144,7 @@ def main() -> None:
     overwrite_repos = [get_path_no_suffix(r, GIT_SUFFIX) for r in overwrite_repos]
     LOG(f"Parsed args: {args}")
 
-    ow_sw_path_str = str(OW_SW_PATH)
-    current_branch = run_shell("git branch --show-current", cwd=ow_sw_path_str, capture_output=True, text=True).stdout.strip()
+    current_branch = git_get_current_branch(OW_SW_PATH)
 
     manifest_branch: Optional[str] = None  # Can be local or remote
     if use_current_local_ow_branch:
@@ -192,7 +191,8 @@ def main() -> None:
         f'}}'
     )
 
-    display_content_to_copy(command_to_display, purpose="Copy BINARY to target IP", is_copy_to_clipboard=(build_type == BUILD_TYPE_BINARY))
+    display_content_to_copy(command_to_display, purpose="Copy BINARY to target IP",
+                            is_copy_to_clipboard=(build_type == BUILD_TYPE_BINARY))
 
     # TODO: improve handling on interactive mode (check it actually success before print copy commands)
     if build_type == BUILD_TYPE_IESA:
@@ -225,6 +225,7 @@ def main() -> None:
 
 # ───────────────────────────  helpers / actions  ─────────────────────── #
 
+
 def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: str, input_tisdk_ref: str, overwrite_repos: List[str], use_current_ow_branch: bool, current_local_branch: str):
     ow_sw_path_str = str(OW_SW_PATH)
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build check...")
@@ -232,8 +233,7 @@ def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: st
     if not use_current_ow_branch:
         base_manifest_branch = ow_manifest_branch
         LOG(f"Checking if manifest branch '{base_manifest_branch}' exists in '{ow_sw_path_str}'...")
-        branch_exists_result = run_shell(
-            f"git rev-parse --verify {base_manifest_branch}", cwd=ow_sw_path_str, capture_output=True, text=True, check_throw_exception_on_exit_code=False)
+        branch_exists_result = git_is_ref_or_branch_existing(OW_SW_PATH, base_manifest_branch)
         if branch_exists_result.returncode != 0:
             LOG(f"ERROR: Manifest branch '{base_manifest_branch}' does not exist in '{ow_sw_path_str}'. Please ensure the branch is available.", file=sys.stderr)
             sys.exit(1)
@@ -242,7 +242,7 @@ def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: st
         if current_local_branch != base_manifest_branch:
             is_branch_ok: bool = False
             if manifest_source == MANIFEST_SOURCE_LOCAL:
-                if is_ancestor(f"{base_manifest_branch}", current_local_branch, cwd=ow_sw_path_str):
+                if git_is_ancestor(f"{base_manifest_branch}", current_local_branch, cwd=ow_sw_path_str):
                     is_branch_ok = True
                 else:
                     LOG(f"ERROR: Local branch '{current_local_branch}' is not a descendant of '{base_manifest_branch}' (or its remote tracking branch if applicable).", file=sys.stderr)
@@ -279,29 +279,13 @@ def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: st
                 sys.exit(1)
 
 
-def is_ancestor(ancestor_ref: str, descentdant_ref: str, cwd: Union[str, Path]) -> bool:
-    """
-    Checks the ancestry relationship between two Git references.
-
-    Args:
-        ref1: The first Git reference (commit hash, branch, tag).
-        ref2: The second Git reference.
-        cwd: The working directory for the Git command.
-
-    Returns:
-        True if the ancestry condition is met, False otherwise.
-    """
-    cmd = f"git merge-base --is-ancestor {ancestor_ref} {descentdant_ref}"
-    result = run_shell(cmd, cwd=cwd, check_throw_exception_on_exit_code=False)
-    return result.returncode == 0
-
-
 def pre_build_setup(build_type: str, manifest_source: str, ow_manifest_branch: str, tisdk_ref: str, overwrite_repos: List[str], force_remove_tmp_build: bool, repo_sync: bool, use_current_ow_branch: bool) -> None:
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build setup...")
     if repo_sync:
         reset_or_create_tmp_build(force_remove_tmp_build)
         # Sync other repos from manifest of REMOTE OW_SW
-        init_and_sync_from_remote(ow_manifest_branch, manifest_source=manifest_source, use_current_ow_branch=use_current_ow_branch)
+        init_and_sync_from_remote(ow_manifest_branch, manifest_source=manifest_source,
+                                  use_current_ow_branch=use_current_ow_branch)
     else:
         LOG("Skipping tmp_build reset and repo sync due to --sync false flag.")
 
@@ -486,10 +470,8 @@ def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, u
     if is_platform_windows():
         repo_root_for_manifest = convert_win_to_wsl_path(repo_root_for_manifest)
     manifest_repo_url = get_manifest_repo_url(manifest_source, repo_root_for_manifest)
-    run_shell(
-        f"repo init {manifest_repo_url} -b {manifest_repo_branch} -m {IESA_MANIFEST_RELATIVE_PATH}",
-        cwd=OW_BUILD_FOLDER_PATH,
-        is_run_this_in_wsl=is_platform_windows())
+    run_shell(f"repo init {manifest_repo_url} -b {manifest_repo_branch} -m {IESA_MANIFEST_RELATIVE_PATH}",
+              cwd=OW_BUILD_FOLDER_PATH, is_run_this_in_wsl=is_platform_windows())
 
     # Construct the full path to the manifest file
     manifest_full_path = os.path.join(OW_BUILD_FOLDER_PATH, ".repo", "manifests", IESA_MANIFEST_RELATIVE_PATH)
@@ -541,14 +523,13 @@ def sync_local_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
         throw_exception(f"Source or destination not found at {src_path} or {dest_root_path}")
 
     LOG(f"Verifying git history for '{repo_name}'...")
-    src_overwrite_commit = run_shell("git rev-parse HEAD", cwd=src_path,
-                                     capture_output=True, text=True).stdout.strip()
-    dest_orig_commit = run_shell("git rev-parse HEAD", cwd=dest_root_path,
-                                 capture_output=True, text=True).stdout.strip()  # Fetch remotely via repo sync
-
+    src_overwrite_commit = git_get_sha1_of_head_commit(src_path)
+    LOG(f"Source commit to overwrite: {src_overwrite_commit}")
+    dest_orig_commit = git_get_sha1_of_head_commit(dest_root_path)  # Fetch remotely via repo sync
+    LOG(f"Destination (to be overwritten) commit: {dest_orig_commit}")
     if src_overwrite_commit == dest_orig_commit:
         LOG("Source and destination are at the same commit. No history check needed.")
-    elif not is_ancestor(dest_orig_commit, src_overwrite_commit, cwd=local_repo_info.repo_local_path):
+    elif not git_is_ancestor(dest_orig_commit, src_overwrite_commit, cwd=local_repo_info.repo_local_path):
         LOG(f"ERROR: Source (override) commit ({str(local_repo_info.repo_local_path)}: {src_overwrite_commit}) is not a descendant of destination ({str(dest_root_path)}: {dest_orig_commit}).\nMake sure check out correct branch + force push local branch to remote (as it fetched dest remotely via repo sync)!", file=sys.stderr)
         throw_exception(
             f"Source commit {src_overwrite_commit} is not a descendant of destination (to be overwritten) commit {dest_orig_commit}.")

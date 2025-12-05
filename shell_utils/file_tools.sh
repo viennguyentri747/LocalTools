@@ -61,7 +61,7 @@ rm() {
 
                 # --- Confirm backup if file/dir size is over 1GB ---
                 if [ "$filesize" -ge $((1024*1024*1024)) ]; then
-                    read -p "File or folder '$file' is over 1GB ($(numfmt --to=iec "$filesize")). Move to trash? [y/N]: " confirm
+                    read -p "File or folder '$file' is over 1GB ($(numfmt --to=iec "$filesize")). Still move to trash regardless? [y/N]: " confirm
                     case "$confirm" in
                         [yY][eE][sS]|[yY]) 
                             should_backup=true

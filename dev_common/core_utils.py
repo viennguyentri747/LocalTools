@@ -78,13 +78,9 @@ def convert_wsl_to_win_path(file_path: Path) -> str:
             check=True
         )
         return result.stdout.strip()
-    except subprocess.CalledProcessError as e:
-        # If wslpath fails (e.g., path doesn't exist inside WSL), warn and return original
-        LOG(f"Warning: wslpath conversion failed for {path_str}. {e.stderr}")
+    except Exception as e:
+        LOG(f"Error converting path {path_str}: {e}")
         return path_str
-    except FileNotFoundError:
-        # Provide a specific error if the executable is missing entirely
-        raise RuntimeError(f"Could not find executable for command: {cmd}. Is WSL installed?")
 
 
 def convert_win_to_wsl_path(win_path: str) -> str:

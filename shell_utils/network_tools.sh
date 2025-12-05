@@ -3,6 +3,9 @@
 ut_pass='use4Tst!'
 NOTE_PERMANENT_COMMAND='May need to copy key to UT (for permanent login) before running this command first time. Try to run login_permanent OR login_permanent_lab'
 
+# Default area if not provided explicitly
+DEFAULT_AREA="nor"
+
 # Function to get IP based on area
 get_ip() {
     case "$1" in
@@ -22,49 +25,76 @@ get_ip() {
     esac
 }
 
-# Function to perform SSH
-ssh_acu() {
-    local area=$1
-    local last_octet=$2
-    local ip_prefix=$(get_ip "$area")
-    [ $? -ne 0 ] && return 1  # Check if get_ip failed
-    
-    if [[ -z "$last_octet" ]]; then
-        echo "Usage: ssh_acu <area (nor/lab/roof)> <last-octet-of-IP (77)>."
-        echo "Ex: ssh_acu nor 77"
+# Resolve optional area + required last octet.
+# Sets RESOLVED_AREA, RESOLVED_OCTET, RESOLVED_SHIFT
+resolve_area_and_octet() {
+    local first_arg="$1"
+    local second_arg="$2"
+
+    if [[ -z "$first_arg" ]]; then
         return 1
     fi
+
+    if [[ "$first_arg" =~ ^[0-9]+$ ]]; then
+        RESOLVED_AREA="$DEFAULT_AREA"
+        RESOLVED_OCTET="$first_arg"
+        RESOLVED_SHIFT=1
+        return 0
+    fi
+
+    if [[ -z "$second_arg" ]]; then
+        return 1
+    fi
+
+    RESOLVED_AREA="$first_arg"
+    RESOLVED_OCTET="$second_arg"
+    RESOLVED_SHIFT=2
+    return 0
+}
+
+# Function to perform SSH
+ssh_acu() {
+    if ! resolve_area_and_octet "$@"; then
+        echo "Usage: ssh_acu [area (nor/lab/roof)] <last-octet-of-IP (77)>."
+        echo "Ex: ssh_acu 77   or   ssh_acu lab 77"
+        return 1
+    fi
+    local area="$RESOLVED_AREA"
+    local last_octet="$RESOLVED_OCTET"
+    local ip_prefix
+    ip_prefix=$(get_ip "$area")
+    [ $? -ne 0 ] && return 1  # Check if get_ip failed
     
     sshpass -p $ut_pass ssh -t -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -- "root@${ip_prefix}.$last_octet" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -- "root@192.168.100.254" 
 }
 
 ssh_ssm() {
-    local area=$1
-    local last_octet=$2
-    local ip_prefix=$(get_ip "$area")
-    [ $? -ne 0 ] && return 1  # Check if get_ip failed
-    
-    if [[ -z "$last_octet" ]]; then
-        echo "Usage: ssh_ssm <area(nor/lab/roof)> <last-octet-of-IP (77)>."
-        echo "Ex: ssh_ssm nor 77"
+    if ! resolve_area_and_octet "$@"; then
+        echo "Usage: ssh_ssm [area(nor/lab/roof)] <last-octet-of-IP (77)>."
+        echo "Ex: ssh_ssm 77   or   ssh_ssm lab 77"
         return 1
     fi
+    local area="$RESOLVED_AREA"
+    local last_octet="$RESOLVED_OCTET"
+    local ip_prefix
+    ip_prefix=$(get_ip "$area")
+    [ $? -ne 0 ] && return 1  # Check if get_ip failed
     
     sshpass -p $ut_pass ssh -t -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -- "root@${ip_prefix}.$last_octet"
 }
 
 # Function to handle SSH key copying for permanent login
 login_permanent() {
-    local area=$1
-    local last_octet=$2
-    local ip_prefix=$(get_ip "$area")
-    [ $? -ne 0 ] && return 1  # Check if get_ip failed
-    
-    if [[ -z "$last_octet" ]]; then
-        echo "Usage: login_permanent <area(nor/lab/roof)> <last-octet-of-IP (77)>."
-        echo "Ex: login_permanent nor 73"
+    if ! resolve_area_and_octet "$@"; then
+        echo "Usage: login_permanent [area(nor/lab/roof)] <last-octet-of-IP (77)>."
+        echo "Ex: login_permanent 73   or   login_permanent roof 73"
         return 1
     fi
+    local area="$RESOLVED_AREA"
+    local last_octet="$RESOLVED_OCTET"
+    local ip_prefix
+    ip_prefix=$(get_ip "$area")
+    [ $? -ne 0 ] && return 1  # Check if get_ip failed
     
     sshpass -p $ut_pass ssh-copy-id -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${ip_prefix}.$last_octet
 }
@@ -150,15 +180,14 @@ ping_acu_ip() {
 }
 
 ping_ssm() {
-    local area=$1
-    local last_octet=$2
-    shift 2
-
-    if [[ -z "$last_octet" ]]; then
-        echo "Usage: ping_ssm <area> <last-octet> [--mute]"
-        echo "Ex: ping_ssm nor 70 --mute"
+    if ! resolve_area_and_octet "$@"; then
+        echo "Usage: ping_ssm [area] <last-octet> [--mute]"
+        echo "Ex: ping_ssm 70 --mute   or   ping_ssm lab 70 --mute"
         return 1
     fi
+    local area="$RESOLVED_AREA"
+    local last_octet="$RESOLVED_OCTET"
+    shift "$RESOLVED_SHIFT"
 
     local ip_prefix
     ip_prefix=$(get_ip "$area")
@@ -171,15 +200,14 @@ ping_ssm() {
 }
 
 ping_acu() {
-    local area=$1
-    local last_octet=$2
-    shift 2
-
-    if [[ -z "$last_octet" ]]; then
-        echo "Usage: ping_acu <area> <last-octet> [--mute]"
-        echo "Ex: ping_acu nor 70 --mute"
+    if ! resolve_area_and_octet "$@"; then
+        echo "Usage: ping_acu [area] <last-octet> [--mute]"
+        echo "Ex: ping_acu 70 --mute   or   ping_acu roof 70 --mute"
         return 1
     fi
+    local area="$RESOLVED_AREA"
+    local last_octet="$RESOLVED_OCTET"
+    shift "$RESOLVED_SHIFT"
 
     local ip_prefix
     ip_prefix=$(get_ip "$area")

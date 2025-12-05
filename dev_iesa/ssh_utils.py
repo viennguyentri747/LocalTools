@@ -28,7 +28,7 @@ def create_scp_ut_and_run_cmd(local_path: Union[str, Path], remote_host: str = f
     cmd = (
         f"output_path=\"{lp}\" "
         f"&& sudo chmod -R 755 \"$output_path\" "
-        f"&& read -e -i \"192.168.10\" -p \"Enter source IP address: \" source_ip "
+        f"&& read -e -i \"192.168.100.\" -p \"Enter source IP address: \" source_ip "
         f"&& ping_acu_ip \"$source_ip\" --mute "
         f"&& scp -rJ root@$source_ip \"$output_path\" {remote_host}:{remote_dir_norm}/ "
         f"&& {{ original_md5=$(md5sum \"$output_path\" | cut -d\" \" -f1); "

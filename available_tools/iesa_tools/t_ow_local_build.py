@@ -12,6 +12,7 @@ import sys
 import textwrap
 from typing import Dict, List, Optional, Union
 import argparse
+from available_tools.test_tools.test_process_plog_local import _get_my_win_home_path
 from dev_common import *
 from dev_common.gitlab_utils import *
 from dev_iesa import *
@@ -35,12 +36,13 @@ ARG_USE_CURRENT_LOCAL_OW_BRANCH = f"{ARGUMENT_LONG_PREFIX}use_current_local_ow_b
 ARG_MAKE_CLEAN = f"{ARGUMENT_LONG_PREFIX}make_clean"
 ARG_IS_DEBUG_BUILD = f"{ARGUMENT_LONG_PREFIX}is_debug_build"
 ARG_OW_BUILD_TYPE = f"{ARGUMENT_LONG_PREFIX}build_type"
+DEFAULT_CMD_INVOCATION = F"cd {REPO_PATH} && {get_win_python_executable_path()} -m available_tools.iesa_tools.t_ow_local_build"
 
 
 def get_tool_templates() -> List[ToolTemplate]:
     return [
         ToolTemplate(
-            name="Build IESA using current branch in local manifest",
+            name="Build IESA (.iesa) using current branch in local manifest",
             extra_description=f"{NOTE_AVAILABLE_LOCAL_COMPONENT_REPO_NAMES}",
             args={
                 ARG_OW_BUILD_TYPE: BUILD_TYPE_IESA,
@@ -52,10 +54,12 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_FORCE_REMOVE_TMP_BUILD: True,
                 ARG_IS_DEBUG_BUILD: True,
                 ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME],
-            }
+            },
+            # override_cmd_invocation=DEFAULT_CMD_INVOCATION,
+            # get_local_home_path=_get_my_win_home_path,
         ),
         ToolTemplate(
-            name="Build binary using current branch in local manifest",
+            name="Build BINARY using current branch in local manifest",
             extra_description=f"{NOTE_AVAILABLE_LOCAL_COMPONENT_REPO_NAMES}",
             args={
                 ARG_OW_BUILD_TYPE: BUILD_TYPE_BINARY,
@@ -66,7 +70,9 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_MAKE_CLEAN: True,
                 ARG_IS_DEBUG_BUILD: True,
                 ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME, IESA_ADC_LIB_REPO_NAME],
-            }
+            },
+            override_cmd_invocation=DEFAULT_CMD_INVOCATION,
+            get_local_home_path=_get_my_win_home_path,
         ),
         ToolTemplate(
             name="Build IESA using specified branch in remote manifest",
@@ -81,7 +87,9 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_FORCE_REMOVE_TMP_BUILD: True,
                 ARG_IS_DEBUG_BUILD: True,
                 ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME, IESA_ADC_LIB_REPO_NAME],
-            }
+            },
+            override_cmd_invocation=DEFAULT_CMD_INVOCATION,
+            get_local_home_path=_get_my_win_home_path,
         ),
     ]
 
@@ -136,11 +144,8 @@ def main() -> None:
     overwrite_repos = [get_path_no_suffix(r, GIT_SUFFIX) for r in overwrite_repos]
     LOG(f"Parsed args: {args}")
 
-    # LOG(f"CD to {OW_SW_PATH}")
-    # os.chdir(OW_SW_PATH)
     ow_sw_path_str = str(OW_SW_PATH)
-    current_branch = run_shell("git branch --show-current", cwd=ow_sw_path_str,
-                               capture_output=True, text=True).stdout.strip()
+    current_branch = run_shell("git branch --show-current", cwd=ow_sw_path_str, capture_output=True, text=True).stdout.strip()
 
     manifest_branch: Optional[str] = None  # Can be local or remote
     if use_current_local_ow_branch:

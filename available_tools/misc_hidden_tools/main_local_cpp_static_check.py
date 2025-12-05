@@ -8,6 +8,7 @@ import shlex
 from typing import List, Dict
 import tempfile
 import shutil
+from dev_common.constants import OW_SW_PATH
 from dev_common.core_utils import run_shell
 
 CPPCHECK_ENABLE_OPTIONS: Dict[int, str] = {
@@ -88,8 +89,8 @@ def generate_compile_commands_from_cmake(cmake_path: str) -> bool:
     cmake_dir_name = os.path.basename(cmake_dir)
     if cmake_dir_name == IESA_ADC_LIB_REPO_NAME or cmake_dir_name == IESA_INTELLIAN_PKG_REPO_NAME:
         extra_cmake_args = [
-            f"-DEXTERNAL_DIRS=/home/vien/ow_sw_tools/external/",
-            f"-DOUTPUT_DIR=/home/vien/ow_sw_tools/tmp_build/out/",
+            f"-DEXTERNAL_DIRS={OW_SW_PATH}/external/",
+            f"-DOUTPUT_DIR={OW_SW_PATH}/tmp_build/out/",
         ]
         print(f"Adding extra cmake arguments: {extra_cmake_args}")
     else:

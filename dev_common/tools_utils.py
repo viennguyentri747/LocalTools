@@ -222,7 +222,7 @@ def display_content_to_copy(
         if post_action == PostActionType.RUN_CONTENT_IN_SHELL:
             LOG(f"▶️  Running the above command in shell...", show_time=True)
             command_result: subprocess.CompletedProcess = run_shell(
-                content, check_throw_exception_on_exit_code=False, shell=True, text=True)
+                content, check_throw_exception_on_exit_code=False, want_shell=True, text=True)
             if command_result.returncode != 0:
                 LOG_EXCEPTION_STR(
                     f"⚠️  Command exited with code {command_result.returncode}, error: {command_result.stderr}")

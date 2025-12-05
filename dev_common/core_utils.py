@@ -6,44 +6,98 @@ import shlex
 import shutil
 import subprocess
 import sys
-from typing import List, Literal, Optional, Union
+from typing import List, Literal, Optional, Union, Tuple
 from datetime import datetime
 import traceback
 import platform
+
+from available_tools.test_tools.test_process_plog_local import WSL_ROOT_FROM_WIN_DRIVE
 
 
 def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[Path] = None,
               check_throw_exception_on_exit_code: bool = True, stdout=None, stderr=None,
               text=None, capture_output: bool = False, encoding: str = 'utf-8',
-              shell: bool = True, executable: Optional[str] = None, timeout: Optional[int] = None, is_run_this_in_wsl: bool = False) -> subprocess.CompletedProcess:
+              want_shell: bool = True, executable: Optional[str] = None, timeout: Optional[int] = None, is_run_this_in_wsl: bool = False) -> subprocess.CompletedProcess:
     """Echo + run a shell command"""
-    if is_platform_windows():
-        # 1. Fix Path: Convert WSL paths and check visibility
-        if cwd:
-            cwd_str = str(cwd)
-            if ":" not in cwd_str and "\\\\" not in cwd_str:
-                cwd = convert_wsl_to_win_path(Path(cwd))
 
-            if not os.path.exists(str(cwd)):
-                LOG(f"WARNING: CWD '{cwd}' not found. Mapped drives (X:) may be invisible to Python.")
+    def _stringify_cmd_list(cmd_list: List[Union[str, Path]]) -> str:
+        return ' '.join(shlex.quote(str(arg)) for arg in cmd_list)
 
-        # 2. Fix Shell: CMD.exe fails on UNC paths (\\wsl.localhost\...), so we force direct execution.
-        executable = None  # Let Windows find the binary in PATH (e.g., git.exe)
-        if shell:
-            LOG("Windows: Forcing shell=False for UNC path support.")
-            shell = False
+    def _looks_like_windows_path(token: str) -> bool:
+        stripped = token.strip().strip('"').strip("'")
+        return bool(re.match(r'^[a-zA-Z]:[\\/]', stripped)) or stripped.startswith('\\\\')
 
-    if shell and isinstance(cmd, List):
-        LOG(f"Shell mode but cmd is a list -> Converting to string...")
-        cmd = ' '.join(shlex.quote(str(arg)) for arg in cmd)
-    elif not shell and isinstance(cmd, str):
-        LOG(f"Non-shell mode but cmd is a string -> Converting to list...")
-        cmd = shlex.split(cmd)
+    def _normalize_wsl_args(args: List[Union[str, Path]]) -> List[str]:
+        normalized: List[str] = []
+        for arg in args:
+            arg_str = str(arg)
+            if _looks_like_windows_path(arg_str):
+                normalized.append(convert_win_to_wsl_path(arg_str))
+            else:
+                normalized.append(arg_str)
+        return normalized
+
+    def _wrap_cmd_for_wsl(raw_cmd: Union[str, List[Union[str, Path]]], wants_shell: bool, wsl_cwd: Optional[str]) -> List[str]:
+        wsl_cmd: List[str] = ["wsl"]
+        if wsl_cwd:
+            wsl_cmd.extend(["--cd", wsl_cwd])
+
+        if wants_shell:
+            if isinstance(raw_cmd, list):
+                cmd_str = _stringify_cmd_list(raw_cmd)
+            else:
+                cmd_str = str(raw_cmd)
+            wsl_cmd.extend(["bash", "-lc", cmd_str])
+        else:
+            if isinstance(raw_cmd, list):
+                cmd_args = [str(arg) for arg in raw_cmd]
+            else:
+                cmd_args = shlex.split(str(raw_cmd))
+            wsl_cmd.extend(_normalize_wsl_args(cmd_args))
+        return wsl_cmd
+
+    is_windows = is_platform_windows()
+    run_in_wsl = is_windows and is_run_this_in_wsl
+    use_shell = want_shell and not is_windows
+    exec_path = executable
+    exec_cwd = cwd
+    wsl_cwd: Optional[str] = None
+    # breakpoint()
+    if is_windows:
+        if run_in_wsl:
+            exec_path = None
+            if cwd:
+                wsl_cwd = convert_win_to_wsl_path(str(cwd))
+                LOG(f"Converting cwd '{cwd}' to WSL path '{wsl_cwd}'")
+                exec_cwd = wsl_cwd
+        else:
+            if cwd:
+                cwd_str = str(cwd)
+                if ":" not in cwd_str and "\\\\" not in cwd_str:
+                    exec_cwd = convert_wsl_to_win_path(Path(cwd))
+                if not os.path.exists(str(exec_cwd)):
+                    LOG(f"WARNING: CWD '{exec_cwd}' not found. Mapped drives ({WSL_ROOT_FROM_WIN_DRIVE}) may be invisible to Python.")
+
+            exec_path = None  # Let Windows resolve binaries (e.g., git.exe)
+            if want_shell:
+                LOG("Windows: Forcing shell=False for UNC path support.")
+                want_shell = False
+
+    if run_in_wsl:
+        cmd = _wrap_cmd_for_wsl(cmd, use_shell, wsl_cwd)
+        want_shell = False
+    else:
+        if want_shell and isinstance(cmd, List):
+            LOG(f"Shell mode but cmd is a list -> Converting to string...")
+            cmd = _stringify_cmd_list(cmd)
+        elif not want_shell and isinstance(cmd, str):
+            LOG(f"Non-shell mode but cmd is a string -> Converting to list...")
+            cmd = shlex.split(cmd)
 
     if show_cmd:
-        LOG(f">>> {cmd} (cwd={cwd or Path.cwd()})")
+        LOG(f">>> {cmd} (cwd={exec_cwd or Path.cwd()})")
 
-    return subprocess.run(cmd, shell=shell, cwd=cwd, check=check_throw_exception_on_exit_code, stdout=stdout, stderr=stderr, text=text, capture_output=capture_output, encoding=encoding, executable=executable, timeout=timeout)
+    return subprocess.run(cmd, shell=want_shell, cwd=exec_cwd, check=check_throw_exception_on_exit_code, stdout=stdout, stderr=stderr, text=text, capture_output=capture_output, encoding=encoding, executable=exec_path, timeout=timeout)
 
 
 def convert_wsl_to_win_path(file_path: Path) -> str:
@@ -62,8 +116,6 @@ def convert_wsl_to_win_path(file_path: Path) -> str:
     # 2. Determine how to call wslpath based on OS
     if is_platform_windows():
         # On Windows, 'wslpath' is not in PATH. We must call 'wsl.exe' with the command.
-        # if not shutil.which("wsl"):
-        #     return str(file_path)  # Return original if WSL isn't installed
         cmd = ["wsl", "wslpath", "-w", path_str]
     else:
         # On Linux/WSL, wslpath is a native binary
@@ -76,10 +128,27 @@ def convert_wsl_to_win_path(file_path: Path) -> str:
             text=True,
             check=True
         )
-        return result.stdout.strip()
+        win_path = result.stdout.strip()
+        LOG(f"Converted WSL path {file_path} to Windows path: {win_path}")
     except Exception as e:
-        LOG(f"Error converting path {path_str}: {e}")
-        return path_str
+        LOG_EXCEPTION_STR(f"Failed to convert WSL path {file_path} to Windows path: {e}")
+
+
+def _apply_custom_win_to_wsl_aliases(win_path: str) -> Optional[str]:
+    CUSTOM_WIN_TO_WSL_PREFIXES: List[Tuple[str, str]] = [  # (win_prefix, wsl_prefix)
+        (f"{WSL_ROOT_FROM_WIN_DRIVE}/", "/"),
+    ]
+    normalized = win_path.replace("\\", "/")
+    normalized_lower = normalized.lower()
+    for alias_prefix, wsl_prefix in CUSTOM_WIN_TO_WSL_PREFIXES:
+        alias_norm = alias_prefix.replace("\\", "/").lower().rstrip("/")
+        if normalized_lower == alias_norm or normalized_lower.startswith(f"{alias_norm}/"):
+            suffix = normalized[len(alias_norm):].lstrip("/")
+            wsl_base = wsl_prefix.rstrip("/")
+            if suffix:
+                return f"{wsl_base}/{suffix}"
+            return wsl_base or "/"
+    return None
 
 
 def convert_win_to_wsl_path(win_path: str) -> str:
@@ -87,37 +156,41 @@ def convert_win_to_wsl_path(win_path: str) -> str:
     Converts a Windows file path to a WSL path.
     Tries native `wslpath -u` first, falls back to manual string parsing.
     """
+    wsl_path = win_path
     clean_path = win_path.strip('"').strip("'")
-
-    # Strategy 1: Try using the native wslpath tool (most robust)
-    # This works if we are currently INSIDE WSL, or if we have `wsl.exe` on Windows.
-    cmd = []
-    if is_platform_windows():
-        if shutil.which("wsl"):
-            cmd = ["wsl", "wslpath", "-u", clean_path]
+    alias_result = _apply_custom_win_to_wsl_aliases(clean_path)
+    if alias_result:
+        wsl_path = alias_result
     else:
-        cmd = ["wslpath", "-u", clean_path]
+        # Strategy 1: Try using the native wslpath tool (most robust). This works if currently INSIDE WSL, or if we have `wsl.exe` on Windows.
+        cmd = []
+        if is_platform_windows():
+            if shutil.which("wsl"):
+                cmd = ["wsl", "wslpath", "-u", clean_path]
+        else:
+            cmd = ["wslpath", "-u", clean_path]
 
-    if cmd:
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            return result.stdout.strip()
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            pass  # Fall through to manual parsing logic below
+        if cmd:
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                return result.stdout.strip()
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                pass  # Fall through to manual parsing logic below
 
-    # Strategy 2: Manual Parsing (Fallback)
-    # Normalize slashes
-    universal_path = clean_path.replace("\\", "/")
-    wsl_path = universal_path
+        # Strategy 2: Manual Parsing (Fallback)
+        # Normalize slashes
+        universal_path = clean_path.replace("\\", "/")
+        wsl_path = universal_path
 
-    # Handle Drive Letters: Look for pattern like "C:/" or "d:/" at the start
-    drive_match = re.match(r'^([a-zA-Z]):/(.*)', universal_path)
+        # Handle Drive Letters: Look for pattern like "C:/" or "d:/" at the start
+        drive_match = re.match(r'^([a-zA-Z]):/(.*)', universal_path)
 
-    if drive_match:
-        drive_letter = drive_match.group(1).lower()
-        rest_of_path = drive_match.group(2)
-        wsl_path = f"/mnt/{drive_letter}/{rest_of_path}"
+        if drive_match:
+            drive_letter = drive_match.group(1).lower()
+            rest_of_path = drive_match.group(2)
+            wsl_path = f"/mnt/{drive_letter}/{rest_of_path}"
 
+    LOG(f"Converted Windows path {win_path} to WSL path: {wsl_path}")
     return wsl_path
 
 

@@ -171,7 +171,7 @@ def main() -> None:
 
     if run_now:
         LOG("Running tail command locally...", highlight=True)
-        run_shell(command, shell=True, executable='/bin/bash')
+        run_shell(command, want_shell=True, executable='/bin/bash')
     else:
         display_content_to_copy(
             command,

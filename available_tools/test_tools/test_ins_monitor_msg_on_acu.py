@@ -131,7 +131,7 @@ def main() -> None:
     run_now: bool = get_arg_value(args, ARG_RUN_NOW)
     if run_now:
         LOG("Running command now...", highlight=True)
-        run_shell(one_liner, shell=True, executable='/bin/bash')
+        run_shell(one_liner, want_shell=True, executable='/bin/bash')
     else:
         display_content_to_copy(one_liner, is_copy_to_clipboard=True, purpose="Copy and run INS message test")
 

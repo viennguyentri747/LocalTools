@@ -426,7 +426,9 @@ def reset_or_create_tmp_build(force_remove_tmp_build: bool) -> None:
         if (is_reset_instead_clearing):
             LOG(f"Resetting existing repo in {OW_BUILD_FOLDER_PATH}...")
             try:
-                run_shell("repo forall -c 'git reset --hard' && repo forall -c 'git clean -fdx'", cwd=OW_BUILD_FOLDER_PATH)
+                run_shell("repo forall -c 'git reset --hard' && repo forall -c 'git clean -fdx'",
+                          cwd=OW_BUILD_FOLDER_PATH,
+                          is_run_this_in_wsl=is_platform_windows())
             except subprocess.CalledProcessError:
                 LOG(f"Warning: 'repo forall' failed in {OW_BUILD_FOLDER_PATH}. Assuming broken repo and clearing...")
                 should_remove = True
@@ -480,13 +482,14 @@ def get_tisdk_ref_from_ci_yml(file_path: str) -> Optional[str]:
 
 def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, use_current_ow_branch: bool) -> None:
     LOG(f"{MAIN_STEP_LOG_PREFIX} Init and Sync repo at {OW_BUILD_FOLDER_PATH}...")
-    extra_prefix = f"wsl " if is_platform_windows() else ""
-    ow_path = f"/home/vien/workspace/intellian_core_repos/oneweb_project_sw_tools/tmp_build/" if is_platform_windows() else OW_SW_PATH
-    ow_build_path = f"{ow_path}/tmp_build/"
-    manifest_repo_url = get_manifest_repo_url(manifest_source, ow_path)
+    repo_root_for_manifest = str(OW_SW_PATH)
+    if is_platform_windows():
+        repo_root_for_manifest = convert_win_to_wsl_path(repo_root_for_manifest)
+    manifest_repo_url = get_manifest_repo_url(manifest_source, repo_root_for_manifest)
     run_shell(
-        f"{extra_prefix}repo init {manifest_repo_url} -b {manifest_repo_branch} -m {IESA_MANIFEST_RELATIVE_PATH}", cwd=ow_build_path,)
-
+        f"repo init {manifest_repo_url} -b {manifest_repo_branch} -m {IESA_MANIFEST_RELATIVE_PATH}",
+        cwd=OW_BUILD_FOLDER_PATH,
+        is_run_this_in_wsl=is_platform_windows())
 
     # Construct the full path to the manifest file
     manifest_full_path = os.path.join(OW_BUILD_FOLDER_PATH, ".repo", "manifests", IESA_MANIFEST_RELATIVE_PATH)
@@ -521,7 +524,7 @@ def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, u
     if not manifest or not is_manifest_valid(manifest):
         LOG_EXCEPTION_STR("Parsed manifest is invalid or empty.")
 
-    run_shell("repo sync", cwd=OW_BUILD_FOLDER_PATH)
+    run_shell("repo sync", cwd=OW_BUILD_FOLDER_PATH, is_run_this_in_wsl=is_platform_windows())
 
 
 def sync_local_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:

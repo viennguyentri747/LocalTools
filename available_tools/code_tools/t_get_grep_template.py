@@ -648,7 +648,7 @@ def main() -> None:
         return
 
     LOG(f"{display_name} -> launching interactive search")
-    run_shell(["bash", "-lc", full_output], shell=False, show_cmd=True)
+    run_shell(["bash", "-lc", full_output], want_shell=False, show_cmd=True)
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ import time
 from typing import Any, Callable, Tuple, Union
 import xml.etree.ElementTree as ET
 
-from dev_common.core_utils import LOG, LOG_EXCEPTION, LOG_EXCEPTION_STR, run_shell, is_platform_windows
+from dev_common.core_utils import LOG, LOG_EXCEPTION, LOG_EXCEPTION_STR, run_shell, is_platform_windows, convert_win_to_wsl_path
 
 
 def expand_and_check_path(path_str: str) -> Tuple[bool, str]:
@@ -68,24 +68,12 @@ def clear_directory(dir_path: Union[str, Path], remove_dir_itself: bool = False)
         #     pass  # Race condition: it's already gone
         except Exception as e:
             LOG(f"Failed to remove {target}: {e}")
-            # Final Resort: sudo rm on POSIX
-            if not is_platform_windows():
-                LOG(f"Permission denied. Attempting sudo fallback for: {target}")
-                flags = "-rf" if is_dir else "-f"
-                cmd = f"sudo rm {flags} {shlex.quote(str(target))}"
-                run_shell(cmd)
-            else:
-                # On Windows, we tried chmod above; if it still fails, rename
-                trash_name = f"{path.name}_TRASH"
-                trash_path = path.with_name(trash_name)
-                if trash_path.exists():
-                    LOG(f"Removing existing trash folder: {trash_path}")
-                    shutil.rmtree(trash_path)
-                LOG(f"Renaming locked folder to: {trash_path}")
-                # Rename the locked folder
-                path.rename(trash_path)
-                LOG(f"Successfully renamed locked folder to: {trash_name}")
-                # shutil.rmtree(trash_path)
+            LOG(f"Permission denied. Attempting sudo fallback for: {target}")
+            target_path = str(target)
+            # if is_platform_windows():
+            #     target_path = convert_win_to_wsl_path(target_path)
+            cmd = f"sudo rm -rf {shlex.quote(target_path)}"
+            run_shell(cmd, is_run_this_in_wsl=is_platform_windows())
 
     # 1. If we are removing the directory itself, we treat it as one big target
     if remove_dir_itself:

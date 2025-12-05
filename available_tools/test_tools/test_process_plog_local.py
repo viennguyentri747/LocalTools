@@ -32,12 +32,12 @@ ARG_PLOG_DIR_OR_FILE = f"{ARGUMENT_LONG_PREFIX}plog_dir_or_file"
 ARG_COLUMNS = f"{ARGUMENT_LONG_PREFIX}columns"
 ARG_TIME_WINDOW = f"{ARGUMENT_LONG_PREFIX}hours"
 ARG_OUTPUT_PATH = f"{ARGUMENT_LONG_PREFIX}output"
-
+WSL_ROOT_FROM_WIN_DRIVE = "X:"
 
 def _get_my_win_home_path_from_wsl() -> str:
     #Only work as expected if call from WSL python
     current_home = Path.home().as_posix().lstrip("/") 
-    return f"X:/{current_home}"
+    return f"{WSL_ROOT_FROM_WIN_DRIVE}/{current_home}"
 
 
 @dataclass

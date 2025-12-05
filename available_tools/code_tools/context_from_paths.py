@@ -196,7 +196,7 @@ def run_3rdparty_ingest(input_path: Path, output_dir: Path, include_pattern_list
     str_cmd = ' '.join(gitingest_cmd)
     LOG(f"Starting gitingest for '{input_path}'.")
     process = run_shell(str_cmd, check_throw_exception_on_exit_code=True,
-                        capture_output=True, text=True, encoding='utf-8', shell=True)
+                        capture_output=True, text=True, encoding='utf-8', want_shell=True)
     success_msg = f"{LOG_PREFIX_MSG_SUCCESS} Finished gitingest for '{input_path}'. Output saved to '{output_path}'."
     if process.stdout:
         success_msg += f"\n{process.stdout.strip()}"

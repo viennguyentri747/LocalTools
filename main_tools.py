@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import importlib
-import shlex
 import sys
 from pathlib import Path
 from typing import Iterable, List, Optional
@@ -57,9 +56,11 @@ def build_template_run_command(tool_path: Path, template: ToolTemplate) -> str:
             home_override_args = [ARG_LOCAL_HOME_PATH, str(override_path)]
 
     base_cmd = template.override_cmd_invocation.strip() if template.override_cmd_invocation else ""
+    cmd_parts: List[str] = []
+    cmd_prefix: Optional[str] = None
     if base_cmd:
-        cmd_parts = shlex.split(base_cmd)
-        LOG(f"Using override command '{base_cmd}' for template '{template.name}'.")
+        cmd_prefix = base_cmd
+        LOG(f"Using override command prefix '{base_cmd}' for template '{template.name}'.")
     else:
         cmd_parts = [sys.executable, str(tool_path)]
         LOG(f"Using default python at {sys.executable} for template '{template.name}'.")
@@ -76,7 +77,8 @@ def build_template_run_command(tool_path: Path, template: ToolTemplate) -> str:
             cmd_parts.extend([arg_key, quote_arg_value_if_need(arg_value)])
 
     quoted_parts = [quote_arg_value_if_need(str(part)) for part in cmd_parts]
-    final_cmd = ' '.join(quoted_parts)
+    suffix = ' '.join(quoted_parts)
+    final_cmd = f"{cmd_prefix} {suffix}".rstrip() if cmd_prefix else suffix
     LOG(f"Built template command: {final_cmd}")
     return final_cmd
 

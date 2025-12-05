@@ -15,7 +15,7 @@ import platform
 def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[Path] = None,
               check_throw_exception_on_exit_code: bool = True, stdout=None, stderr=None,
               text=None, capture_output: bool = False, encoding: str = 'utf-8',
-              shell: bool = True, executable: Optional[str] = None, timeout: Optional[int] = None) -> subprocess.CompletedProcess:
+              shell: bool = True, executable: Optional[str] = None, timeout: Optional[int] = None, is_run_this_in_wsl: bool = False) -> subprocess.CompletedProcess:
     """Echo + run a shell command"""
     if is_platform_windows():
         # 1. Fix Path: Convert WSL paths and check visibility
@@ -211,8 +211,18 @@ def read_value_from_credential_file(credentials_file_path: str, key_to_read: str
     return None
 
 
-def LOG_EXCEPTION_STR(exception: str, msg=None, exit: bool = True):
-    LOG_EXCEPTION(exception=Exception(exception), msg=msg, exit=exit)
+def LOG_EXCEPTION_STR(exception_str: str, msg=None, exit: bool = True):
+    # Capture REAL current exception context (or None if no exception active)
+    exc_type, exc_value, exc_tb = sys.exc_info()
+    if exc_type is not None:
+        # Use the actual exception that was just caught
+        LOG_EXCEPTION(exc_value, msg or exception_str, exit=exit)
+    else:
+        # Fallback: create exception with fake traceback
+        try:
+            raise Exception(exception_str)
+        except Exception as e:
+            LOG_EXCEPTION(e, msg, exit=exit)
 
 
 def LOG_EXCEPTION(exception: Exception, msg=None, exit: bool = True):

@@ -74,7 +74,7 @@ def fetch_acu_logs(ut_ip: str, log_types: List[str], dest_folder_path: str | Pat
     try:
         os.makedirs(dest_folder_path, exist_ok=True)
         if clear_dest_folder:
-            clear_directory_content(dest_folder_path)
+            clear_directory(dest_folder_path)
     except Exception as exc:
         LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to prepare destination '{dest_folder_path}': {exc}", file=sys.stderr)
         return AcuLogInfo(is_valid=False, ip=ut_ip)

@@ -2,6 +2,7 @@
 """
 OneWeb SW-Tools interactive local build helper (top-down, manifest-aware).
 """
+import argparse
 import datetime
 import filecmp
 import os
@@ -11,8 +12,7 @@ import subprocess
 import sys
 import textwrap
 from typing import Dict, List, Optional, Union
-import argparse
-from available_tools.test_tools.test_process_plog_local import _get_my_win_home_path
+from available_tools.test_tools.test_process_plog_local import _get_my_win_home_path_from_wsl
 from dev_common import *
 from dev_common.gitlab_utils import *
 from dev_iesa import *
@@ -72,7 +72,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME, IESA_ADC_LIB_REPO_NAME],
             },
             override_cmd_invocation=DEFAULT_CMD_INVOCATION,
-            get_local_home_path=_get_my_win_home_path,
+            get_local_home_path=_get_my_win_home_path_from_wsl,
         ),
         ToolTemplate(
             name="Build IESA using specified branch in remote manifest",
@@ -89,7 +89,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME, IESA_ADC_LIB_REPO_NAME],
             },
             override_cmd_invocation=DEFAULT_CMD_INVOCATION,
-            get_local_home_path=_get_my_win_home_path,
+            get_local_home_path=_get_my_win_home_path_from_wsl,
         ),
     ]
 
@@ -171,7 +171,7 @@ def main() -> None:
     LOG(f"{MAIN_STEP_LOG_PREFIX} Binary build finished.")
     LOG(f"Find output binary files in '{OW_BUILD_BINARY_OUTPUT_PATH}'")
     LOG(f"{LINE_SEPARATOR}")
-    command = (
+    command_to_display = (
         f'sudo chmod -R 755 {OW_BUILD_BINARY_OUTPUT_PATH} && '
         f'while true; do '
         f'read -e -p "Enter binary path: " -i "{OW_BUILD_BINARY_OUTPUT_PATH}/" BIN_PATH && '
@@ -192,7 +192,7 @@ def main() -> None:
         f'}}'
     )
 
-    display_content_to_copy(command, purpose="Copy BINARY to target IP", is_copy_to_clipboard=(build_type == BUILD_TYPE_BINARY))
+    display_content_to_copy(command_to_display, purpose="Copy BINARY to target IP", is_copy_to_clipboard=(build_type == BUILD_TYPE_BINARY))
 
     # TODO: improve handling on interactive mode (check it actually success before print copy commands)
     if build_type == BUILD_TYPE_IESA:
@@ -210,14 +210,14 @@ def main() -> None:
             # run_shell(f"sudo chmod 644 {new_iesa_output_abs_path}")
             # original_md5 = md5sum(new_iesa_output_abs_path)
 
-            command = create_scp_ut_and_run_cmd(
+            command_to_display = create_scp_ut_and_run_cmd(
                 local_path=new_iesa_output_abs_path,
                 remote_host="root@192.168.100.254",
                 remote_dir="/home/root/download/",
                 run_cmd_on_remote=f"iesa_umcmd install pkg {new_iesa_name} && tail -F /var/log/upgrade_log",
                 is_prompt_before_execute=True
             )
-            display_content_to_copy(command, purpose="Copy IESA to target IP", is_copy_to_clipboard=True)
+            display_content_to_copy(command_to_display, purpose="Copy IESA to target IP", is_copy_to_clipboard=True)
         else:
             LOG(
                 f"ERROR: Expected IESA artifact not found at '{OW_OUTPUT_IESA_PATH}' or it's not a file.", file=sys.stderr)
@@ -300,10 +300,8 @@ def pre_build_setup(build_type: str, manifest_source: str, ow_manifest_branch: s
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build setup...")
     if repo_sync:
         reset_or_create_tmp_build(force_remove_tmp_build)
-        manifest_repo_url = get_manifest_repo_url(manifest_source)
         # Sync other repos from manifest of REMOTE OW_SW
-        init_and_sync_from_remote(manifest_repo_url, ow_manifest_branch,
-                                  manifest_source=manifest_source, use_current_ow_branch=use_current_ow_branch)
+        init_and_sync_from_remote(ow_manifest_branch, manifest_source=manifest_source, use_current_ow_branch=use_current_ow_branch)
     else:
         LOG("Skipping tmp_build reset and repo sync due to --sync false flag.")
 
@@ -443,7 +441,7 @@ def reset_or_create_tmp_build(force_remove_tmp_build: bool) -> None:
                 os.chdir(OW_SW_PATH)
             else:
                 LOG(f"Current directory {original_cwd} is outside tmp_build, no need to change directory.")
-            run_shell("sudo rm -rf " + str(OW_BUILD_FOLDER_PATH))
+            clear_directory(OW_BUILD_FOLDER_PATH, remove_dir_itself=True)
             OW_BUILD_FOLDER_PATH.mkdir(parents=True)
     else:
         OW_BUILD_FOLDER_PATH.mkdir(parents=True)
@@ -480,10 +478,15 @@ def get_tisdk_ref_from_ci_yml(file_path: str) -> Optional[str]:
     return tisdk_ref
 
 
-def init_and_sync_from_remote(manifest_repo_url: str, manifest_repo_branch: str, manifest_source: str, use_current_ow_branch: bool) -> None:
+def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, use_current_ow_branch: bool) -> None:
     LOG(f"{MAIN_STEP_LOG_PREFIX} Init and Sync repo at {OW_BUILD_FOLDER_PATH}...")
+    extra_prefix = f"wsl " if is_platform_windows() else ""
+    ow_path = f"/home/vien/workspace/intellian_core_repos/oneweb_project_sw_tools/tmp_build/" if is_platform_windows() else OW_SW_PATH
+    ow_build_path = f"{ow_path}/tmp_build/"
+    manifest_repo_url = get_manifest_repo_url(manifest_source, ow_path)
     run_shell(
-        f"repo init {manifest_repo_url} -b {manifest_repo_branch} -m {IESA_MANIFEST_RELATIVE_PATH}", cwd=OW_BUILD_FOLDER_PATH,)
+        f"{extra_prefix}repo init {manifest_repo_url} -b {manifest_repo_branch} -m {IESA_MANIFEST_RELATIVE_PATH}", cwd=ow_build_path,)
+
 
     # Construct the full path to the manifest file
     manifest_full_path = os.path.join(OW_BUILD_FOLDER_PATH, ".repo", "manifests", IESA_MANIFEST_RELATIVE_PATH)
@@ -589,13 +592,13 @@ def show_changes(repo_name: str, rel_path: str) -> bool:
     return bool(changes)
 
 
-def get_manifest_repo_url(manifest_source: str) -> Optional[str]:
+def get_manifest_repo_url(manifest_source: str, local_repo_path: str) -> Optional[str]:
     LOG(f"{MAIN_STEP_LOG_PREFIX} Getting manifest repo URL...")
     manifest_url: Optional[str] = None
     if manifest_source == MANIFEST_SOURCE_REMOTE:
         manifest_url = f"{GL_BASE_URL}/intellian_adc/oneweb_project_sw_tools"
     elif manifest_source == MANIFEST_SOURCE_LOCAL:
-        manifest_url = f"file://{OW_SW_PATH}"
+        manifest_url = f"file://{local_repo_path}"
     else:
         throw_exception(
             f"Unknown manifest source: {manifest_source}, expected {MANIFEST_SOURCE_LOCAL} or {MANIFEST_SOURCE_REMOTE}")

@@ -35,7 +35,7 @@ ARG_USE_CURRENT_LOCAL_OW_BRANCH = f"{ARGUMENT_LONG_PREFIX}use_current_local_ow_b
 ARG_MAKE_CLEAN = f"{ARGUMENT_LONG_PREFIX}make_clean"
 ARG_IS_DEBUG_BUILD = f"{ARGUMENT_LONG_PREFIX}is_debug_build"
 ARG_OW_BUILD_TYPE = f"{ARGUMENT_LONG_PREFIX}build_type"
-DEFAULT_CMD_INVOCATION = F"cd {REPO_PATH} && {get_win_python_executable_path()} -m available_tools.iesa_tools.t_ow_local_build"
+DEFAULT_CMD_INVOCATION = F"{get_win_python_executable_path()} -m available_tools.iesa_tools.t_ow_local_build"
 
 
 def get_tool_templates() -> List[ToolTemplate]:
@@ -69,7 +69,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_IS_DEBUG_BUILD: True,
                 ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME, IESA_ADC_LIB_REPO_NAME],
             },
-            override_cmd_invocation=DEFAULT_CMD_INVOCATION,
+            # override_cmd_invocation=DEFAULT_CMD_INVOCATION,
         ),
         ToolTemplate(
             name="Build IESA using specified branch in remote manifest",
@@ -85,7 +85,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_IS_DEBUG_BUILD: True,
                 ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME, IESA_ADC_LIB_REPO_NAME],
             },
-            override_cmd_invocation=DEFAULT_CMD_INVOCATION,
+            # override_cmd_invocation=DEFAULT_CMD_INVOCATION,
         ),
     ]
 
@@ -313,9 +313,9 @@ def run_build(build_type: str, interactive: bool, make_clean: bool = True, is_de
     elif build_type == BUILD_TYPE_IESA:
         make_target = "package"
     else:
-        throw_exception(f"Unknown build type: {build_type}, expected {BUILD_TYPE_BINARY} or {BUILD_TYPE_IESA}")
+        LOG_EXCEPTION_STR(f"Unknown build type: {build_type}, expected {BUILD_TYPE_BINARY} or {BUILD_TYPE_IESA}")
 
-    docker_image = get_docker_image_from_gitlab_yml()
+    docker_image = prepare_docker_image_from_gitlab_ci(GITLAB_CI_YML_PATH)
     LOG(f"Using Docker image: {docker_image}")
     docker_cmd_base = (
         f"docker run -it --rm -v {OW_SW_PATH}:{OW_SW_PATH} -w {OW_SW_PATH} {docker_image}"
@@ -345,7 +345,7 @@ def run_build(build_type: str, interactive: bool, make_clean: bool = True, is_de
         else:
             bash_cmd = f"""{bash_cmd_prefix} "echo 'Running dos2unix on script files...' && {dos2unix_cmd} && echo 'Granting execute permissions to script files...' && {chmod_cmd} && echo -e '\\nTo start the {build_type} build, run the command below:\\n\\nmake {make_target}{debug_suffix}\\n\\nType exit or press Ctrl+D to leave interactive mode.' && {keep_interactive_shell}" """
 
-        run_shell(f"{docker_cmd_base} {bash_cmd}", check_throw_exception_on_exit_code=False)
+        run_shell(f"{docker_cmd_base} {bash_cmd}", check_LOG_EXCEPTION_STR_on_exit_code=False)
         LOG(f"Exiting interactive mode...")
     else:
         LOG("Running dos2unix on script files and build command...")
@@ -362,38 +362,6 @@ def run_build(build_type: str, interactive: bool, make_clean: bool = True, is_de
         show_noti(title="Build finished", message=f"Build finished in {elapsed_time} seconds")
 
 
-def get_docker_image_from_gitlab_yml() -> str:
-    gitlab_yml_path = OW_SW_PATH / ".gitlab-ci.yml"
-    if not gitlab_yml_path.exists():
-        throw_exception(f".gitlab-ci.yml not found at {gitlab_yml_path}")
-
-    docker_image = None
-    with open(gitlab_yml_path, "r") as f:
-        for line in f:
-            stripped = line.strip()
-            if stripped.startswith("image:"):
-                docker_image = stripped.split("image:")[1].strip()
-                break
-
-    if not docker_image:
-        throw_exception("Docker image not found in .gitlab-ci.yml")
-
-    # Check if Docker image exists locally
-    check_cmd = f"docker image inspect {docker_image} > /dev/null 2>&1"
-    result = run_shell(check_cmd, capture_output=True).returncode
-
-    if result != 0:
-        LOG(f"Docker image {docker_image} not found locally. Pulling...")
-        pull_result = run_shell(f"docker pull {docker_image}")
-        if pull_result != 0:
-            throw_exception(f"Failed to pull Docker image: {docker_image}")
-        LOG(f"Successfully pulled Docker image: {docker_image}")
-    else:
-        LOG(f"Docker image found locally: {docker_image}")
-
-    return docker_image
-
-
 def reset_or_create_tmp_build(force_remove_tmp_build: bool) -> None:
     repo_dir = OW_BUILD_FOLDER_PATH / '.repo'
     manifest_file = repo_dir / 'manifest.xml'
@@ -407,8 +375,7 @@ def reset_or_create_tmp_build(force_remove_tmp_build: bool) -> None:
             LOG(f"Resetting existing repo in {OW_BUILD_FOLDER_PATH}...")
             try:
                 run_shell("repo forall -c 'git reset --hard' && repo forall -c 'git clean -fdx'",
-                          cwd=OW_BUILD_FOLDER_PATH,
-                          is_run_this_in_wsl=is_platform_windows())
+                          cwd=OW_BUILD_FOLDER_PATH)
             except subprocess.CalledProcessError:
                 LOG(f"Warning: 'repo forall' failed in {OW_BUILD_FOLDER_PATH}. Assuming broken repo and clearing...")
                 should_remove = True
@@ -467,7 +434,7 @@ def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, u
         repo_root_for_manifest = convert_win_to_wsl_path(repo_root_for_manifest)
     manifest_repo_url = get_manifest_repo_url(manifest_source, repo_root_for_manifest)
     run_shell(f"repo init {manifest_repo_url} -b {manifest_repo_branch} -m {IESA_MANIFEST_RELATIVE_PATH}",
-              cwd=OW_BUILD_FOLDER_PATH, is_run_this_in_wsl=is_platform_windows())
+              cwd=OW_BUILD_FOLDER_PATH)
 
     # Construct the full path to the manifest file
     manifest_full_path = os.path.join(OW_BUILD_FOLDER_PATH, ".repo", "manifests", IESA_MANIFEST_RELATIVE_PATH)
@@ -501,21 +468,21 @@ def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, u
     if not manifest or not is_manifest_valid(manifest):
         LOG_EXCEPTION_STR("Parsed manifest is invalid or empty.")
 
-    run_shell("repo sync", cwd=OW_BUILD_FOLDER_PATH, is_run_this_in_wsl=is_platform_windows())
+    run_shell("repo sync", cwd=OW_BUILD_FOLDER_PATH)
 
 
 def sync_local_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
     local_repo_info: Optional[IesaLocalRepoInfo] = LOCAL_REPO_MAPPING.get_by_name(repo_name)
     if not local_repo_info:
         LOG(f"ERROR: Could not find repo info for '{repo_name}'", file=sys.stderr)
-        throw_exception(f"Could not find repo info for '{repo_name}'")
+        LOG_EXCEPTION_STR(f"Could not find repo info for '{repo_name}'")
 
     src_path = local_repo_info.repo_local_path
     dest_root_path = OW_BUILD_FOLDER_PATH / repo_rel_path_vs_tmp_build
 
     if not src_path.is_dir() or not dest_root_path.is_dir():
         LOG(f"ERROR: Source or destination not found at {src_path} or {dest_root_path}", file=sys.stderr)
-        throw_exception(f"Source or destination not found at {src_path} or {dest_root_path}")
+        LOG_EXCEPTION_STR(f"Source or destination not found at {src_path} or {dest_root_path}")
 
     LOG(f"Verifying git history for '{repo_name}'...")
     src_overwrite_commit = git_get_sha1_of_head_commit(src_path)
@@ -526,7 +493,7 @@ def sync_local_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
         LOG("Source and destination are at the same commit. No history check needed.")
     elif not git_is_ancestor(dest_orig_commit, src_overwrite_commit, cwd=local_repo_info.repo_local_path):
         LOG(f"ERROR: Source (override) commit ({str(local_repo_info.repo_local_path)}: {src_overwrite_commit}) is not a descendant of destination ({str(dest_root_path)}: {dest_orig_commit}).\nMake sure check out correct branch + force push local branch to remote (as it fetched dest remotely via repo sync)!", file=sys.stderr)
-        throw_exception(
+        LOG_EXCEPTION_STR(
             f"Source commit {src_overwrite_commit} is not a descendant of destination (to be overwritten) commit {dest_orig_commit}.")
     else:
         LOG(f"Common ancestor for '{repo_name}' found. Proceeding with sync.")
@@ -571,7 +538,7 @@ def get_manifest_repo_url(manifest_source: str, local_repo_path: str) -> Optiona
     elif manifest_source == MANIFEST_SOURCE_LOCAL:
         manifest_url = f"file://{local_repo_path}"
     else:
-        throw_exception(
+        LOG_EXCEPTION_STR(
             f"Unknown manifest source: {manifest_source}, expected {MANIFEST_SOURCE_LOCAL} or {MANIFEST_SOURCE_REMOTE}")
 
     LOG(f"Using manifest source: {manifest_source} ({manifest_url})")
@@ -620,13 +587,6 @@ def prepare_iesa_bsp(tisdk_ref: str):
             LOG(f"Creating symbolic link {BSP_SYMLINK_PATH_FOR_BUILD} -> {bsp_path}")
             subprocess.run(["ln", "-sf", bsp_path, BSP_SYMLINK_PATH_FOR_BUILD])
             subprocess.run(["ls", "-la", BSP_SYMLINK_PATH_FOR_BUILD])
-
-
-def throw_exception(message: str):
-    """
-    Helper function to throw an error with a message.
-    """
-    LOG_EXCEPTION(exception=Exception(message), exit=True)
 
 
 # ───────────────────────  module entry-point  ────────────────────────── #

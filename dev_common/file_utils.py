@@ -11,7 +11,7 @@ import time
 from typing import Any, Callable, Tuple, Union
 import xml.etree.ElementTree as ET
 
-from dev_common.core_utils import LOG, LOG_EXCEPTION, LOG_EXCEPTION_STR, run_shell, is_platform_windows, convert_win_to_wsl_path
+from dev_common.core_utils import LOG, LOG_EXCEPTION, LOG_EXCEPTION_STR, run_shell
 
 
 def expand_and_check_path(path_str: str) -> Tuple[bool, str]:
@@ -73,7 +73,7 @@ def clear_directory(dir_path: Union[str, Path], remove_dir_itself: bool = False)
             # if is_platform_windows():
             #     target_path = convert_win_to_wsl_path(target_path)
             cmd = f"sudo rm -rf {shlex.quote(target_path)}"
-            run_shell(cmd, is_run_this_in_wsl=is_platform_windows())
+            run_shell(cmd)
 
     # 1. If we are removing the directory itself, we treat it as one big target
     if remove_dir_itself:

@@ -17,7 +17,7 @@ WSL_ROOT_FROM_WIN_DRIVE = "X:"
 
 def get_home_path() -> Path:
     if is_platform_windows():
-        wsl_home_result = run_shell(["echo", "$HOME"], capture_output=True, is_run_this_in_wsl=True)
+        wsl_home_result = run_shell(["echo", "$HOME"], capture_output=True, is_run_wsl_if_window=True)
         wsl_home = wsl_home_result.stdout.strip()
         resolved_path = Path(f"{WSL_ROOT_FROM_WIN_DRIVE}/{wsl_home.lstrip('/')}")
     else:
@@ -26,10 +26,10 @@ def get_home_path() -> Path:
     return resolved_path
 
 
-def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[Path|str] = None,
+def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[Path | str] = None,
               check_throw_exception_on_exit_code: bool = True, stdout=None, stderr=None,
-              text=None, capture_output: bool = False, encoding: str = 'utf-8',
-              want_shell: bool = True, executable: Optional[str] = None, timeout: Optional[int] = None, is_run_this_in_wsl: bool = False) -> subprocess.CompletedProcess:
+              text: Optional[bool] = True, capture_output: bool = True, encoding: str = 'utf-8',
+              want_shell: bool = True, executable: Optional[str] = None, timeout: Optional[int] = None, is_run_wsl_if_window: bool = True) -> subprocess.CompletedProcess:
     """Echo + run a shell command"""
 
     def _stringify_cmd_list(cmd_list: List[Union[str, Path]]) -> str:
@@ -48,7 +48,7 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
             else:
                 normalized.append(arg_str)
         return normalized
-    
+
     def format_cmd_for_log(target_cmd):
         cmd_type = type(target_cmd).__name__      # "list", "str", "tuple", ...
         cmd_str = " ".join(target_cmd) if isinstance(target_cmd, list) else str(target_cmd)
@@ -74,7 +74,7 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
         return wsl_cmd
 
     is_windows = is_platform_windows()
-    run_in_wsl = is_windows and is_run_this_in_wsl
+    run_in_wsl = is_windows and is_run_wsl_if_window
     use_shell = want_shell and not is_windows
     exec_path = executable
     exec_cwd = cwd

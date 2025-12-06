@@ -33,12 +33,6 @@ ARG_COLUMNS = f"{ARGUMENT_LONG_PREFIX}columns"
 ARG_TIME_WINDOW = f"{ARGUMENT_LONG_PREFIX}hours"
 ARG_OUTPUT_PATH = f"{ARGUMENT_LONG_PREFIX}output"
 
-def _get_my_win_home_path_from_wsl() -> str:
-    #Only work as expected if call from WSL python
-    current_home = Path.home().as_posix().lstrip("/") 
-    return f"{WSL_ROOT_FROM_WIN_DRIVE}/{current_home}"
-
-
 @dataclass
 class CompactPlogRow:
     """Holds selected column values for a single P-log row."""
@@ -68,7 +62,6 @@ def get_tool_templates() -> List[ToolTemplate]:
             search_root=ACU_LOG_PATH,
             usage_note="Update --plog_dir_or_file to reference the P-log file or folder you want to shrink.",
             override_cmd_invocation=DEFAULT_CMD_INVOCATION,
-            get_local_home_path=_get_my_win_home_path_from_wsl,
         ),
     ]
 

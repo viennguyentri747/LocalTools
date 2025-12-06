@@ -48,6 +48,11 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
             else:
                 normalized.append(arg_str)
         return normalized
+    
+    def format_cmd_for_log(target_cmd):
+        cmd_type = type(target_cmd).__name__      # "list", "str", "tuple", ...
+        cmd_str = " ".join(target_cmd) if isinstance(target_cmd, list) else str(target_cmd)
+        return f"[{cmd_type} CMD] >>> {cmd_str}"
 
     def _wrap_cmd_for_wsl(raw_cmd: Union[str, List[Union[str, Path]]], wants_shell: bool, wsl_cwd: Optional[str]) -> List[str]:
         wsl_cmd: List[str] = ["wsl"]
@@ -107,7 +112,7 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
             cmd = shlex.split(cmd)
 
     if show_cmd:
-        LOG(f">>> {cmd} (cwd={exec_cwd or Path.cwd()})")
+        LOG(f"{format_cmd_for_log(cmd)} (cwd={exec_cwd or Path.cwd()})")
 
     return subprocess.run(cmd, shell=want_shell, cwd=exec_cwd, check=check_throw_exception_on_exit_code, stdout=stdout, stderr=stderr, text=text, capture_output=capture_output, encoding=encoding, executable=exec_path, timeout=timeout)
 

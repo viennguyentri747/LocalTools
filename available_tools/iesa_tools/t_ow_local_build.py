@@ -12,7 +12,6 @@ import subprocess
 import sys
 import textwrap
 from typing import Dict, List, Optional, Union
-from available_tools.test_tools.test_process_plog_local import _get_my_win_home_path_from_wsl
 from dev_common import *
 from dev_common.gitlab_utils import *
 from dev_iesa import *
@@ -56,7 +55,6 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME],
             },
             # override_cmd_invocation=DEFAULT_CMD_INVOCATION,
-            # get_local_home_path=_get_my_win_home_path,
         ),
         ToolTemplate(
             name="Build BINARY using current branch in local manifest",
@@ -72,7 +70,6 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME, IESA_ADC_LIB_REPO_NAME],
             },
             override_cmd_invocation=DEFAULT_CMD_INVOCATION,
-            # get_local_home_path=_get_my_win_home_path_from_wsl,
         ),
         ToolTemplate(
             name="Build IESA using specified branch in remote manifest",
@@ -89,7 +86,6 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME, IESA_ADC_LIB_REPO_NAME],
             },
             override_cmd_invocation=DEFAULT_CMD_INVOCATION,
-            # get_local_home_path=_get_my_win_home_path_from_wsl,
         ),
     ]
 
@@ -384,11 +380,11 @@ def get_docker_image_from_gitlab_yml() -> str:
 
     # Check if Docker image exists locally
     check_cmd = f"docker image inspect {docker_image} > /dev/null 2>&1"
-    result = os.system(check_cmd)
+    result = run_shell(check_cmd, capture_output=True).returncode
 
     if result != 0:
         LOG(f"Docker image {docker_image} not found locally. Pulling...")
-        pull_result = os.system(f"docker pull {docker_image}")
+        pull_result = run_shell(f"docker pull {docker_image}")
         if pull_result != 0:
             throw_exception(f"Failed to pull Docker image: {docker_image}")
         LOG(f"Successfully pulled Docker image: {docker_image}")
@@ -556,16 +552,8 @@ def sync_local_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
 
 def show_changes(repo_name: str, rel_path: str) -> bool:
     repo_path = OW_BUILD_FOLDER_PATH / rel_path
-    exclude_pattern = ":(exclude)tmp_local_gitlab_ci/"
-    res = subprocess.run(
-        # Need . to apply pathspecs (with exclude) to current directory
-        ["git", "status", "--porcelain", ".", exclude_pattern],
-        cwd=repo_path,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    changes: List[str] = [line for line in res.stdout.splitlines() if line.strip()]
+    exclude_pattern = "':(exclude)tmp_local_gitlab_ci/'"
+    changes: List[str] = git_get_porcelain_status_lines(repo_path, exclude_pattern)
     if changes:
         LOG(f"\nChanges in {repo_name} ({rel_path}):")
         for line in changes:

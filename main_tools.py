@@ -43,18 +43,6 @@ def discover_and_nest_tools(project_root: Path, folder_pattern: str, tool_prefix
 
 def build_template_run_command(tool_path: Path, template: ToolTemplate) -> str:
     """Build command line for a template"""
-    home_override_args: List[str] = []
-    if template.get_local_home_path:
-        try:
-            override_path = template.get_local_home_path()
-        except Exception as exc:
-            LOG(f"Failed to get local home path override: {exc}")
-            override_path = None
-
-        if override_path:
-            LOG(f"Using local home path override: {override_path}")
-            home_override_args = [ARG_LOCAL_HOME_PATH, str(override_path)]
-
     base_cmd = template.override_cmd_invocation.strip() if template.override_cmd_invocation else ""
     cmd_parts: List[str] = []
     cmd_prefix: Optional[str] = None
@@ -64,9 +52,6 @@ def build_template_run_command(tool_path: Path, template: ToolTemplate) -> str:
     else:
         cmd_parts = [sys.executable, str(tool_path)]
         LOG(f"Using default python at {sys.executable} for template '{template.name}'.")
-
-    if home_override_args:
-        cmd_parts.extend(home_override_args)
 
     for arg_key, arg_value in template.args.items():
         if isinstance(arg_value, list):

@@ -57,7 +57,6 @@ def get_tool_templates() -> List[ToolTemplate]:
                     usage_note=template.usage_note,
                     should_run_now=getattr(template, "run_now_without_modify", False),
                     hidden=getattr(template, "should_hidden", False),
-                    get_local_home_path=getattr(template, "get_local_home_path", None),
                 )
             )
         return cloned

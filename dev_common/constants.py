@@ -1,35 +1,12 @@
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 from typing import List
 from dev_common.core_independent_utils import get_home_path
 
 ARGUMENT_LONG_PREFIX = "--"
 ARGUMENT_SHORT_PREFIX = "-"
-ARG_LOCAL_HOME_PATH = f"{ARGUMENT_LONG_PREFIX}local-home-path"
-
-
-def _consume_local_home_path_override() -> str | None:
-    """Pop --local-home-path (and its value) from sys.argv if present."""
-    args = sys.argv
-    idx = 0
-    while idx < len(args):
-        current = args[idx]
-        if current.startswith(f"{ARG_LOCAL_HOME_PATH}="):
-            override = current.split("=", 1)[1]
-            args.pop(idx)
-            return override
-        if current == ARG_LOCAL_HOME_PATH:
-            if idx + 1 < len(args):
-                override = args[idx + 1]
-                del args[idx: idx + 2]
-                return override
-            args.pop(idx)
-            return None
-        idx += 1
-    return None
 
 HOME_PATH = get_home_path()
 

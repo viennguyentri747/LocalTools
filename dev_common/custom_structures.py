@@ -135,9 +135,8 @@ class ToolTemplate:
     run_now_without_modify: bool = False
     should_hidden: bool = False
     override_cmd_invocation: Optional[str] = None
-    get_local_home_path: Optional[Callable[[], Path | str]] = None
 
-    def __init__(self, name: str, extra_description: str = "", args: Dict[str, Any] = {}, search_root: Optional[Path] = None, no_need_live_edit: bool = True, usage_note: str = "", should_run_now: bool = False, hidden: bool = False, override_cmd_invocation: Optional[str] = None, get_local_home_path: Optional[Callable[[], Path | str]] = None):
+    def __init__(self, name: str, extra_description: str = "", args: Dict[str, Any] = {}, search_root: Optional[Path] = None, no_need_live_edit: bool = True, usage_note: str = "", should_run_now: bool = False, hidden: bool = False, override_cmd_invocation: Optional[str] = None):
         self.name = name
         self.extra_description = extra_description
         self.args = args
@@ -147,7 +146,6 @@ class ToolTemplate:
         self.run_now_without_modify = should_run_now
         self.should_hidden = hidden
         self.override_cmd_invocation = override_cmd_invocation
-        self.get_local_home_path = get_local_home_path
 
 @dataclass(frozen=True)
 class ForwardedTool:

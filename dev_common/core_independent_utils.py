@@ -28,9 +28,9 @@ def get_home_path() -> Path:
 
 def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[Path | str] = None,
               check_throw_exception_on_exit_code: bool = True, stdout=None, stderr=None,
-              text: Optional[bool] = True, capture_output: bool = True, encoding: str = 'utf-8',
+              text: Optional[bool] = True, capture_output: bool = False, encoding: str = 'utf-8',
               want_shell: bool = True, executable: Optional[str] = None, timeout: Optional[int] = None, is_run_wsl_if_window: bool = True) -> subprocess.CompletedProcess:
-    """Echo + run a shell command"""
+    """Echo + run a shell command. Note: capture_output will catpure stdout/stderr and return within CompletedProcess object -> Also Suppress stdout/stderr"""
 
     def _stringify_cmd_list(cmd_list: List[Union[str, Path]]) -> str:
         return ' '.join(shlex.quote(str(arg)) for arg in cmd_list)

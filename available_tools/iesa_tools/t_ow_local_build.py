@@ -3,15 +3,15 @@
 OneWeb SW-Tools interactive local build helper (top-down, manifest-aware).
 """
 import argparse
-import datetime
-import filecmp
+from datetime import datetime
+import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import textwrap
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 from dev_common import *
 from dev_common.gitlab_utils import *
 from dev_iesa import *
@@ -36,7 +36,10 @@ ARG_MAKE_CLEAN = f"{ARGUMENT_LONG_PREFIX}make_clean"
 ARG_IS_DEBUG_BUILD = f"{ARGUMENT_LONG_PREFIX}is_debug_build"
 ARG_OW_BUILD_TYPE = f"{ARGUMENT_LONG_PREFIX}build_type"
 DEFAULT_CMD_INVOCATION = F"{get_win_python_executable_path()} -m available_tools.iesa_tools.t_ow_local_build"
-
+PREFIX_OW_BUILD_ARTIFACT = f"iesa_test_"
+TEMP_OW_BUILD_OUTPUT_PATH = TEMP_FOLDER_PATH / "ow_build_output/"
+MANIFEST_OUT_ARTIFACT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}manifest.xml"
+IESA_OUT_ARTIFACT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}build.iesa"
 
 def get_tool_templates() -> List[ToolTemplate]:
     return [
@@ -47,7 +50,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_OW_BUILD_TYPE: BUILD_TYPE_IESA,
                 ARG_MANIFEST_SOURCE: MANIFEST_SOURCE_LOCAL,
                 ARG_USE_CURRENT_LOCAL_OW_BRANCH: True,
-                ARG_TISDK_REF: BRANCH_MANPACK_MASTER,
+                # ARG_TISDK_REF: BRANCH_MANPACK_MASTER,
                 ARG_INTERACTIVE: False,
                 ARG_MAKE_CLEAN: True,
                 ARG_FORCE_REMOVE_TMP_BUILD: True,
@@ -78,7 +81,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_OW_BUILD_TYPE: BUILD_TYPE_IESA,
                 ARG_MANIFEST_SOURCE: MANIFEST_SOURCE_REMOTE,
                 ARG_DEFAULT_OW_MANIFEST_BRANCH: BRANCH_MANPACK_MASTER,
-                ARG_TISDK_REF: BRANCH_MANPACK_MASTER,
+                # ARG_TISDK_REF: BRANCH_MANPACK_MASTER,
                 ARG_INTERACTIVE: False,
                 ARG_MAKE_CLEAN: True,
                 ARG_FORCE_REMOVE_TMP_BUILD: True,
@@ -138,6 +141,20 @@ def main() -> None:
     is_debug_build: bool = get_arg_value(args, ARG_IS_DEBUG_BUILD)
     # Update overwrite repos no git suffix
     overwrite_repos = [get_path_no_suffix(r, GIT_SUFFIX) for r in overwrite_repos]
+    ensure_temp_build_output_dir()
+
+    tisdk_ref_from_ci_yml: Optional[str] = None
+    if build_type == BUILD_TYPE_IESA:
+        tisdk_ref_from_ci_yml = get_tisdk_ref_from_ci_yml(GITLAB_CI_YML_PATH)
+        if not tisdk_ref_from_ci_yml:
+            LOG(f"ERROR: Could not determine TISDK ref from '{GITLAB_CI_YML_PATH}'.", file=sys.stderr)
+            sys.exit(1)
+        if not tisdk_ref:
+            tisdk_ref = tisdk_ref_from_ci_yml
+            tisdk_arg_dest = ARG_TISDK_REF.lstrip(ARGUMENT_LONG_PREFIX).replace("-", "_")
+            setattr(args, tisdk_arg_dest, tisdk_ref)
+            LOG(f"No explicit TISDK ref provided. Using '{tisdk_ref}' from '{GITLAB_CI_YML_PATH}'.")
+
     LOG(f"Parsed args: {args}")
 
     current_branch = git_get_current_branch(OW_SW_PATH)
@@ -157,9 +174,11 @@ def main() -> None:
             sys.exit(1)
 
     prebuild_check(build_type, manifest_source, manifest_branch, tisdk_ref,
-                   overwrite_repos, use_current_local_ow_branch, current_branch)
-    pre_build_setup(build_type, manifest_source, manifest_branch,
-                    tisdk_ref, overwrite_repos, force_remove_tmp_build, repo_sync, use_current_ow_branch=use_current_local_ow_branch)
+                   overwrite_repos, use_current_local_ow_branch, current_branch, tisdk_ref_from_ci_yml)
+
+    actual_manifest, overridden_repo_changes = pre_build_setup(
+        build_type, manifest_source, manifest_branch, tisdk_ref, overwrite_repos, force_remove_tmp_build, repo_sync, use_current_ow_branch=use_current_local_ow_branch)
+
     run_build(build_type, get_arg_value(args, ARG_INTERACTIVE), make_clean, is_debug_build)
 
     # Always display binary build finish + command to copy
@@ -191,18 +210,22 @@ def main() -> None:
                             is_copy_to_clipboard=(build_type == BUILD_TYPE_BINARY))
 
     # TODO: improve handling on interactive mode (check it actually success before print copy commands)
+    iesa_artifact_path: Optional[Path] = None
     if build_type == BUILD_TYPE_IESA:
         LOG(f"{MAIN_STEP_LOG_PREFIX} IESA build finished. Renaming artifact...")
         if OW_OUTPUT_IESA_PATH.is_file():
-            safe_branch = sanitize_str_to_file_name(manifest_branch)
-            new_iesa_name = f"v_{safe_branch}.iesa"
-            new_iesa_path = OW_OUTPUT_IESA_PATH.parent / new_iesa_name
+            # safe_branch = sanitize_str_to_file_name(manifest_branch)
+            # new_iesa_name = f"{PREFIX_OW_BUILD_ARTIFACT}build.iesa"
+            new_iesa_path = IESA_OUT_ARTIFACT_PATH
+            ensure_temp_build_output_dir()
+            if new_iesa_path.exists():
+                new_iesa_path.unlink()
 
-            # In linux, rename will overwrite.
-            OW_OUTPUT_IESA_PATH.rename(new_iesa_path)
+            shutil.move(str(OW_OUTPUT_IESA_PATH), str(new_iesa_path))
             new_iesa_output_abs_path = new_iesa_path.resolve()
             LOG(f"Renamed '{OW_OUTPUT_IESA_PATH.name}' to '{new_iesa_path.name}'")
             LOG(f"Find output IESA here (WSL path): {new_iesa_output_abs_path}")
+            iesa_artifact_path = new_iesa_output_abs_path
             # run_shell(f"sudo chmod 644 {new_iesa_output_abs_path}")
             # original_md5 = md5sum(new_iesa_output_abs_path)
 
@@ -210,7 +233,7 @@ def main() -> None:
                 local_path=new_iesa_output_abs_path,
                 remote_host="root@192.168.100.254",
                 remote_dir="/home/root/download/",
-                run_cmd_on_remote=f"iesa_umcmd install pkg {new_iesa_name} && tail -F /var/log/upgrade_log",
+                run_cmd_on_remote=f"iesa_umcmd install pkg {new_iesa_path.name} && tail -F /var/log/upgrade_log",
                 is_prompt_before_execute=True
             )
             display_content_to_copy(command_to_display, purpose="Copy IESA to target IP", is_copy_to_clipboard=True)
@@ -219,10 +242,29 @@ def main() -> None:
                 f"ERROR: Expected IESA artifact not found at '{OW_OUTPUT_IESA_PATH}' or it's not a file.", file=sys.stderr)
             sys.exit(1)
 
+    metadata_payload: Dict[str, Any] = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "build_type": build_type,
+        "manifest_branch": manifest_branch,
+        "script_input_args": {k: v for k, v in vars(args).items()},
+        "actual_manifest": {
+            "path": str(MANIFEST_OUT_ARTIFACT_PATH),
+            "content": actual_manifest.to_serializable_dict(),
+        },
+        "actual_tisdk_ref": tisdk_ref,
+        "actual_overridden_repos": overridden_repo_changes,
+        "output_paths": {
+            "binary_directory": str(OW_BUILD_BINARY_OUTPUT_PATH),
+            "iesa_artifact_path": str(iesa_artifact_path) if iesa_artifact_path else None,
+        },
+    }
+
+    write_build_metadata(metadata_payload)
+
 # ───────────────────────────  helpers / actions  ─────────────────────── #
 
 
-def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: str, input_tisdk_ref: str, overwrite_repos: List[str], use_current_ow_branch: bool, current_local_branch: str):
+def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: str, input_tisdk_ref: str, overwrite_repos: List[str], use_current_ow_branch: bool, current_local_branch: str, tisdk_ref_from_ci_yml: Optional[str] = None):
     ow_sw_path_str = str(OW_SW_PATH)
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build check...")
     LOG(f"Check OW branch matches with manifest branch. This is because we use some OW folders from the build like ./external/, ... ")
@@ -256,12 +298,18 @@ def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: st
             LOG(f"ERROR: TISDK ref is not provided.", file=sys.stderr)
             sys.exit(1)
 
-        LOG(f"Check TISDK ref {input_tisdk_ref} matches with {GITLAB_CI_YML_PATH}'s tisdk branch to avoid using wrong BSP")
-        tisdk_ref_from_ci_yml: Optional[str] = get_tisdk_ref_from_ci_yml(GITLAB_CI_YML_PATH)
-        if input_tisdk_ref != tisdk_ref_from_ci_yml:
-            # Maybe we should check if tisdk_ref is ahead of tisdk_branch in the future if need change tisdk ref separately
-            LOG(f"ERROR: Argument TISDK ref '{input_tisdk_ref}' does not match with local {GITLAB_CI_YML_PATH}'s tisdk branch '{tisdk_ref_from_ci_yml}'.", file=sys.stderr)
+        if not tisdk_ref_from_ci_yml:
+            LOG(f"ERROR: Unable to validate TISDK ref because CI manifest ref is unknown.", file=sys.stderr)
             sys.exit(1)
+
+        LOG(f"Check TISDK ref {input_tisdk_ref} matches with {GITLAB_CI_YML_PATH}'s tisdk branch to avoid using wrong BSP")
+        if input_tisdk_ref != tisdk_ref_from_ci_yml:
+            is_descendant = is_tisdk_ref_descendant(tisdk_ref_from_ci_yml, input_tisdk_ref)
+            if is_descendant:
+                LOG(f"TISDK ref '{input_tisdk_ref}' differs from '{tisdk_ref_from_ci_yml}' but is ahead/descendant based on local '{IESA_TISDK_TOOLS_REPO_NAME}' history. Proceeding with caution.")
+            else:
+                LOG(f"ERROR: Argument TISDK ref '{input_tisdk_ref}' isn't a descendant of '{tisdk_ref_from_ci_yml}'.", file=sys.stderr)
+                sys.exit(1)
         else:
             LOG(f"TISDK ref '{input_tisdk_ref}' matches with {GITLAB_CI_YML_PATH}'s tisdk branch '{tisdk_ref_from_ci_yml}'.")
 
@@ -275,36 +323,51 @@ def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: st
                 sys.exit(1)
 
 
-def pre_build_setup(build_type: str, manifest_source: str, ow_manifest_branch: str, tisdk_ref: str, overwrite_repos: List[str], force_remove_tmp_build: bool, repo_sync: bool, use_current_ow_branch: bool) -> None:
+def pre_build_setup(build_type: str, manifest_source: str, ow_manifest_branch: str, tisdk_ref: str, overwrite_repos: List[str], force_remove_tmp_build: bool, repo_sync: bool, use_current_ow_branch: bool) -> Tuple[IesaManifest, List[Dict[str, Any]]]:
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build setup...")
+    manifest_snapshot_path: Path = IESA_MANIFEST_FILE_PATH_LOCAL
     if repo_sync:
         reset_or_create_tmp_build(force_remove_tmp_build)
         # Sync other repos from manifest of REMOTE OW_SW
-        init_and_sync_from_remote(ow_manifest_branch, manifest_source=manifest_source,
-                                  use_current_ow_branch=use_current_ow_branch)
+        manifest_sync_from_remote_path = init_and_sync_from_remote(ow_manifest_branch, manifest_source=manifest_source,
+                                                           use_current_ow_branch=use_current_ow_branch)
+        manifest_snapshot_path = manifest_sync_from_remote_path
     else:
         LOG("Skipping tmp_build reset and repo sync due to --sync false flag.")
 
     # {repo → relative path from build folder}, use local as they should be the same
-    manifest: IesaManifest = parse_local_gl_iesa_manifest()
+    actual_manifest: IesaManifest = parse_local_gl_iesa_manifest(manifest_snapshot_path)
+    manifest_metadata_path = copy_manifest_for_metadata(manifest_snapshot_path)
+    LOG(f"Manifest snapshot copied to '{manifest_metadata_path}' for metadata export.")
+    overridden_repo_change_details: List[Dict[str, Any]] = []
 
     if overwrite_repos:
         # Copy local code to overwrite code from remote before build
         repo_names = [get_path_no_suffix(r, GIT_SUFFIX) for r in overwrite_repos]
         for repo_name in repo_names:
-            repo_rel_path_vs_tmp_build = manifest.get_repo_relative_path_vs_tmp_build(repo_name)
-            if repo_name not in manifest.get_all_repo_names():
+            repo_rel_path_vs_tmp_build = actual_manifest.get_repo_relative_path_vs_tmp_build(repo_name)
+            if repo_name not in actual_manifest.get_all_repo_names():
                 LOG(f"ERROR: Specified repo \"{repo_name}\" not found in manifest.", file=sys.stderr)
                 sys.exit(1)
             sync_local_code(repo_name, repo_rel_path_vs_tmp_build)
 
-        any_changed: bool = any(show_changes(r, manifest.get_repo_relative_path_vs_tmp_build(r))
-                                for r in repo_names if r in manifest.get_all_repo_names())
+        change_snapshots: List[Dict[str, Any]] = []
+        for repo_name in repo_names:
+            rel_path = actual_manifest.get_repo_relative_path_vs_tmp_build(repo_name)
+            if not rel_path:
+                continue
+            change_snapshot = collect_repo_changes(repo_name, rel_path)
+            change_snapshots.append(change_snapshot)
+
+        any_changed: bool = any(snapshot.get("has_changes") for snapshot in change_snapshots)
         if not any_changed:
             LOG("WARNING: No files changed in selected repos.")
+        overridden_repo_change_details = [snapshot for snapshot in change_snapshots if snapshot.get("has_changes")]
 
     if build_type == BUILD_TYPE_IESA:
         prepare_iesa_bsp(tisdk_ref)
+
+    return actual_manifest, overridden_repo_change_details
 
 
 def run_build(build_type: str, interactive: bool, make_clean: bool = True, is_debug_build: bool = False) -> None:
@@ -427,7 +490,7 @@ def get_tisdk_ref_from_ci_yml(file_path: str) -> Optional[str]:
     return tisdk_ref
 
 
-def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, use_current_ow_branch: bool) -> None:
+def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, use_current_ow_branch: bool) -> Path:
     LOG(f"{MAIN_STEP_LOG_PREFIX} Init and Sync repo at {OW_BUILD_FOLDER_PATH}...")
     repo_root_for_manifest = str(OW_SW_PATH)
     if is_platform_windows():
@@ -437,13 +500,14 @@ def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, u
               cwd=OW_BUILD_FOLDER_PATH)
 
     # Construct the full path to the manifest file
-    manifest_full_path = os.path.join(OW_BUILD_FOLDER_PATH, ".repo", "manifests", IESA_MANIFEST_RELATIVE_PATH)
+    manifest_full_path = Path(OW_BUILD_FOLDER_PATH / ".repo" / "manifests" / IESA_MANIFEST_RELATIVE_PATH)
+    manifest_snapshot_content = ""
     # Check if the manifest file exists before trying to read it
     LOG("\n--------------------- MANIFEST ---------------------")
-    if os.path.exists(manifest_full_path):
+    if manifest_full_path.exists():
         LOG(f"--- Manifest Content ({manifest_full_path}) ---")
-        with open(manifest_full_path, 'r') as f:
-            LOG(f.read())
+        manifest_snapshot_content = manifest_full_path.read_text(encoding="utf-8")
+        LOG(manifest_snapshot_content)
         LOG("--- End Manifest Content ---")
 
         if manifest_source == MANIFEST_SOURCE_LOCAL and use_current_ow_branch:
@@ -469,6 +533,7 @@ def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, u
         LOG_EXCEPTION_STR("Parsed manifest is invalid or empty.")
 
     run_shell("repo sync", cwd=OW_BUILD_FOLDER_PATH)
+    return manifest_full_path
 
 
 def sync_local_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
@@ -517,8 +582,17 @@ def sync_local_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
             dest_path.mkdir(parents=True, exist_ok=True)
 
 
-def show_changes(repo_name: str, rel_path: str) -> bool:
+def collect_repo_changes(repo_name: str, rel_path: str) -> Dict[str, Any]:
     repo_path = OW_BUILD_FOLDER_PATH / rel_path
+    if not repo_path.exists():
+        LOG(f"WARNING: Repo path '{repo_path}' not found when collecting changes for '{repo_name}'.")
+        return {
+            "repo_name": repo_name,
+            "relative_path_vs_tmp_build": rel_path,
+            "status_lines": [],
+            "has_changes": False,
+        }
+
     exclude_pattern = "':(exclude)tmp_local_gitlab_ci/'"
     changes: List[str] = git_get_porcelain_status_lines(repo_path, exclude_pattern)
     if changes:
@@ -527,7 +601,70 @@ def show_changes(repo_name: str, rel_path: str) -> bool:
             LOG(" ", line)
     else:
         LOG(f"\nNo changes detected in {repo_name}.")
-    return bool(changes)
+
+    return {
+        "repo_name": repo_name,
+        "relative_path_vs_tmp_build": rel_path,
+        "status_lines": changes,
+        "has_changes": bool(changes),
+    }
+
+
+def ensure_temp_build_output_dir() -> None:
+    TEMP_OW_BUILD_OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
+
+
+def copy_manifest_for_metadata(manifest_source_path: Path) -> Path:
+    ensure_temp_build_output_dir()
+    manifest_metadata_path = MANIFEST_OUT_ARTIFACT_PATH
+    source_resolved = manifest_source_path.resolve()
+    dest_resolved = manifest_metadata_path.resolve()
+    if source_resolved == dest_resolved:
+        return manifest_metadata_path
+    if manifest_metadata_path.exists():
+        manifest_metadata_path.unlink()
+    shutil.copy2(manifest_source_path, manifest_metadata_path)
+    return manifest_metadata_path
+
+
+def write_build_metadata(metadata_payload: Dict[str, Any]) -> Path:
+    ensure_temp_build_output_dir()
+    metadata_path = TEMP_OW_BUILD_OUTPUT_PATH / "ow_build_metadata.json"
+    with open(metadata_path, "w", encoding="utf-8") as metadata_file:
+        json.dump(metadata_payload, metadata_file, indent=2)
+    LOG(f"{MAIN_STEP_LOG_PREFIX} Build metadata saved to '{metadata_path}'.")
+    return metadata_path
+
+
+def is_tisdk_ref_descendant(base_ref: str, candidate_descentdant_ref: str) -> bool:
+    """
+    Validate that `candidate_ref` is ahead of or equal to `base_ref` in the tisdk repo history.
+    """
+    repo_info = get_repo_info_by_name(IESA_TISDK_TOOLS_REPO_NAME)
+    repo_path = repo_info.repo_local_path
+    if not repo_path.exists():
+        LOG(f"ERROR: Repo path '{repo_path}' for '{IESA_TISDK_TOOLS_REPO_NAME}' does not exist.", file=sys.stderr)
+        return False
+
+    # Ensure local refs are fresh before validation.
+    fetch_success = git_fetch(repo_path)
+    if not fetch_success:
+        LOG(f"{LOG_PREFIX_MSG_WARNING} Failed to fetch latest refs for '{repo_path}'. Attempting to validate with existing refs.")
+
+    missing_refs: List[str] = []
+    for ref in (base_ref, candidate_descentdant_ref):
+        if not git_is_ref_or_branch_existing(repo_path, ref):
+            missing_refs.append(ref)
+
+    if missing_refs:
+        LOG(f"ERROR: Missing refs {missing_refs} in '{repo_path}'. Ensure the repository has these branches/tags locally.", file=sys.stderr)
+        return False
+
+    if git_is_ancestor(base_ref, candidate_descentdant_ref, cwd=repo_path):
+        return True
+
+    LOG(f"ERROR: TISDK ref '{candidate_descentdant_ref}' is not a descendant of '{base_ref}' in '{repo_path}'.", file=sys.stderr)
+    return False
 
 
 def get_manifest_repo_url(manifest_source: str, local_repo_path: str) -> Optional[str]:

@@ -7,7 +7,8 @@ import sys
 from typing import Dict, Iterable, List, Tuple
 
 from available_tools.test_tools import test_pattern_in_acu_logs_local as pattern_tool
-from available_tools.test_tools import test_ut_status_since_startup as status_tool
+from available_tools.test_tools.test_ut_since_startup import test_ut_acquisition_status_via_bash as bash_status_tool
+from available_tools.test_tools.test_ut_since_startup import test_ut_acquisition_status as python_status_tool
 from available_tools.test_tools import test_process_plog_local as compact_plog_tool
 from dev_common import *
 
@@ -15,16 +16,23 @@ from dev_common import *
 ARG_TEST_MODE = f"{ARGUMENT_LONG_PREFIX}mode"
 
 MODE_STATUS = "status_since_startup"
+MODE_STATUS_NATIVE = "status_since_startup_python"
 MODE_ACU_PATTERN = "acu_log_pattern"
 MODE_COMPACT_PLOG = "compact_plog"
-AVAILABLE_TEST_MODES = (MODE_STATUS, MODE_ACU_PATTERN, MODE_COMPACT_PLOG)
+AVAILABLE_TEST_MODES = (MODE_STATUS, MODE_STATUS_NATIVE, MODE_ACU_PATTERN, MODE_COMPACT_PLOG)
 
 FORWARDED_TOOLS: Dict[str, ForwardedTool] = {
     MODE_STATUS: ForwardedTool(
         mode=MODE_STATUS,
         description="Reboot UT and check status endpoints after startup.",
-        main=status_tool.main,
-        get_templates=status_tool.get_tool_templates,
+        main=bash_status_tool.main,
+        get_templates=bash_status_tool.get_tool_templates,
+    ),
+    MODE_STATUS_NATIVE: ForwardedTool(
+        mode=MODE_STATUS_NATIVE,
+        description="Reboot UT and check status endpoints via native Python client.",
+        main=python_status_tool.main,
+        get_templates=python_status_tool.get_tool_templates,
     ),
     MODE_ACU_PATTERN: ForwardedTool(
         mode=MODE_ACU_PATTERN,
@@ -65,7 +73,8 @@ def parse_args(argv: List[str]) -> Tuple[argparse.Namespace, List[str]]:
         required=True,
         help=(
             f"Which UT helper to run. "
-            f"'{MODE_STATUS}' forwards to test_ut_status_since_startup.py. "
+            f"'{MODE_STATUS}' forwards to test_ut_acquisition_status_via_bash.py. "
+            f"'{MODE_STATUS_NATIVE}' forwards to test_ut_acquisition_status.py. "
             f"'{MODE_ACU_PATTERN}' forwards to test_pattern_in_acu_logs.py. "
             f"'{MODE_COMPACT_PLOG}' forwards to test_gen_compact_log_from_plog.py."
         ),

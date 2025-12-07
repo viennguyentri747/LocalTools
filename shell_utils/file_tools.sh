@@ -2,6 +2,26 @@
 
 trash_dir="$HOME/.local/share/Trash/"
 
+clean_trash() {
+    # check if directory exists first
+    if [ ! -d "$trash_dir" ]; then
+        echo "Trash directory not found at: $trash_dir"
+        return 1
+    fi
+
+    shopt -s nullglob dotglob # Enable nullglob and dotglob to include hidden files
+    files=("$trash_dir"*)
+    shopt -u nullglob dotglob # Disable nullglob and dotglob to restore previous behavior
+    
+    if [ ${#files[@]} -eq 0 ]; then
+        echo "Trash directory '$trash_dir' is already empty."
+    else
+        #Remove all files including hidden files
+        rm -rf "${files[@]}"
+        echo "Trash cleaned (including hidden files)."
+    fi
+}
+
 rm() {
     local files_to_remove=()
     local permanent_delete=false

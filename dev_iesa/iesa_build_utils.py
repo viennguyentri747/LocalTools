@@ -46,6 +46,17 @@ class IesaManifest:
             base_list.insert(0, IESA_OW_SW_TOOLS_REPO_NAME)
         return base_list
 
+    def to_serializable_dict(self) -> Dict[str, Dict[str, str]]:
+        """Return manifest data as a JSON-friendly dict."""
+        return {
+            repo_name: {
+                "relative_path_vs_tmp_build": path,
+                "revision": revision,
+                "remote": remote,
+            }
+            for repo_name, (path, revision, remote) in self._mapping.items()
+        }
+
 
 def _parse_iesa_projects(root: ElementTree.Element, ignored_project_names: List[str] = []) -> Dict[str, Tuple[str, str, str]]:
     """Parse project elements from manifest XML root and return mapping."""
@@ -69,7 +80,7 @@ def _parse_iesa_projects(root: ElementTree.Element, ignored_project_names: List[
     return mapping
 
 
-def parse_local_gl_iesa_manifest(manifest_path_or_str: Union[Path, str] = IESA_MANIFEST_FILE_PATH, ignored_project_names: List[str] = [ "third_party_apps" ]) -> IesaManifest:
+def parse_local_gl_iesa_manifest(manifest_path_or_str: Union[Path, str] = IESA_MANIFEST_FILE_PATH_LOCAL, ignored_project_names: List[str] = [ "third_party_apps" ]) -> IesaManifest:
     """Return a Manifest object from the manifest XML."""
     manifest_path = Path(manifest_path_or_str)
     if not manifest_path.is_file():

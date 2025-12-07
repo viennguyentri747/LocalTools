@@ -85,14 +85,16 @@ def diplay_templates(tool_path: Path, templates: List[ToolTemplate]) -> int:
 
     # Build option data with command previews
     option_data = []
+    display_counter = 0
     for i, template in enumerate(templates, 1):
         if template.should_hidden:
             continue
-
+        
         # Build command preview for this template
+        display_counter += 1
         preview_cmd = build_template_run_command(tool_path, template)
         note_part = f". Note: {template.extra_description}" if template.extra_description else ""
-        title = f"[{i}] {template.name}{note_part}\n→ {preview_cmd}"
+        title = f"[{display_counter}] {template.name}{note_part}\n→ {preview_cmd}"
         option_data.append(OptionData(title=title, selectable=True, data=template))
         option_data.append(OptionData(title="", selectable=False))  # Spacer
     if not option_data:

@@ -127,13 +127,8 @@ def check_ssh_pwless_statuses(ips: List[str], user: str, public_key_path: Path, 
             f'{user}@{ip} \'grep -q "{key_fingerprint}" ~/.ssh/authorized_keys 2>/dev/null\''
         )
         try:
-            result = run_shell(
-                cmd,
-                show_cmd=False,
-                capture_output=True,
-                timeout=10,
-                check_throw_exception_on_exit_code=False,
-            )
+            result = run_shell(cmd, show_cmd=False, capture_output=True, timeout=10,
+                               check_throw_exception_on_exit_code=False, )
         except Exception as exc:
             LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to execute SSH status check for {ip}: {exc}")
             return ip, "unreachable"
@@ -175,7 +170,6 @@ def check_ssh_pwless_statuses(ips: List[str], user: str, public_key_path: Path, 
                 statuses.unreachable_ips.append(ip)
 
     return statuses
-
 
 
 def is_ssh_key_already_installed(user: str, host: str, public_key_path: Path) -> bool:
@@ -250,7 +244,7 @@ def remove_target_ssh_key_from_known_host(ip: str) -> bool:
     # Use shlex.quote to prevent command injection
     command = f"ssh-keygen -f {shlex.quote(str(known_hosts_path))} -R {shlex.quote(ip)}"
     LOG(f"{LOG_PREFIX_MSG_INFO} Attempting to remove old host key for {ip}: {command}")
-    
+
     try:
         # Run the command
         result = subprocess.run(shlex.split(command), capture_output=True, text=True, check=True, timeout=10)
@@ -267,8 +261,9 @@ def remove_target_ssh_key_from_known_host(ip: str) -> bool:
         LOG(f"{LOG_PREFIX_MSG_ERROR} An unexpected error occurred while running ssh-keygen for {ip}: {e}")
         return False
 
+
 def setup_host_ssh_key(user: str, host: str, public_key_path: Path,
-                         via_jump: Optional[str] = None) -> bool:
+                       via_jump: Optional[str] = None) -> bool:
     """
     Copy SSH public key to remote host.
     Proactively removes any existing host key from known_hosts before attempting.
@@ -292,7 +287,7 @@ def setup_host_ssh_key(user: str, host: str, public_key_path: Path,
         if via_jump:
             cmd = [
                 'ssh', '-o', f'ProxyJump={user}@{via_jump}',
-                '-o', 'StrictHostKeyChecking=no', # Now accepts the new key automatically
+                '-o', 'StrictHostKeyChecking=no',  # Now accepts the new key automatically
                 f'{user}@{host}',
                 f'mkdir -p ~/.ssh && echo "{public_key}" >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && chmod 700 ~/.ssh'
             ]
@@ -305,7 +300,7 @@ def setup_host_ssh_key(user: str, host: str, public_key_path: Path,
 
         # Run the SSH command (one attempt)
         subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)
-        
+
         LOG(f"{LOG_PREFIX_MSG_INFO} SSH key successfully copied to {host}.")
         return True
 

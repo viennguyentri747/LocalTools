@@ -8,11 +8,11 @@ Remote tool: Generate SCP + run command to copy and execute test_ins_monitor_mes
 import argparse
 from pathlib import Path
 from typing import List
+from available_tools.test_tools.common import ACU_SCRIPT_DIR
 from dev_common import *
 from dev_iesa import *
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_LOCAL_FILE = SCRIPT_DIR / "src" / "test_ins_monitor_messages.py"
+DEFAULT_LOCAL_FILE = ACU_SCRIPT_DIR / "test_ins_monitor_messages.py"
 
 # Argument name constants (local to this tool)
 ARG_CFG_OVERRIDE_MESSAGES_LONG = f"{ARGUMENT_LONG_PREFIX}cfg_override_messages"

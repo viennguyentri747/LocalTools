@@ -9,6 +9,7 @@ ARG_LIST_IPS = f"{ARGUMENT_LONG_PREFIX}ips"
 E_LOG_PREFIX = "E"
 P_LOG_PREFIX = "P"
 T_LOG_PREFIX = "T"
+ACU_SCRIPT_DIR = Path(__file__).resolve().parent / "acu_scripts"
 
 
 class AcuLogInfo:

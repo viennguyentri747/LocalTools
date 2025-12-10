@@ -187,7 +187,6 @@ def build_reboot_sequence_command(config: TestSequenceConfig) -> str:
         f'    fi; '
         f'  }}; '
 
-
         f'  log "======================================"; '
         f'  log "STARTING ITERATION $iteration of $TOTAL_ITERATIONS"; '
         f'  log "======================================"; '

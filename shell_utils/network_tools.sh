@@ -1,5 +1,6 @@
 #!/bin/bash
 # Common Variables
+target_acu_ip="192.168.100.254"
 ut_pass='use4Tst!'
 NOTE_PERMANENT_COMMAND='May need to copy key to UT (for permanent login) before running this command first time. Try to run login_permanent OR login_permanent_lab'
 
@@ -52,51 +53,133 @@ resolve_area_and_octet() {
     return 0
 }
 
-# Function to perform SSH
 ssh_acu() {
     if ! resolve_area_and_octet "$@"; then
         echo "Usage: ssh_acu [area (nor/lab/roof)] <last-octet-of-IP (77)>."
-        echo "Ex: ssh_acu 77   or   ssh_acu lab 77"
+        echo "Ex: ssh_acu 77 / ssh_acu lab 77"
         return 1
     fi
-    local area="$RESOLVED_AREA"
     local last_octet="$RESOLVED_OCTET"
-    local ip_prefix
-    ip_prefix=$(get_ip "$area")
+    local ip_prefix=$(get_ip "$RESOLVED_AREA")
     [ $? -ne 0 ] && return 1  # Check if get_ip failed
     
-    sshpass -p $ut_pass ssh -t -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -- "root@${ip_prefix}.$last_octet" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -- "root@192.168.100.254" 
+    sshpass -p $ut_pass ssh -t -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -- "root@${ip_prefix}.$last_octet" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -- "root@$target_acu_ip" 
+}
+
+run_acu_cmd() {
+    # Usage: run_acu_cmd [area (nor/lab/roof)] <last-octet-of-IP> <command...>
+    if [[ $# -lt 2 ]]; then
+        echo "Usage: run_acu_cmd [area(nor/lab/roof)] <last-octet-of-IP> <command...>"
+        echo "Ex: run_acu_cmd 77 reboot"
+        echo "    run_acu_cmd lab 77 'systemctl status diagnostics'"
+        return 1
+    fi
+    
+    # Resolve area + octet using existing helper
+    if ! resolve_area_and_octet "$1" "$2"; then
+        echo "Usage: run_acu_cmd [area(nor/lab/roof)] <last-octet-of-IP> <command...>"
+        return 1
+    fi
+    
+    # Drop the resolved args, keep only the command part
+    shift "$RESOLVED_SHIFT"
+    
+    local ip_prefix
+    ip_prefix=$(get_ip "$RESOLVED_AREA")
+    [ $? -ne 0 ] && return 1
+    local full_ip="${ip_prefix}.$RESOLVED_OCTET"
+    
+    local cmd_to_run=( "$@" )
+    local quoted_run_cmd=\""${cmd_to_run[*]}"\" # Wrap the entire command in quotes so it's treated as one unit through both SSH hops
+    echo "Running command on ACU $target_acu_ip via UT $full_ip: $quoted_run_cmd"
+    sshpass -p "$ut_pass" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+        "root@$full_ip" \
+        ssh -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+        "root@$target_acu_ip" "$quoted_run_cmd"
+    
+    local ssh_status=$?
+    if [[ $ssh_status -ne 0 ]]; then
+        echo "[ERROR] SSH ACU command failed (exit $ssh_status) via $full_ip -> $target_acu_ip."
+        return "$ssh_status"
+    else
+        echo -e "\n[INFO] SSH ACU command successfully executed on $target_acu_ip (via $full_ip)."
+        return 0
+    fi
 }
 
 ssh_ssm() {
     if ! resolve_area_and_octet "$@"; then
-        echo "Usage: ssh_ssm [area(nor/lab/roof)] <last-octet-of-IP (77)>."
-        echo "Ex: ssh_ssm 77   or   ssh_ssm lab 77"
+        echo "Usage: ssh_ssm [area(nor/lab/roof)] <last-octet-of-IP (77)>. Ex: ssh_ssm 77 / ssh_ssm lab 77"
         return 1
     fi
-    local area="$RESOLVED_AREA"
-    local last_octet="$RESOLVED_OCTET"
-    local ip_prefix
-    ip_prefix=$(get_ip "$area")
-    [ $? -ne 0 ] && return 1  # Check if get_ip failed
-    
-    sshpass -p $ut_pass ssh -t -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -- "root@${ip_prefix}.$last_octet"
+    local ip_prefix=$(get_ip "$RESOLVED_AREA") || return 1
+    sshpass -p $ut_pass ssh -t -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -- "root@${ip_prefix}.$RESOLVED_OCTET"
 }
 
-# Function to handle SSH key copying for permanent login
-login_permanent() {
+reboot_ssm() {
     if ! resolve_area_and_octet "$@"; then
-        echo "Usage: login_permanent [area(nor/lab/roof)] <last-octet-of-IP (77)>."
-        echo "Ex: login_permanent 73   or   login_permanent roof 73"
+        echo "Usage: reboot_ssm [area(nor/lab/roof)] <last-octet-of-IP (77)>."
+        echo "Ex: reboot_ssm 77 / reboot_ssm lab 77"
         return 1
     fi
-    local area="$RESOLVED_AREA"
-    local last_octet="$RESOLVED_OCTET"
+
     local ip_prefix
-    ip_prefix=$(get_ip "$area")
+    ip_prefix=$(get_ip "$RESOLVED_AREA") || return 1
+    local full_ip="${ip_prefix}.$RESOLVED_OCTET"
+
+    if curl -fsS "$full_ip/api/system/reboot"; then
+        echo -e "\n[INFO] HTTP reboot request successfully executed."
+        return 0
+    fi
+
+    echo "[WARN] HTTP reboot failed. Falling back to SSH reboot..."
+    # Re-use the helper; this will re-resolve but keeps the call site simple.
+    run_ssm_cmd "$@" reboot
+}
+
+run_ssm_cmd() {
+    # Usage: run_ssm_cmd [area(nor/lab/roof)] <last-octet> <command...>
+    if [[ $# -lt 2 ]]; then
+        echo "Usage: run_ssm_cmd [area(nor/lab/roof)] <last-octet-of-IP> <command...>"
+        echo "Ex: run_ssm_cmd 77 reboot"
+        echo "    run_ssm_cmd lab 77 'systemctl status diagnostics'"
+        return 1
+    fi
+
+    # Resolve area + octet using your existing helper
+    if ! resolve_area_and_octet "$1" "$2"; then
+        echo "Usage: run_ssm_cmd [area(nor/lab/roof)] <last-octet-of-IP> <command...>"
+        return 1
+    fi
+
+    # Drop the resolved args, keep the command
+    shift "$RESOLVED_SHIFT"
+
+    local ip_prefix=$(get_ip "$RESOLVED_AREA") || return 1
+    local full_ip="${ip_prefix}.$RESOLVED_OCTET"
+    local cmd=( "$@" )
+
+    sshpass -p "$ut_pass" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+        root@"$full_ip" "${cmd[@]}"
+    local ssh_status=$?
+
+    if [[ $ssh_status -ne 0 ]]; then
+        echo "[ERROR] SSH command failed (exit $ssh_status) on $full_ip."
+        return "$ssh_status"
+    else
+        echo -e "\n[INFO] SSH command successfully executed on $full_ip."
+        return 0
+    fi
+}
+
+login_permanent() {
+    if ! resolve_area_and_octet "$@"; then
+        echo "Usage: login_permanent [area(nor/lab/roof)] <last-octet-of-IP (77)>. Ex: login_permanent 73 / login_permanent roof 73"
+        return 1
+    fi
+    local ip_prefix=$(get_ip "$RESOLVED_AREA")
     [ $? -ne 0 ] && return 1  # Check if get_ip failed
-    
-    sshpass -p $ut_pass ssh-copy-id -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${ip_prefix}.$last_octet
+    sshpass -p $ut_pass ssh-copy-id -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${ip_prefix}.$RESOLVED_AREA
 }
 
 ping_ssm_ip() {
@@ -137,7 +220,7 @@ ping_acu_ip() {
     local ip=""
     local mute=0
     local user="${ut_user:-root}"
-    local target="192.168.100.254"
+    local target="${target_acu_ip}"
 
     # Parse args
     for arg in "$@"; do

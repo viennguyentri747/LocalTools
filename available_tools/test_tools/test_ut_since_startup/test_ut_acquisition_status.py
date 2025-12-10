@@ -35,12 +35,13 @@ class MetricRecord:
 class IterationMetrics:
     iteration: int
     total_time: int
-    total_timestamp: str
-    server_up: MetricRecord
-    gps_fix: MetricRecord
-    ping_ready: MetricRecord
-    aim_ready: MetricRecord
-    connected: MetricRecord
+    total_timestamp: str = ""
+    reboot_time: MetricRecord = MetricRecord(seconds=-1, timestamp="")
+    server_up: MetricRecord = MetricRecord(seconds=-1, timestamp="")
+    gps_fix: MetricRecord = MetricRecord(seconds=-1, timestamp="")
+    ping_ready: MetricRecord = MetricRecord(seconds=-1, timestamp="")
+    aim_ready: MetricRecord = MetricRecord(seconds=-1, timestamp="")
+    connected: MetricRecord = MetricRecord(seconds=-1, timestamp="")
 
 
 @dataclass
@@ -533,6 +534,7 @@ def run_single_iteration(iteration: int, config: TestSequenceConfig, ssm_ip: str
     LOG("")
     LOG(f"{LOG_PREFIX_MSG_INFO} All parallel checks completed! GPS:{gps_fix.seconds} PING:{ping_ready.seconds} AIM:{aim_ready.seconds}")
     LOG(f"{LOG_PREFIX_MSG_INFO} Waiting for CONNECTED status with timeout = {config.apn_online_timeout}...")
+    # connected=MetricRecord(seconds=-1, timestamp="N/A (commented out)")
     connected = wait_for_connected(client, config, ssm_up_time)
 
     total_time = int(time.time() - reboot_start)

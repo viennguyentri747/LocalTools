@@ -5,9 +5,7 @@
 #   *) export PATH="/usr/local/bin:$PATH" && echo "Added /usr/local/bin to PATH" ;;
 # esac
 
-echo "[DEBUG] Current shell: $0"
-echo "[DEBUG] BASH_VERSION: $BASH_VERSION"
-echo "[DEBUG] SHELL env: $SHELL"
+echo "[DEBUG] Current shell: $0, BASH_VERSION: $BASH_VERSION, SHELL env: $SHELL"
 
 # Find the directory where this script itself lives
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

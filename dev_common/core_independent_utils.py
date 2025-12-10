@@ -139,14 +139,15 @@ def convert_wsl_to_win_path(file_path: Path) -> str:
         cmd = ["wslpath", "-w", path_str]
 
     try:
-        result = subprocess.run(
+        result = run_shell(
             cmd,
             capture_output=True,
             text=True,
-            check=True
+            check_throw_exception_on_exit_code=True
         )
         win_path = result.stdout.strip()
         LOG(f"Converted WSL path {file_path} to Windows path: {win_path}")
+        return win_path
     except Exception as e:
         LOG_EXCEPTION_STR(f"Failed to convert WSL path {file_path} to Windows path: {e}")
 

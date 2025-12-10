@@ -1,3 +1,12 @@
+source_bashrc() {
+    if [[ -f "$HOME/.bashrc" ]]; then
+        echo "[INFO] Sourcing ~/.bashrc to apply user configurations..."
+        source "$HOME/.bashrc"
+    else
+        echo "[WARN] ~/.bashrc not found. Skipping sourcing."
+    fi
+}
+
 is_vscode_terminal() {
     [[ -n "$VSCODE_INJECTION" ]] || [[ -n "$TERM_PROGRAM" && "$TERM_PROGRAM" == "vscode" ]]
 }

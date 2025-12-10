@@ -246,16 +246,16 @@ def main() -> None:
         "timestamp": datetime.utcnow().isoformat(),
         "build_type": build_type,
         "manifest_branch": manifest_branch,
-        "script_input_args": {k: v for k, v in vars(args).items()},
-        "actual_manifest": {
-            "path": str(MANIFEST_OUT_ARTIFACT_PATH),
-            "content": actual_manifest.to_serializable_dict(),
+        "raw_arg_inputs": {k: v for k, v in vars(args).items()},
+        "finalized_params": {
+            "manifest_content": actual_manifest.to_serializable_dict(),
+            "tisdk_ref": tisdk_ref,
+            "overridden_repos": overridden_repo_changes,
         },
-        "actual_tisdk_ref": tisdk_ref,
-        "actual_overridden_repos": overridden_repo_changes,
         "output_paths": {
             "binary_directory": str(OW_BUILD_BINARY_OUTPUT_PATH),
             "iesa_artifact_path": str(iesa_artifact_path) if iesa_artifact_path else None,
+            "manifest_path": str(MANIFEST_OUT_ARTIFACT_PATH),
         },
     }
 

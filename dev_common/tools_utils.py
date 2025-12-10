@@ -264,11 +264,10 @@ def open_explorer_to_file(file_path: Path) -> None:
     try:
         # Convert path using helper
         windows_path = convert_wsl_to_win_path(file_path)
-
         # Launch Explorer with selected file
-        subprocess.run(
+        run_shell(
             [CMD_EXPLORER, WSL_SELECT_FLAG, windows_path],
-            check=False
+            check_throw_exception_on_exit_code=False
         )
 
         LOG(f"Opened Explorer to highlight '{file_path}'")
@@ -284,7 +283,7 @@ def run_win_cmd(command: str) -> Tuple[str, str, int]:
     """
     try:
         # Capture stdout + stderr, Decode to str instead of bytes
-        result = subprocess.run(["cmd.exe", "/C", command], capture_output=True, text=True, check=False)
+        result = run_shell(["cmd.exe", "/C", command], capture_output=True, text=True, check_throw_exception_on_exit_code=False)
         stdout = result.stdout.strip()
         stderr = result.stderr.strip()
         LOG(f"Executed Windows command: {command}")

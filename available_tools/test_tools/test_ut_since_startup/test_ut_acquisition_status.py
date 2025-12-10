@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import random
 import sys
 import time
 from dataclasses import dataclass
@@ -18,9 +19,14 @@ from dev_common import *
 
 SSM_USER = "root"
 PING_TARGET = ACU_IP
+PING_DISPLAY_NAME = "Ping ACU"
 DEFAULT_HTTP_TIMEOUT = 10
 DUPLICATE_THRESHOLD_SECS = 10
 PING_CMD_TIMEOUT = 5
+TN_OFFSET_FIELD = "dither_coarse_search_hypothesis0"
+TN_OFFSET_MIN = -180
+TN_OFFSET_MAX = 180
+TN_CONFIG_ENDPOINT = "/aim/api/lui/data/config/antenna"
 
 
 # --- Data Models & Parsing Logic ---
@@ -76,20 +82,19 @@ class SystemState(ApiResponse):
 
 
 @dataclass
-class AmcStatus(ApiResponse):
-    amc_code: str = "UNKNOWN"
+class AntennaStatus(ApiResponse):
+    status: str = "UNKNOWN"
 
     @classmethod
-    def from_json(cls, payload: Dict[str, Any]) -> AmcStatus:
-        codes = payload.get("statecodes_by_process") or {}
-        return cls(amc_code=str(codes.get("amc", "UNKNOWN")))
+    def from_json(cls, payload: Dict[str, Any]) -> "AntennaStatus":
+        return cls(status=str(payload.get("status", "UNKNOWN")))
 
     def __str__(self) -> str:
-        return f"amc: {self.amc_code}"
+        return f"status: {self.status}"
 
     @property
-    def is_ready(self) -> bool:
-        return self.amc_code == "0.0.0"
+    def is_good(self) -> bool:
+        return self.status.lower() == "good"
 
 
 @dataclass
@@ -110,26 +115,29 @@ class GnssStatus(ApiResponse):
 
     @property
     def has_3d_fix(self) -> bool:
-        return (
-            str(self.fix_type).upper() == "3D" 
-            and "gps fix" in str(self.fix_quality).lower()
-        )
+        return str(self.fix_type).upper() == "3D"
 
 
 @dataclass
-class ConnectionStatus(ApiResponse):
-    status: str = "UNKNOWN"
+class ApnConnectionStatus(ApiResponse):
+    statuses: List[str]
 
     @classmethod
-    def from_json(cls, payload: Dict[str, Any]) -> ConnectionStatus:
-        return cls(status=str(payload.get("connection_status", "UNKNOWN")))
+    def from_json(cls, payload: Dict[str, Any]) -> "ApnConnectionStatus":
+        raw = payload.get("apn_connection_status") or []
+        if isinstance(raw, list):
+            statuses = [str(item) for item in raw]
+        else:
+            statuses = [str(raw)]
+        return cls(statuses=statuses)
 
     def __str__(self) -> str:
-        return f"connection_status: {self.status}"
+        return f"apn_connection_status: {self.statuses if self.statuses else '<empty>'}"
 
     @property
     def is_connected(self) -> bool:
-        return self.status.upper() == "CONNECTED"
+        normalized = [status.lower() for status in self.statuses]
+        return len(normalized) == 2 and all(status == "connected" for status in normalized)
 
 
 # --- Logging Infrastructure ---
@@ -263,6 +271,40 @@ class SsmHttpClient:
         self.session.close()
 
 
+def _tn_config_url(client: SsmHttpClient) -> str:
+    return f"{client.base_url}{TN_CONFIG_ENDPOINT}"
+
+
+def get_tn_offset(client: SsmHttpClient, retries: int = 5) -> float:
+    url = _tn_config_url(client)
+    for attempt in range(1, retries + 1):
+        try:
+            response = client.session.get(url, timeout=5)
+            response.raise_for_status()
+            payload = response.json()
+            raw_value = payload.get(TN_OFFSET_FIELD, 0)
+            return float(raw_value)
+        except (requests.RequestException, ValueError, TypeError) as exc:
+            LOG(f"{LOG_PREFIX_MSG_WARNING} Attempt {attempt}: failed to read TN offset ({exc})")
+            time.sleep(1)
+    raise RuntimeError("Failed to read TN offset after multiple attempts.")
+
+
+def set_tn_offset(client: SsmHttpClient, offset: int) -> None:
+    url = _tn_config_url(client)
+    LOG(f"{LOG_PREFIX_MSG_INFO} Setting TN offset to {offset}...", highlight=True)
+    try:
+        response = client.session.get(url, timeout=5)
+        response.raise_for_status()
+        payload = response.json()
+        payload[TN_OFFSET_FIELD] = str(offset)
+        post_response = client.session.post(url, json=payload, timeout=5)
+        post_response.raise_for_status()
+    except requests.RequestException as exc:
+        raise RuntimeError(f"Failed to set TN offset: {exc}") from exc
+    LOG(f"{LOG_PREFIX_MSG_SUCCESS} TN offset updated.", highlight=True)
+
+
 # --- Configuration & Setup ---
 
 def get_tool_templates() -> List[ToolTemplate]:
@@ -278,6 +320,7 @@ def get_tool_templates() -> List[ToolTemplate]:
         ARG_WAIT_SECS_AFTER_EACH_ITERATION: DEFAULT_WAIT_SECS_AFTER_EACH_ITERATION,
         ARG_TOTAL_ITERATIONS: DEFAULT_TOTAL_ITERATIONS,
         ARG_SSM_IP: default_ssm,
+        ARG_PRINT_TIMESTAMP: False,
     }
 
     return [
@@ -311,6 +354,8 @@ def parse_args() -> argparse.Namespace:
                         help=f"Number of test iterations to perform (default: {DEFAULT_TOTAL_ITERATIONS}).", )
     parser.add_argument(ARG_WAIT_SECS_AFTER_EACH_ITERATION, type=int, default=DEFAULT_WAIT_SECS_AFTER_EACH_ITERATION,
                         help=f"Seconds to wait between iterations (default: {DEFAULT_WAIT_SECS_AFTER_EACH_ITERATION}).", )
+    parser.add_argument(ARG_PRINT_TIMESTAMP, action="store_true",
+                        help="Include timestamp breakdowns in the summary output.", )
 
     return parser.parse_args()
 
@@ -421,20 +466,20 @@ def wait_for_parallel_statuses(
         if not ping_record:
             ping_elapsed = time.time() - reboot_start
             if ping_elapsed >= config.ping_timeout:
-                raise TimeoutError(f"Timed out waiting for {PING_TARGET} to respond to ping.")
+                raise TimeoutError(f"Timed out waiting for {PING_DISPLAY_NAME}.")
             if check_ping_via_ssm(ssm_ip):
                 ts = time.time()
                 ping_record = MetricRecord(seconds=int(ts - reboot_start), timestamp=timestamp_str(ts))
-                LOG(f"{LOG_PREFIX_MSG_INFO} {PING_TARGET} pingable after {ping_record.seconds} sec", highlight=True)
+                LOG(f"{LOG_PREFIX_MSG_INFO} {PING_DISPLAY_NAME} succeeded after {ping_record.seconds} sec", highlight=True)
 
         # --- Check AIM ---
         if not aim_record:
             try:
-                amc = custom_client.request("/api/system/status", response_type=AmcStatus)
-                if amc and amc.is_ready:
+                antenna = custom_client.request("/api/antenna/antennainfo", response_type=AntennaStatus)
+                if antenna and antenna.is_good:
                     ts = time.time()
                     aim_record = MetricRecord(seconds=int(ts - reboot_start), timestamp=timestamp_str(ts))
-                    LOG(f"{LOG_PREFIX_MSG_INFO} AIM ready (0.0.0) after {aim_record.seconds} sec", highlight=True)
+                    LOG(f"{LOG_PREFIX_MSG_INFO} Antenna status GOOD after {aim_record.seconds} sec", highlight=True)
             except requests.RequestException:
                 pass
 
@@ -446,16 +491,17 @@ def wait_for_parallel_statuses(
     return gps_record, ping_record, aim_record
 
 
-def wait_for_connected(client: SsmHttpClient, config: TestSequenceConfig, ssm_up_time: float) -> MetricRecord:
-    deadline = ssm_up_time + config.apn_online_timeout
+def wait_for_connected(client: SsmHttpClient, config: TestSequenceConfig, reboot_start: float) -> MetricRecord:
+    deadline = reboot_start + config.apn_online_timeout
     while True:
         if time.time() > deadline:
-            raise TimeoutError("Timed out waiting for CONNECTED connection_status.")
+            raise TimeoutError("Timed out waiting for APN connection status to report connected.")
         try:
-            conn = client.request("/api/cnx/connection_status", response_type=ConnectionStatus)
+            conn = client.request("/api/modem/modemstatus", response_type=ApnConnectionStatus)
             if conn and conn.is_connected:
                 ts = time.time()
-                record = MetricRecord(seconds=int(ts - ssm_up_time), timestamp=timestamp_str(ts))
+                record = MetricRecord(seconds=int(ts - reboot_start), timestamp=timestamp_str(ts))
+                LOG(f"{LOG_PREFIX_MSG_INFO} APN connected after {record.seconds} sec", highlight=True)
                 return record
         except requests.RequestException:
             pass
@@ -477,27 +523,27 @@ def log_iteration_summaries(ssm_ip: str, metrics: List[IterationMetrics]) -> Non
         LOG(f"  Total: {entry.total_time} sec")
         LOG(f"  SSM up: {entry.server_up.seconds} sec")
         LOG(f"  GPS 3D fix: {entry.gps_fix.seconds} sec")
-        LOG(f"  Ping {PING_TARGET}: {entry.ping_ready.seconds} sec")
+        LOG(f"  {PING_DISPLAY_NAME}: {entry.ping_ready.seconds} sec")
         LOG(f"  AIM ready: {entry.aim_ready.seconds} sec")
         LOG(f"  Connected: {entry.connected.seconds} sec")
         LOG("--------------------------------------")
 
 
-def log_metric_summary(label: str, values: List[int], timestamps: List[str]) -> None:
+def log_metric_summary(label: str, values: List[int], timestamps: List[str], show_timestamps: bool) -> None:
     avg = sum(values) // len(values)
     LOG(f"{label}: avg={avg} sec, min={min(values)} sec, max={max(values)} sec")
-    if timestamps:
+    if show_timestamps and timestamps:
         LOG(f"{label} timestamps: {', '.join(timestamps)}")
 
 
-def log_overall_summary(ssm_ip: str, metrics: List[IterationMetrics], total_iterations: int) -> None:
+def log_overall_summary(ssm_ip: str, metrics: List[IterationMetrics], total_iterations: int, show_timestamps: bool) -> None:
     log_section(f"SUMMARY ANALYSIS ON {ssm_ip} ({metrics[-1].iteration} of {total_iterations} iterations)")
-    log_metric_summary("Total Time", [m.total_time for m in metrics], [m.total_timestamp for m in metrics])
-    log_metric_summary("SSM Up Time", [m.server_up.seconds for m in metrics], [m.server_up.timestamp for m in metrics])
-    log_metric_summary("GPS 3D Fix Time", [m.gps_fix.seconds for m in metrics], [m.gps_fix.timestamp for m in metrics])
-    log_metric_summary("Ping Time", [m.ping_ready.seconds for m in metrics], [m.ping_ready.timestamp for m in metrics])
-    log_metric_summary("AIM Ready Time", [m.aim_ready.seconds for m in metrics], [m.aim_ready.timestamp for m in metrics])
-    log_metric_summary("Connected Time", [m.connected.seconds for m in metrics], [m.connected.timestamp for m in metrics])
+    log_metric_summary("Total Time", [m.total_time for m in metrics], [m.total_timestamp for m in metrics], show_timestamps)
+    log_metric_summary("SSM Up Time", [m.server_up.seconds for m in metrics], [m.server_up.timestamp for m in metrics], show_timestamps)
+    log_metric_summary("GPS 3D Fix Time", [m.gps_fix.seconds for m in metrics], [m.gps_fix.timestamp for m in metrics], show_timestamps)
+    log_metric_summary(f"{PING_DISPLAY_NAME} Time", [m.ping_ready.seconds for m in metrics], [m.ping_ready.timestamp for m in metrics], show_timestamps)
+    log_metric_summary("AIM Ready Time", [m.aim_ready.seconds for m in metrics], [m.aim_ready.timestamp for m in metrics], show_timestamps)
+    log_metric_summary("Connected Time", [m.connected.seconds for m in metrics], [m.connected.timestamp for m in metrics], show_timestamps)
 
 
 def wait_between_iterations(wait_secs: int) -> None:
@@ -519,6 +565,11 @@ def wait_between_iterations(wait_secs: int) -> None:
 def run_single_iteration(iteration: int, config: TestSequenceConfig, ssm_ip: str,
                          client: SsmHttpClient) -> IterationMetrics:
     log_section(f"STARTING ITERATION {iteration} of {config.total_iterations}")
+    random_offset = random.randint(TN_OFFSET_MIN, TN_OFFSET_MAX)
+    set_tn_offset(client, random_offset)
+    tn_settle_time = 3
+    LOG(f"{LOG_PREFIX_MSG_INFO} Sleeping {tn_settle_time} seconds after TN offset update...", highlight=False)
+    time.sleep(tn_settle_time)
     LOG(f"{LOG_PREFIX_MSG_INFO} Issuing reboot request to {config.ssm_ip}/api/system/reboot")
     client.request("/api/system/reboot")
     sleep_time = 5
@@ -532,10 +583,12 @@ def run_single_iteration(iteration: int, config: TestSequenceConfig, ssm_ip: str
     gps_fix, ping_ready, aim_ready = wait_for_parallel_statuses(
         client, config, ssm_ip, reboot_start, ssm_up_time)
     LOG("")
-    LOG(f"{LOG_PREFIX_MSG_INFO} All parallel checks completed! GPS:{gps_fix.seconds} PING:{ping_ready.seconds} AIM:{aim_ready.seconds}")
-    LOG(f"{LOG_PREFIX_MSG_INFO} Waiting for CONNECTED status with timeout = {config.apn_online_timeout}...")
+    LOG(f"{LOG_PREFIX_MSG_INFO} All parallel checks completed! GPS:{gps_fix.seconds} {PING_DISPLAY_NAME}:{ping_ready.seconds} AIM:{aim_ready.seconds}")
+    current_offset = get_tn_offset(client)
+    LOG(f"{LOG_PREFIX_MSG_INFO} TN offset currently {current_offset}", highlight=True)
+    LOG(f"{LOG_PREFIX_MSG_INFO} Waiting for APN connection status with timeout = {config.apn_online_timeout}...")
     # connected=MetricRecord(seconds=-1, timestamp="N/A (commented out)")
-    connected = wait_for_connected(client, config, ssm_up_time)
+    connected = wait_for_connected(client, config, reboot_start)
 
     total_time = int(time.time() - reboot_start)
     total_timestamp = timestamp_str(time.time())
@@ -562,7 +615,7 @@ def run_test_sequence(config: TestSequenceConfig) -> List[IterationMetrics]:
             entry = run_single_iteration(iteration, config, config.ssm_ip, client)
             metrics.append(entry)
             log_iteration_summaries(config.ssm_ip, metrics)
-            log_overall_summary(config.ssm_ip, metrics, config.total_iterations)
+            log_overall_summary(config.ssm_ip, metrics, config.total_iterations, config.print_timestamp)
             if iteration < config.total_iterations and config.wait_secs_after_each_iteration > 0:
                 wait_between_iterations(config.wait_secs_after_each_iteration)
         return metrics

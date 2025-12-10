@@ -20,6 +20,7 @@ ARG_ONLINE_TIMEOUT = f"{ARGUMENT_LONG_PREFIX}online-timeout"
 ARG_PING_TIMEOUT = f"{ARGUMENT_LONG_PREFIX}ping-timeout"
 ARG_TOTAL_ITERATIONS = f"{ARGUMENT_LONG_PREFIX}total-iterations"
 ARG_WAIT_SECS_AFTER_EACH_ITERATION = f"{ARGUMENT_LONG_PREFIX}wait-secs-after-each-iteration"
+ARG_PRINT_TIMESTAMP = f"{ARGUMENT_LONG_PREFIX}print-timestamp"
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,7 @@ class TestSequenceConfig:
     apn_online_timeout: int = DEFAULT_ONLINE_TIMEOUT
     total_iterations: int = DEFAULT_TOTAL_ITERATIONS
     wait_secs_after_each_iteration: int = DEFAULT_WAIT_SECS_AFTER_EACH_ITERATION
+    print_timestamp: bool = False
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> "TestSequenceConfig":
@@ -47,4 +49,5 @@ class TestSequenceConfig:
             apn_online_timeout=int(get_arg_value(args, ARG_ONLINE_TIMEOUT)),
             total_iterations=int(get_arg_value(args, ARG_TOTAL_ITERATIONS)),
             wait_secs_after_each_iteration=int(get_arg_value(args, ARG_WAIT_SECS_AFTER_EACH_ITERATION)),
+            print_timestamp=bool(get_arg_value(args, ARG_PRINT_TIMESTAMP)),
         )

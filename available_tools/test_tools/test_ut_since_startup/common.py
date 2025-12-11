@@ -7,7 +7,7 @@ from dev_common.python_misc_utils import get_arg_value
 DEFAULT_SSM_REBOOT_TIMEOUT = 90  # seconds to wait for SSM to respond after reboot
 DEFAULT_REQUEST_INTERVAL = 1  # seconds between url request attempts
 DEFAULT_GPX_FIX_TIMEOUT = 200  # seconds to wait for gpx fix
-DEFAULT_ONLINE_TIMEOUT = 800  # seconds to wait for the host to come back online
+DEFAULT_ONLINE_TIMEOUT = 900  # seconds to wait for the host to come back online
 DEFAULT_PING_TIMEOUT = 240  # seconds to wait for UT ping to succeed
 DEFAULT_TOTAL_ITERATIONS = 10  # number of test cycles to execute
 DEFAULT_WAIT_SECS_AFTER_EACH_ITERATION = 5  # seconds to wait between cycles
@@ -21,6 +21,21 @@ ARG_PING_TIMEOUT = f"{ARGUMENT_LONG_PREFIX}ping-timeout"
 ARG_TOTAL_ITERATIONS = f"{ARGUMENT_LONG_PREFIX}total-iterations"
 ARG_WAIT_SECS_AFTER_EACH_ITERATION = f"{ARGUMENT_LONG_PREFIX}wait-secs-after-each-iteration"
 ARG_PRINT_TIMESTAMP = f"{ARGUMENT_LONG_PREFIX}print-timestamp"
+ARG_TESTS = f"{ARGUMENT_LONG_PREFIX}tests"
+
+TEST_SSM_UP = "ssm_up"
+TEST_GPS_FIX = "gps_fix"
+TEST_PING = "ping"
+TEST_AIM_READY = "aim_ready"
+TEST_CONNECTED = "connected"
+
+DEFAULT_TESTS: tuple[str, ...] = (
+    TEST_SSM_UP,
+    TEST_GPS_FIX,
+    TEST_PING,
+    TEST_AIM_READY,
+    TEST_CONNECTED,
+)
 
 
 @dataclass(frozen=True)
@@ -37,9 +52,12 @@ class TestSequenceConfig:
     total_iterations: int = DEFAULT_TOTAL_ITERATIONS
     wait_secs_after_each_iteration: int = DEFAULT_WAIT_SECS_AFTER_EACH_ITERATION
     print_timestamp: bool = False
+    tests_to_run: tuple[str, ...] = DEFAULT_TESTS
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> "TestSequenceConfig":
+        tests_arg = get_arg_value(args, ARG_TESTS)
+        tests = tuple(tests_arg) if tests_arg else DEFAULT_TESTS
         return cls(
             ssm_ip=get_arg_value(args, ARG_SSM_IP),
             request_interval=int(get_arg_value(args, ARG_REQUEST_INTERVAL)),
@@ -50,4 +68,5 @@ class TestSequenceConfig:
             total_iterations=int(get_arg_value(args, ARG_TOTAL_ITERATIONS)),
             wait_secs_after_each_iteration=int(get_arg_value(args, ARG_WAIT_SECS_AFTER_EACH_ITERATION)),
             print_timestamp=bool(get_arg_value(args, ARG_PRINT_TIMESTAMP)),
+            tests_to_run=tests,
         )

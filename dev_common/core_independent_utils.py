@@ -11,8 +11,28 @@ from typing import List, Literal, Optional, Union, Tuple
 from datetime import datetime
 import traceback
 import platform
+from enum import IntEnum
 
 WSL_ROOT_FROM_WIN_DRIVE = "X:"
+
+
+class ELogType(IntEnum):
+    DEBUG = 10
+    NORMAL = 20
+    WARNING = 30
+    CRITICAL = 40
+
+
+_CURRENT_LOG_LEVEL: ELogType = ELogType.NORMAL
+
+
+def set_log_level(level: ELogType) -> None:
+    global _CURRENT_LOG_LEVEL
+    _CURRENT_LOG_LEVEL = level
+
+
+def get_current_log_level() -> ELogType:
+    return _CURRENT_LOG_LEVEL
 
 
 def get_home_path() -> Path:
@@ -225,7 +245,11 @@ def get_cwd_path_str():
     return str(Path.cwd())
 
 
-def LOG(*values: object, sep: str = " ", end: str = "\n", file=None, highlight: bool = False, show_time=True, show_traceback: bool = False, flush: bool = True) -> None:
+def LOG(*values: object, sep: str = " ", end: str = "\n", file=None, highlight: bool = False,
+        show_time: bool = True, show_traceback: bool = False, flush: bool = True,
+        log_type: ELogType = ELogType.NORMAL) -> None:
+    if log_type < get_current_log_level():
+        return
     # Prepare the message
     message = sep.join(str(value) for value in values)
 
@@ -246,7 +270,11 @@ def LOG(*values: object, sep: str = " ", end: str = "\n", file=None, highlight: 
             filtered_tb = tb  # Keep all frames if stack is shallow
         message = f"{message}\nBacktrace:\n" + "".join(filtered_tb)
 
-    if highlight:
+    auto_highlight = False
+    if not highlight and log_type in (ELogType.WARNING, ELogType.CRITICAL):
+        auto_highlight = True
+
+    if highlight or auto_highlight:
         HIGHLIGHT_COLOR = "\033[92m"  # green
         BOLD = "\033[1m"
         RESET = "\033[0m"

@@ -128,7 +128,6 @@ def main() -> None:
         ARG_COLUMN_LIST,
         nargs="+",
         default=None,
-        metavar="COLUMN",
         help="Space-separated list of column names to include (defaults to INS-focused set).",
     )
     parser.add_argument(

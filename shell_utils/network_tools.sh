@@ -1,6 +1,7 @@
 #!/bin/bash
 # Common Variables
-target_acu_ip="192.168.100.254"
+common_ip_prefix="192.168.100"
+target_acu_ip="$common_ip_prefix.254"
 ut_pass='use4Tst!'
 NOTE_PERMANENT_COMMAND='May need to copy key to UT (for permanent login) before running this command first time. Try to run login_permanent OR login_permanent_lab'
 
@@ -11,7 +12,7 @@ DEFAULT_AREA="nor"
 get_ip() {
     case "$1" in
         nor)
-            echo "192.168.100"
+            echo "$common_ip_prefix"
         ;;
         lab)
             echo "172.16.20"
@@ -63,7 +64,28 @@ ssh_acu() {
     local ip_prefix=$(get_ip "$RESOLVED_AREA")
     [ $? -ne 0 ] && return 1  # Check if get_ip failed
     
-    sshpass -p $ut_pass ssh -t -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -- "root@${ip_prefix}.$last_octet" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -- "root@$target_acu_ip" 
+    # Adjusted options (ConnectionAttempts handled by loop, so strictly 1 here is good)
+    SSH_OPTS="-o ConnectTimeout=2 -o ConnectionAttempts=1 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    MAX_SSH_TRIES=3
+    
+    for ((attempt=1; attempt<=$MAX_SSH_TRIES; attempt++)); do
+        echo "[INFO] Attempt $attempt/$MAX_SSH_TRIES: Connect to ACU"
+        # Run SSH and capture the exit code
+        sshpass -p "$ut_pass" ssh -t $SSH_OPTS \
+            "root@${ip_prefix}.${last_octet}" \
+            ssh $SSH_OPTS "root@$target_acu_ip"
+        # Capture the exit status of the ssh command immediately
+        local ret=$?
+        
+        # If the return code is NOT 255, it means we connected (even if we logged out later), so we break.
+        if [ $ret -ne 255 ]; then
+            echo "[INFO] Finished SSH connection to ACU."
+            break
+        fi
+
+        echo "[WARN] Attempt $attempt failed (SSH Exit Code: $ret)"
+        sleep 0.2
+    done
 }
 
 run_acu_cmd() {
@@ -172,14 +194,43 @@ run_ssm_cmd() {
     fi
 }
 
-login_permanent() {
+login_permanent_ssm() {
     if ! resolve_area_and_octet "$@"; then
-        echo "Usage: login_permanent [area(nor/lab/roof)] <last-octet-of-IP (77)>. Ex: login_permanent 73 / login_permanent roof 73"
+        echo "Usage: login_permanent_ssm [area(nor/lab/roof)] <last-octet-of-IP (77)>. Ex: login_permanent 73 / login_permanent roof 73"
         return 1
     fi
     local ip_prefix=$(get_ip "$RESOLVED_AREA")
     [ $? -ne 0 ] && return 1  # Check if get_ip failed
-    sshpass -p $ut_pass ssh-copy-id -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@${ip_prefix}.$RESOLVED_AREA
+    login_permanent "root" "${ip_prefix}.$RESOLVED_OCTET" "$ut_pass"
+}
+
+login_permanent() {
+    local user="$1"
+    local ip="$2"
+    local password="$3"
+    
+    if [[ -z "$user" || -z "$ip" ]]; then
+        echo "Usage: login_permanent <user> <ip> [password]"
+        echo "Ex: login_permanent root $common_ip_prefix.70 my_password"
+        echo "    login_permanent root $common_ip_prefix.70  # Interactive password prompt"
+        return 1
+    fi
+    
+    # If password is provided and not empty, use sshpass; otherwise let ssh-copy-id prompt
+    if [[ -n "$password" ]]; then
+        if ! sshpass -p "$password" ssh-copy-id -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$user@$ip"; then
+            echo "Error: Failed to copy SSH key to $user@$ip"
+            return 1
+        fi
+    else
+        echo "No password provided, you will be prompted to enter it interactively..."
+        if ! ssh-copy-id -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$user@$ip"; then
+            echo "Error: Failed to copy SSH key to $user@$ip"
+            return 1
+        fi
+    fi
+    
+    echo "Success: SSH key copied to $user@$ip -> You should now be able to login without a password."
 }
 
 ping_ssm_ip() {
@@ -197,7 +248,7 @@ ping_ssm_ip() {
 
     if [[ -z "$ip" ]]; then
         echo "Usage: ping_ssm <ip> [--mute]"
-        echo "Ex: ping_ssm 192.168.100.70 --mute"
+        echo "Ex: ping_ssm $common_ip_prefix.70 --mute"
         return 1
     fi
 
@@ -232,7 +283,7 @@ ping_acu_ip() {
 
     if [[ -z "$ip" ]]; then
         echo "Usage: ping_acu_ip <ip> [--mute]"
-        echo "Ex: ping_acu_ip 192.168.100.70 --mute"
+        echo "Ex: ping_acu_ip $common_ip_prefix.70 --mute"
         return 1
     fi
 
@@ -338,8 +389,8 @@ scp_acu() {
     local local_paths=("${@:3:$#-3}") # This captures all arguments from the 3rd to the penultimate as local paths
     echo "Attempting to SCP files from: ${local_paths[@]} to $remote_path on remote"
     for path in "${local_paths[@]}"; do
-        echo "scp -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -J root@${ip_prefix}.$last_octet $path root@192.168.100.254:$remote_path"
-        scp -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -J "root@${ip_prefix}.$last_octet" "$path" "root@192.168.100.254:$remote_path"
+        echo "scp -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -J root@${ip_prefix}.$last_octet $path root@$common_ip_prefix.254:$remote_path"
+        scp -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -J "root@${ip_prefix}.$last_octet" "$path" "root@$common_ip_prefix.254:$remote_path"
     done
 }
 
@@ -360,7 +411,7 @@ scp_acu_to_local() {
     fi
 
     # Use the SSM as a jump host and copy from the ACU to the local machine
-    scp -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -J "root@${ip_prefix}.$last_octet" "root@192.168.100.254:$remote_path" "$local_path"
+    scp -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -J "root@${ip_prefix}.$last_octet" "root@$common_ip_prefix.254:$remote_path" "$local_path"
 }
 
 # unset ut_pass

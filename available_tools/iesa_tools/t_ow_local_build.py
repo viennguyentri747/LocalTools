@@ -194,7 +194,7 @@ def main() -> None:
         f'BIN_NAME=$(basename "$BIN_PATH") && '
         f'DEST_NAME="$BIN_NAME" && '
         f'original_md5=$(md5sum "$BIN_PATH" | cut -d" " -f1) && '
-        f'read -e -p "Enter target IP: " -i "192.168.10" TARGET_IP && '
+        f'read -e -p "Enter target IP: " -i "192.168.100." TARGET_IP && '
         f'ping_acu_ip "$TARGET_IP" --mute && '
         f'scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -rJ root@$TARGET_IP "$BIN_PATH" root@192.168.100.254:/home/root/download/"$DEST_NAME" && '
         f'{{ '
@@ -227,7 +227,7 @@ def main() -> None:
             LOG(f"Find output IESA here (WSL path): {new_iesa_output_abs_path}")
             iesa_artifact_path = new_iesa_output_abs_path
             # run_shell(f"sudo chmod 644 {new_iesa_output_abs_path}")
-            # original_md5 = md5sum(new_iesa_output_abs_path)
+            original_md5 = md5sum(new_iesa_output_abs_path)
 
             command_to_display = create_scp_ut_and_run_cmd(
                 local_path=new_iesa_output_abs_path,

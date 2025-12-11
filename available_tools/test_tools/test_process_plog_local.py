@@ -82,7 +82,6 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         ARG_COLUMNS,
         nargs="+",
         default=None,
-        metavar="COLUMN",
         help="Space-separated list of column names to keep (default: Time/Velocity/RTK Compass).",
     )
     parser.add_argument(

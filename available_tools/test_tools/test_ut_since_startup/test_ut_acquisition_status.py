@@ -21,7 +21,7 @@ SSM_USER = "root"
 PING_TARGET = ACU_IP
 PING_DISPLAY_NAME = "Ping ACU"
 DEFAULT_HTTP_TIMEOUT = 10
-DUPLICATE_THRESHOLD_SECS = 10
+DUPLICATE_LOG_REQUEST_THRESHOLD_SECS = 10
 PING_CMD_TIMEOUT = 5
 TN_OFFSET_FIELD = "dither_coarse_search_hypothesis0"
 TN_OFFSET_MIN = -180
@@ -43,24 +43,23 @@ class IterationMetrics:
     total_time: int
     total_timestamp: str = ""
     reboot_time: MetricRecord = MetricRecord(seconds=-1, timestamp="")
-    server_up: MetricRecord = MetricRecord(seconds=-1, timestamp="")
-    gps_fix: MetricRecord = MetricRecord(seconds=-1, timestamp="")
-    ping_ready: MetricRecord = MetricRecord(seconds=-1, timestamp="")
-    aim_ready: MetricRecord = MetricRecord(seconds=-1, timestamp="")
-    connected: MetricRecord = MetricRecord(seconds=-1, timestamp="")
+    server_up: Optional[MetricRecord] = None
+    gps_fix: Optional[MetricRecord] = None
+    ping_ready: Optional[MetricRecord] = None
+    aim_ready: Optional[MetricRecord] = None
+    connected: Optional[MetricRecord] = None
 
 
 @dataclass
 class RequestLogEntry:
     last_value: str
-    last_time: float
-    duplicate_count: int = 0
+    last_notice_time: float
 
 
 @dataclass
 class ApiResponse:
     """Base class for API responses to enforce parsing and string representation."""
-    
+
     @classmethod
     def from_json(cls, payload: Dict[str, Any]) -> ApiResponse:
         raise NotImplementedError
@@ -169,47 +168,30 @@ class StatusLineRenderer:
 class RequestLogger:
     """Track HTTP responses and avoid spamming duplicate logs."""
 
-    def __init__(self, threshold_secs: int = DUPLICATE_THRESHOLD_SECS) -> None:
+    def __init__(self, threshold_secs: int = DUPLICATE_LOG_REQUEST_THRESHOLD_SECS) -> None:
         self._entries: Dict[str, RequestLogEntry] = {}
         self._log_dup_threshold_secs = threshold_secs
-        self._status_line = StatusLineRenderer()
 
     def log(self, key: str, new_filtered_value: str) -> None:
         now = time.time()
         entry = self._entries.get(key)
-        if entry and entry.last_value == new_filtered_value and (now - entry.last_time) <= self._log_dup_threshold_secs:
-            entry.duplicate_count += 1
+        if entry and entry.last_value == new_filtered_value:
+            if (now - entry.last_notice_time) >= self._log_dup_threshold_secs:
+                LOG(f"{LOG_PREFIX_MSG_INFO} REQUEST: {key}", log_type=ELogType.DEBUG)
+                entry.last_notice_time = now
             return
 
-        self._entries[key] = RequestLogEntry(new_filtered_value, now, 0)
-        self._status_line.clear()
-        LOG(f"{LOG_PREFIX_MSG_INFO} REQUEST: {key}")
-        LOG(f"{LOG_PREFIX_MSG_INFO} RESPONSE: {new_filtered_value if new_filtered_value else '<empty>'}")
-
-    def render_summary(self) -> None:
-        duplicates = [
-            f"{key} (x{entry.duplicate_count})"
-            for key, entry in self._entries.items()
-            if entry.duplicate_count > 0
-        ]
-        if duplicates:
-            joined = ", ".join(duplicates)
-            self._status_line.show(f"Duplicates ({len(duplicates)} cmds): {joined}")
-        else:
-            self._status_line.clear()
-
-    def finish(self) -> None:
-        self._status_line.clear()
-
+        self._entries[key] = RequestLogEntry(new_filtered_value, now)
+        LOG(f"{LOG_PREFIX_MSG_INFO} REQUEST: {key}", log_type=ELogType.DEBUG)
+        LOG(f"{LOG_PREFIX_MSG_INFO} RESPONSE: {new_filtered_value if new_filtered_value else '<empty>'}", log_type=ELogType.DEBUG)
 
 # --- HTTP Client ---
-
 T = TypeVar("T", bound=ApiResponse)
 
 class SsmHttpClient:
     """HTTP helper that wraps requests.Session and logs calls with typed parsing."""
 
-    def __init__(self, base_url: str, timeout: int = DEFAULT_HTTP_TIMEOUT, threshold_secs: int = DUPLICATE_THRESHOLD_SECS) -> None:
+    def __init__(self, base_url: str, timeout: int = DEFAULT_HTTP_TIMEOUT, threshold_secs: int = DUPLICATE_LOG_REQUEST_THRESHOLD_SECS) -> None:
         self.base_url = self._normalize_base_url(base_url)
         self.timeout = timeout
         self.logger = RequestLogger(threshold_secs)
@@ -227,17 +209,17 @@ class SsmHttpClient:
         return f"{self.base_url}/{path.lstrip('/')}"
 
     def request(
-        self, 
-        path: str, 
-        *, 
-        method: str = "GET", 
+        self,
+        path: str,
+        *,
+        method: str = "GET",
         response_type: Optional[Type[T]] = None
     ) -> Union[T, str, None]:
-        
+
         url = self._build_url(path)
         method = method.upper()
         key = f"{method} {url}"
-        
+
         try:
             response = self.session.request(method=method, url=url, timeout=self.timeout)
             response.raise_for_status()
@@ -263,11 +245,7 @@ class SsmHttpClient:
             self.logger.log(key, f"PARSE ERROR: {exc}")
             return None
 
-    def render_duplicate_summary(self) -> None:
-        self.logger.render_summary()
-
     def close(self) -> None:
-        self.logger.finish()
         self.session.close()
 
 
@@ -319,8 +297,9 @@ def get_tool_templates() -> List[ToolTemplate]:
         ARG_ONLINE_TIMEOUT: DEFAULT_ONLINE_TIMEOUT,
         ARG_WAIT_SECS_AFTER_EACH_ITERATION: DEFAULT_WAIT_SECS_AFTER_EACH_ITERATION,
         ARG_TOTAL_ITERATIONS: DEFAULT_TOTAL_ITERATIONS,
-        ARG_SSM_IP: default_ssm,
         ARG_PRINT_TIMESTAMP: False,
+        ARG_TESTS: list(DEFAULT_TESTS),
+        ARG_SSM_IP: default_ssm,
     }
 
     return [
@@ -338,24 +317,33 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawTextHelpFormatter,
         epilog=build_examples_epilog(get_tool_templates(), Path(__file__)),
     )
-    parser.add_argument(ARG_SSM_IP, required=True,
-                        help="Base URL or IP for the SSM API (e.g. http://10.0.0.5 or 10.0.0.5:8080).", )
-    parser.add_argument(ARG_REQUEST_INTERVAL, type=int, default=DEFAULT_REQUEST_INTERVAL,
-                        help=f"Seconds between API requests (default: {DEFAULT_REQUEST_INTERVAL}).", )
-    parser.add_argument(ARG_SSM_REBOOT_TIMEOUT, type=int, default=DEFAULT_SSM_REBOOT_TIMEOUT,
-                        help=f"Seconds to wait for the SSM to respond after reboot (default: {DEFAULT_SSM_REBOOT_TIMEOUT}).", )
-    parser.add_argument(ARG_GPX_FIX_TIMEOUT, type=int, default=DEFAULT_GPX_FIX_TIMEOUT,
-                        help=f"Seconds to wait for the GNSS fix (default: {DEFAULT_GPX_FIX_TIMEOUT}).", )
-    parser.add_argument(ARG_PING_TIMEOUT, type=int, default=DEFAULT_PING_TIMEOUT,
-                        help=f"Seconds to wait for the UT ping to succeed (default: {DEFAULT_PING_TIMEOUT}).", )
-    parser.add_argument(ARG_ONLINE_TIMEOUT, type=int, default=DEFAULT_ONLINE_TIMEOUT,
-                        help=f"Seconds to wait for the CONNECTED status (default: {DEFAULT_ONLINE_TIMEOUT}).", )
-    parser.add_argument(ARG_TOTAL_ITERATIONS, type=int, default=DEFAULT_TOTAL_ITERATIONS,
-                        help=f"Number of test iterations to perform (default: {DEFAULT_TOTAL_ITERATIONS}).", )
-    parser.add_argument(ARG_WAIT_SECS_AFTER_EACH_ITERATION, type=int, default=DEFAULT_WAIT_SECS_AFTER_EACH_ITERATION,
-                        help=f"Seconds to wait between iterations (default: {DEFAULT_WAIT_SECS_AFTER_EACH_ITERATION}).", )
-    parser.add_argument(ARG_PRINT_TIMESTAMP, action="store_true",
-                        help="Include timestamp breakdowns in the summary output.", )
+    add_arg_generic(parser, ARG_SSM_IP, required=True,
+                    help_text="Base URL or IP for the SSM API (e.g. http://10.0.0.5 or 10.0.0.5:8080).", )
+    add_arg_generic(parser, ARG_REQUEST_INTERVAL, arg_type=int, default=DEFAULT_REQUEST_INTERVAL,
+                    help_text=f"Seconds between API requests (default: {DEFAULT_REQUEST_INTERVAL}).", )
+    add_arg_generic(parser, ARG_SSM_REBOOT_TIMEOUT, arg_type=int, default=DEFAULT_SSM_REBOOT_TIMEOUT,
+                    help_text=f"Seconds to wait for the SSM to respond after reboot (default: {DEFAULT_SSM_REBOOT_TIMEOUT}).", )
+    add_arg_generic(parser, ARG_GPX_FIX_TIMEOUT, arg_type=int, default=DEFAULT_GPX_FIX_TIMEOUT,
+                    help_text=f"Seconds to wait for the GNSS fix (default: {DEFAULT_GPX_FIX_TIMEOUT}).", )
+    add_arg_generic(parser, ARG_PING_TIMEOUT, arg_type=int, default=DEFAULT_PING_TIMEOUT,
+                    help_text=f"Seconds to wait for the UT ping to succeed (default: {DEFAULT_PING_TIMEOUT}).", )
+    add_arg_generic(parser, ARG_ONLINE_TIMEOUT, arg_type=int, default=DEFAULT_ONLINE_TIMEOUT,
+                    help_text=f"Seconds to wait for the CONNECTED status (default: {DEFAULT_ONLINE_TIMEOUT}).", )
+    add_arg_generic(parser, ARG_TOTAL_ITERATIONS, arg_type=int, default=DEFAULT_TOTAL_ITERATIONS,
+                    help_text=f"Number of test iterations to perform (default: {DEFAULT_TOTAL_ITERATIONS}).", )
+    add_arg_generic(parser, ARG_WAIT_SECS_AFTER_EACH_ITERATION, arg_type=int, default=DEFAULT_WAIT_SECS_AFTER_EACH_ITERATION,
+                    help_text=f"Seconds to wait between iterations (default: {DEFAULT_WAIT_SECS_AFTER_EACH_ITERATION}).", )
+    add_arg_bool(parser, ARG_PRINT_TIMESTAMP, default=False,
+                 help_text="Include timestamp breakdowns in the summary output.", )
+    parser.add_argument(
+        ARG_TESTS,
+        nargs="+",
+        choices=DEFAULT_TESTS,
+        default=list(DEFAULT_TESTS),
+        metavar="TEST",
+        help=f"Space separated list of acquisition checks to run "
+             f"(default: {' '.join(DEFAULT_TESTS)}).",
+    )
 
     return parser.parse_args()
 
@@ -369,12 +357,17 @@ def validate_config(config: TestSequenceConfig) -> None:
         raise ValueError("total-iterations must be positive.")
     if config.wait_secs_after_each_iteration < 0:
         raise ValueError("wait-secs-after-each-iteration must be non-negative.")
+    if not config.tests_to_run:
+        raise ValueError("At least one test must be specified via --tests.")
+    invalid_tests = [name for name in config.tests_to_run if name not in DEFAULT_TESTS]
+    if invalid_tests:
+        raise ValueError(f"Unknown tests requested: {', '.join(sorted(set(invalid_tests)))}")
 
 
 def ensure_passwordless_ssh(host: str, user: str = SSM_USER) -> None:
     ssh_target = f"{user}@{host}"
-    LOG(f"{LOG_PREFIX_MSG_INFO} Ensuring SSH key authentication to {ssh_target}...")
-    cmd = f'ssh -o BatchMode=yes -o ConnectTimeout=5 {ssh_target} true'
+    LOG(f"{LOG_PREFIX_MSG_INFO} Ensuring SSH key authentication to {ssh_target} ...")
+    cmd = f'ssh -o BatchMode=yes -o ConnectTimeout=2 {ssh_target} true'
     result = run_shell(cmd, show_cmd=False, capture_output=True, timeout=10,
                        check_throw_exception_on_exit_code=False)
     if result.returncode == 0:
@@ -412,6 +405,10 @@ def check_ping_via_ssm(ssm_ip: str) -> bool:
     return result.returncode == 0
 
 
+def should_run_test(config: TestSequenceConfig, name: str) -> bool:
+    return name in config.tests_to_run
+
+
 # --- Main Test Logic ---
 
 def wait_for_system_up(client: SsmHttpClient, config: TestSequenceConfig,
@@ -425,13 +422,12 @@ def wait_for_system_up(client: SsmHttpClient, config: TestSequenceConfig,
             # We don't strictly need to inspect the status code, just that it responds
             # but using response_type ensures we log clean "statecode: X" output.
             client.request("/api/system/status", response_type=SystemState)
-            
+
             ssm_up_time = time.time()
             elapsed = int(ssm_up_time - reboot_start)
             record = MetricRecord(seconds=elapsed, timestamp=timestamp_str(ssm_up_time))
             return record, ssm_up_time
         except requests.RequestException:
-            client.render_duplicate_summary()
             time.sleep(config.request_interval)
 
 
@@ -441,18 +437,31 @@ def wait_for_parallel_statuses(
     ssm_ip: str,
     reboot_start: float,
     ssm_up_time: float,
-) -> tuple[MetricRecord, MetricRecord, MetricRecord]:
+) -> tuple[Optional[MetricRecord], Optional[MetricRecord], Optional[MetricRecord]]:
+    run_gps = should_run_test(config, TEST_GPS_FIX)
+    run_ping = should_run_test(config, TEST_PING)
+    run_aim = should_run_test(config, TEST_AIM_READY)
+    if not any((run_gps, run_ping, run_aim)):
+        return None, None, None
+
     gps_record: Optional[MetricRecord] = None
     ping_record: Optional[MetricRecord] = None
     aim_record: Optional[MetricRecord] = None
-    parallel_deadline = ssm_up_time + max(config.gpx_fix_timeout, config.aim_status_timeout)
+    deadline_components: List[int] = []
+    if run_gps:
+        deadline_components.append(config.gpx_fix_timeout)
+    if run_aim:
+        deadline_components.append(config.aim_status_timeout)
+    parallel_deadline: Optional[float] = None
+    if deadline_components:
+        parallel_deadline = ssm_up_time + max(deadline_components)
 
-    while not (gps_record and ping_record and aim_record):
-        if time.time() > parallel_deadline:
-            raise TimeoutError("Timed out waiting for GPS, AIM, and ping readiness.")
+    while (run_gps and not gps_record) or (run_ping and not ping_record) or (run_aim and not aim_record):
+        if parallel_deadline and time.time() > parallel_deadline:
+            raise TimeoutError("Timed out waiting for requested parallel statuses.")
 
         # --- Check GNSS ---
-        if not gps_record:
+        if run_gps and not gps_record:
             try:
                 gnss = custom_client.request("/api/gnss/gnssstats", response_type=GnssStatus)
                 if gnss and gnss.has_3d_fix:
@@ -463,7 +472,7 @@ def wait_for_parallel_statuses(
                 pass
 
         # --- Check Ping ---
-        if not ping_record:
+        if run_ping and not ping_record:
             ping_elapsed = time.time() - reboot_start
             if ping_elapsed >= config.ping_timeout:
                 raise TimeoutError(f"Timed out waiting for {PING_DISPLAY_NAME}.")
@@ -473,7 +482,7 @@ def wait_for_parallel_statuses(
                 LOG(f"{LOG_PREFIX_MSG_INFO} {PING_DISPLAY_NAME} succeeded after {ping_record.seconds} sec", highlight=True)
 
         # --- Check AIM ---
-        if not aim_record:
+        if run_aim and not aim_record:
             try:
                 antenna = custom_client.request("/api/antenna/antennainfo", response_type=AntennaStatus)
                 if antenna and antenna.is_good:
@@ -483,9 +492,6 @@ def wait_for_parallel_statuses(
             except requests.RequestException:
                 pass
 
-        if gps_record and ping_record and aim_record:
-            break
-        custom_client.render_duplicate_summary()
         time.sleep(config.request_interval)
 
     return gps_record, ping_record, aim_record
@@ -506,7 +512,6 @@ def wait_for_connected(client: SsmHttpClient, config: TestSequenceConfig, reboot
         except requests.RequestException:
             pass
 
-        client.render_duplicate_summary()
         time.sleep(config.request_interval)
 
 
@@ -516,16 +521,23 @@ def log_section(title: str) -> None:
     LOG("=" * 38)
 
 
-def log_iteration_summaries(ssm_ip: str, metrics: List[IterationMetrics]) -> None:
+def log_iteration_summaries(ssm_ip: str, metrics: List[IterationMetrics], tests_to_run: tuple[str, ...]) -> None:
+    tests = set(tests_to_run)
     log_section(f"CYCLE RESULTS ON {ssm_ip}")
     for entry in metrics:
         LOG(f"Iteration {entry.iteration}:")
         LOG(f"  Total: {entry.total_time} sec")
-        LOG(f"  SSM up: {entry.server_up.seconds} sec")
-        LOG(f"  GPS 3D fix: {entry.gps_fix.seconds} sec")
-        LOG(f"  {PING_DISPLAY_NAME}: {entry.ping_ready.seconds} sec")
-        LOG(f"  AIM ready: {entry.aim_ready.seconds} sec")
-        LOG(f"  Connected: {entry.connected.seconds} sec")
+        if TEST_SSM_UP in tests:
+            LOG(f"  SSM up: {entry.server_up.seconds} sec" if entry.server_up else "  SSM up: skipped")
+        if TEST_GPS_FIX in tests:
+            LOG(f"  GPS 3D fix: {entry.gps_fix.seconds} sec" if entry.gps_fix else "  GPS 3D fix: skipped")
+        if TEST_PING in tests:
+            prefix = f"  {PING_DISPLAY_NAME}: "
+            LOG(f"{prefix}{entry.ping_ready.seconds} sec" if entry.ping_ready else f"{prefix}skipped")
+        if TEST_AIM_READY in tests:
+            LOG(f"  AIM ready: {entry.aim_ready.seconds} sec" if entry.aim_ready else "  AIM ready: skipped")
+        if TEST_CONNECTED in tests:
+            LOG(f"  Connected: {entry.connected.seconds} sec" if entry.connected else "  Connected: skipped")
         LOG("--------------------------------------")
 
 
@@ -536,14 +548,31 @@ def log_metric_summary(label: str, values: List[int], timestamps: List[str], sho
         LOG(f"{label} timestamps: {', '.join(timestamps)}")
 
 
-def log_overall_summary(ssm_ip: str, metrics: List[IterationMetrics], total_iterations: int, show_timestamps: bool) -> None:
+def log_overall_summary(ssm_ip: str, metrics: List[IterationMetrics], total_iterations: int, show_timestamps: bool,
+                        tests_to_run: tuple[str, ...]) -> None:
+    tests = set(tests_to_run)
+
     log_section(f"SUMMARY ANALYSIS ON {ssm_ip} ({metrics[-1].iteration} of {total_iterations} iterations)")
-    log_metric_summary("Total Time", [m.total_time for m in metrics], [m.total_timestamp for m in metrics], show_timestamps)
-    log_metric_summary("SSM Up Time", [m.server_up.seconds for m in metrics], [m.server_up.timestamp for m in metrics], show_timestamps)
-    log_metric_summary("GPS 3D Fix Time", [m.gps_fix.seconds for m in metrics], [m.gps_fix.timestamp for m in metrics], show_timestamps)
-    log_metric_summary(f"{PING_DISPLAY_NAME} Time", [m.ping_ready.seconds for m in metrics], [m.ping_ready.timestamp for m in metrics], show_timestamps)
-    log_metric_summary("AIM Ready Time", [m.aim_ready.seconds for m in metrics], [m.aim_ready.timestamp for m in metrics], show_timestamps)
-    log_metric_summary("Connected Time", [m.connected.seconds for m in metrics], [m.connected.timestamp for m in metrics], show_timestamps)
+    log_metric_summary("Total Time", [m.total_time for m in metrics], [
+                       m.total_timestamp for m in metrics], show_timestamps)
+    def summarize(label: str, attr: str) -> None:
+        records = [getattr(m, attr) for m in metrics if getattr(m, attr) is not None]
+        if not records:
+            LOG(f"{label}: skipped")
+            return
+        log_metric_summary(label, [rec.seconds for rec in records], [rec.timestamp for rec in records],
+                           show_timestamps)
+
+    if TEST_SSM_UP in tests:
+        summarize("SSM Up Time", "server_up")
+    if TEST_GPS_FIX in tests:
+        summarize("GPS 3D Fix Time", "gps_fix")
+    if TEST_PING in tests:
+        summarize(f"{PING_DISPLAY_NAME} Time", "ping_ready")
+    if TEST_AIM_READY in tests:
+        summarize("AIM Ready Time", "aim_ready")
+    if TEST_CONNECTED in tests:
+        summarize("Connected Time", "connected")
 
 
 def wait_between_iterations(wait_secs: int) -> None:
@@ -580,15 +609,32 @@ def run_single_iteration(iteration: int, config: TestSequenceConfig, ssm_ip: str
     server_up, ssm_up_time = wait_for_system_up(client, config, reboot_start)
     LOG(f"{LOG_PREFIX_MSG_INFO} SSM up after {server_up.seconds} sec, checking parallel statuses...")
 
-    gps_fix, ping_ready, aim_ready = wait_for_parallel_statuses(
-        client, config, ssm_ip, reboot_start, ssm_up_time)
-    LOG("")
-    LOG(f"{LOG_PREFIX_MSG_INFO} All parallel checks completed! GPS:{gps_fix.seconds} {PING_DISPLAY_NAME}:{ping_ready.seconds} AIM:{aim_ready.seconds}")
+    gps_fix: Optional[MetricRecord] = None
+    ping_ready: Optional[MetricRecord] = None
+    aim_ready: Optional[MetricRecord] = None
+    if any(should_run_test(config, name) for name in (TEST_GPS_FIX, TEST_PING, TEST_AIM_READY)):
+        gps_fix, ping_ready, aim_ready = wait_for_parallel_statuses(
+            client, config, ssm_ip, reboot_start, ssm_up_time)
+        summary_components: List[str] = []
+        if gps_fix:
+            summary_components.append(f"GPS:{gps_fix.seconds}")
+        if ping_ready:
+            summary_components.append(f"{PING_DISPLAY_NAME}:{ping_ready.seconds}")
+        if aim_ready:
+            summary_components.append(f"AIM:{aim_ready.seconds}")
+        if summary_components:
+            LOG("")
+            LOG(f"{LOG_PREFIX_MSG_INFO} All requested parallel checks completed! {' '.join(summary_components)}")
+    else:
+        LOG(f"{LOG_PREFIX_MSG_INFO} No parallel checks requested, skipping GPS/Ping/AIM polling.")
     current_offset = get_tn_offset(client)
     LOG(f"{LOG_PREFIX_MSG_INFO} TN offset currently {current_offset}", highlight=True)
-    LOG(f"{LOG_PREFIX_MSG_INFO} Waiting for APN connection status with timeout = {config.apn_online_timeout}...")
-    # connected=MetricRecord(seconds=-1, timestamp="N/A (commented out)")
-    connected = wait_for_connected(client, config, reboot_start)
+    connected: Optional[MetricRecord] = None
+    if should_run_test(config, TEST_CONNECTED):
+        LOG(f"{LOG_PREFIX_MSG_INFO} Waiting for APN connection status with timeout = {config.apn_online_timeout}...")
+        connected = wait_for_connected(client, config, reboot_start)
+    else:
+        LOG(f"{LOG_PREFIX_MSG_INFO} Connected status check skipped (not requested).")
 
     total_time = int(time.time() - reboot_start)
     total_timestamp = timestamp_str(time.time())
@@ -597,11 +643,11 @@ def run_single_iteration(iteration: int, config: TestSequenceConfig, ssm_ip: str
         iteration=iteration,
         total_time=total_time,
         total_timestamp=total_timestamp,
-        server_up=server_up,
-        gps_fix=gps_fix,
-        ping_ready=ping_ready,
-        aim_ready=aim_ready,
-        connected=connected,
+        server_up=server_up if should_run_test(config, TEST_SSM_UP) else None,
+        gps_fix=gps_fix if should_run_test(config, TEST_GPS_FIX) else None,
+        ping_ready=ping_ready if should_run_test(config, TEST_PING) else None,
+        aim_ready=aim_ready if should_run_test(config, TEST_AIM_READY) else None,
+        connected=connected if should_run_test(config, TEST_CONNECTED) else None,
     )
 
 
@@ -614,8 +660,9 @@ def run_test_sequence(config: TestSequenceConfig) -> List[IterationMetrics]:
         for iteration in range(1, config.total_iterations + 1):
             entry = run_single_iteration(iteration, config, config.ssm_ip, client)
             metrics.append(entry)
-            log_iteration_summaries(config.ssm_ip, metrics)
-            log_overall_summary(config.ssm_ip, metrics, config.total_iterations, config.print_timestamp)
+            log_iteration_summaries(config.ssm_ip, metrics, config.tests_to_run)
+            log_overall_summary(config.ssm_ip, metrics, config.total_iterations, config.print_timestamp,
+                                config.tests_to_run)
             if iteration < config.total_iterations and config.wait_secs_after_each_iteration > 0:
                 wait_between_iterations(config.wait_secs_after_each_iteration)
         return metrics

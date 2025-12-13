@@ -65,27 +65,11 @@ ssh_acu() {
     [ $? -ne 0 ] && return 1  # Check if get_ip failed
     
     # Adjusted options (ConnectionAttempts handled by loop, so strictly 1 here is good)
-    SSH_OPTS="-o ConnectTimeout=2 -o ConnectionAttempts=1 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-    # MAX_SSH_TRIES=3
-    
-    # for ((attempt=1; attempt<=$MAX_SSH_TRIES; attempt++)); do
-        # echo "[INFO] Attempt $attempt/$MAX_SSH_TRIES: Connect to ACU"
-        # Run SSH and capture the exit code
+    SSH_OPTS="-o ConnectTimeout=0 -o ConnectionAttempts=1 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
     sshpass -p "$ut_pass" ssh -t $SSH_OPTS \
         "root@${ip_prefix}.${last_octet}" \
         ssh $SSH_OPTS "root@$target_acu_ip"
-    # Capture the exit status of the ssh command immediately
-    # local ret=$?
-    
-    # If the return code is NOT 255, it means we connected (even if we logged out later), so we break.
-    # if [ $ret -ne 255 ]; then
-    #     echo "[INFO] Finished SSH connection to ACU."
-    #     break
-    # fi
 
-    # echo "[WARN] Attempt $attempt failed (SSH Exit Code: $ret)"
-    #     sleep 0.2
-    #done
 }
 
 run_acu_cmd() {

@@ -70,6 +70,7 @@ rm() {
             local should_backup=false
             
             if [ "$file_realpath" = "$trash_realpath" ] || [ "$file" -ef "$trash_dir" ] || [[ "$file_realpath" == "$trash_realpath"/* ]]; then
+                # File/folder is already in trash directory, delete directly
                 should_backup=false
             else
                 local filesize=0

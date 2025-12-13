@@ -11,7 +11,7 @@ import zipfile  # Needed for extracting artifacts
 from gitlab.v4.objects import *
 from gitlab import *
 from typing import Optional, Union, List
-from dev_common import *
+from dev.dev_common import *
 from gitlab.exceptions import GitlabError
 
 

@@ -5,7 +5,7 @@ from thefuzz import fuzz
 from pathlib import Path
 from typing import List
 import re
-from dev_common.custom_structures import MatchInfo
+from dev.dev_common.custom_structures import MatchInfo
 
 
 @dataclass

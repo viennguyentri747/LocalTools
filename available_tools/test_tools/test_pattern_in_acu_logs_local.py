@@ -6,7 +6,7 @@ import sys
 from typing import List, Optional, Sequence, Set
 from available_tools.test_tools.common import *
 from available_tools.test_tools.t_get_acu_logs import DEFAULT_DATE_VALUES, batch_fetch_acu_logs
-from dev_common import *
+from dev.dev_common import *
 
 DEFAULT_LOG_TYPE_PREFIXES = [P_LOG_PREFIX, T_LOG_PREFIX, E_LOG_PREFIX]
 DEFAULT_LOG_OUTPUT_PATH = ACU_LOG_PATH

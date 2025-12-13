@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import List
-from dev_common.core_independent_utils import get_home_path
+from dev.dev_common.core_independent_utils import get_home_path
 
 ARGUMENT_LONG_PREFIX = "--"
 ARGUMENT_SHORT_PREFIX = "-"

@@ -9,8 +9,8 @@ from __future__ import annotations
 import argparse
 from typing import Iterable, List, Sequence
 
-from dev_common import *
-from dev_iesa import *
+from dev.dev_common import *
+from dev.dev_iesa import *
 from unit_tests.acu_log_tests.periodic_log_constants import *
 
 DEFAULT_LOG_GLOB = "/var/log/P_*"

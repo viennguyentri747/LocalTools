@@ -7,8 +7,8 @@ import re
 import sys
 import argparse
 from pathlib import Path
-from dev_common import *
-from dev_common.tools_utils import ToolTemplate
+from dev.dev_common import *
+from dev.dev_common.tools_utils import ToolTemplate
 
 
 ARG_GL_YML_FILE_PATH = f"{ARGUMENT_LONG_PREFIX}gl_yml_file_path"

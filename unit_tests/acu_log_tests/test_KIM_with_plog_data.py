@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import List, Optional, Set
 
 from available_tools.inertial_sense_tools.decode_ins_status_utils import decode_ins_status
-from dev_common import *
+from dev.dev_common import *
 from unit_tests.acu_log_tests.periodic_log_helper import PLogData, parse_periodic_log
 from unit_tests.acu_log_tests.periodic_log_constants import *
 from available_tools.inertial_sense_tools.decode_ins_status_utils import (

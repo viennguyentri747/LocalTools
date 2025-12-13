@@ -66,8 +66,8 @@ from available_tools.code_tools.context_from_git_lab_mr import (
     main_git_mr,
 )
 from available_tools.code_tools.context_from_paths import DEFAULT_MAX_WORKERS, get_paths_tool_templates, main_paths
-from dev_common import *
-from dev_common.custom_structures import ForwardedTool
+from dev.dev_common import *
+from dev.dev_common.custom_structures import ForwardedTool
 
 FORWARDED_TOOLS: Dict[str, ForwardedTool] = {
     EXTRACT_MODE_PATHS: ForwardedTool(
@@ -274,7 +274,7 @@ Directory structure:
 FILE: .
 ================================================
 import argparse
-from dev_common import *
+from dev.dev_common import *
 
 # Default paths
 DEFAULT_OUTPUT_BASE_DIR = 'testing'
@@ -352,7 +352,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 from typing import Callable, Dict, List, Any
-from dev_common import *
+from dev.dev_common import *
 ....<remain file content>
 
 ================================================
@@ -430,7 +430,7 @@ FILE: md_utils.py
 ================================================
 
 
-from dev_common.constants import *
+from dev.dev_common.constants import *
 
 
 def get_md_todo_checkbox(is_done: bool) -> str:
@@ -470,8 +470,8 @@ file and then calling a specially crafted obsidian://adv-uri URL.
 FILE: python_misc_utils.py
 ================================================
 from pathlib import Path
-from dev_common.constants import *
-from dev_common.format_utils import quote
+from dev.dev_common.constants import *
+from dev.dev_common.format_utils import quote
 
 
 def get_arg_value(args, arg_name: str, for_shell: bool = False):

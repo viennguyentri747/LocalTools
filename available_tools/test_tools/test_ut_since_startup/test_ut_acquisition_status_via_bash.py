@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 from available_tools.test_tools.test_ut_since_startup.common import *
-from dev_common import *
+from dev.dev_common import *
 
 
 def get_tool_templates() -> List[ToolTemplate]:

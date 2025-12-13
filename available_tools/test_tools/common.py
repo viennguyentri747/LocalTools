@@ -1,7 +1,7 @@
 from datetime import timedelta
 from pathlib import Path
 from typing import Iterable, List
-from dev_common import *
+from dev.dev_common import *
 
 
 ARG_LOG_OUTPUT_PATH = f"{ARGUMENT_LONG_PREFIX}log_output_path"

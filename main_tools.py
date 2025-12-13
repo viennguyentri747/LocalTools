@@ -7,8 +7,8 @@ import sys
 from pathlib import Path
 from typing import Iterable, List, Optional
 from dataclasses import dataclass, field
-from dev_common import *
-from dev_common.tools_utils import *
+from dev.dev_common import *
+from dev.dev_common.tools_utils import *
 
 
 @dataclass
@@ -216,6 +216,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         if str(tools_dir) not in sys.path:
             sys.path.insert(0, str(tools_dir))
         try:
+            LOG(f"Importing module: {tool.folder}.{tool.stem}")
             module = importlib.import_module(f"{tool.folder}.{tool.stem}")
             if hasattr(module, 'get_tool_templates'):
                 templates: List[ToolTemplate] = module.get_tool_templates()

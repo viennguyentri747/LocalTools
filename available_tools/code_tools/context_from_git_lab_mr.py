@@ -3,7 +3,7 @@ import sys
 from typing import List, Union
 import tiktoken
 from available_tools.code_tools.common_utils import *
-from dev_common import *
+from dev.dev_common import *
 
 ARG_SHOULD_INCLUDE_FILE_CONTENT = f"{ARGUMENT_LONG_PREFIX}should_include_file_content"
 

@@ -5,8 +5,8 @@ import shlex
 import subprocess
 import sys
 from typing import List, Optional, Tuple
-from dev_common.constants import *
-from dev_common.core_utils import LOG, run_shell
+from dev.dev_common.constants import *
+from dev.dev_common.core_utils import LOG, run_shell
 
 SSH_KEY_TYPE_RSA = 'rsa'
 KEY_TYPE_ED25519 = 'ed25519'

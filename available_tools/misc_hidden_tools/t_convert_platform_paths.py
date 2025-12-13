@@ -4,9 +4,9 @@ import argparse
 from pathlib import Path
 from typing import Callable, Dict, List
 
-from dev_common.constants import ARG_MODE, ARG_PATH_LONG
-from dev_common.core_utils import convert_wsl_to_win_path
-from dev_common.tools_utils import (
+from dev.dev_common.constants import ARG_MODE, ARG_PATH_LONG
+from dev.dev_common.core_utils import convert_wsl_to_win_path
+from dev.dev_common.tools_utils import (
     ToolTemplate,
     build_examples_epilog,
     convert_win_to_wsl_path,

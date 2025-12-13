@@ -1,7 +1,7 @@
 import argparse
 from dataclasses import dataclass
-from dev_common.constants import ARGUMENT_LONG_PREFIX
-from dev_common.python_misc_utils import get_arg_value
+from dev.dev_common.constants import ARGUMENT_LONG_PREFIX
+from dev.dev_common.python_misc_utils import get_arg_value
 
 
 DEFAULT_SSM_REBOOT_TIMEOUT = 90  # seconds to wait for SSM to respond after reboot

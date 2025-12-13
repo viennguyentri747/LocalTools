@@ -11,7 +11,7 @@ import time
 from typing import Any, Callable, Tuple, Union
 import xml.etree.ElementTree as ET
 
-from dev_common.core_utils import LOG, LOG_EXCEPTION, LOG_EXCEPTION_STR, run_shell
+from dev.dev_common.core_utils import LOG, LOG_EXCEPTION, LOG_EXCEPTION_STR, run_shell
 
 
 def expand_and_check_path(path_str: str) -> Tuple[bool, str]:

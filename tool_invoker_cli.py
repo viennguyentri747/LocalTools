@@ -9,7 +9,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Iterable, List, Optional
 
-from dev_common import LOG, LOG_EXCEPTION
+from dev.dev_common import LOG, LOG_EXCEPTION
 from main_tools import diplay_templates
 
 

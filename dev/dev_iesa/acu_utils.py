@@ -1,6 +1,6 @@
 from pathlib import Path
 from typing import Optional, Union
-from dev_common.constants import *
+from dev.dev_common.constants import *
 
 
 def create_scp_ut_and_run_cmd(local_path: Union[str, Path], remote_host: str = f"{ACU_USER}@{ACU_IP}", remote_dir: str = "/home/root/download/", run_cmd_on_remote: Optional[str] = None, is_prompt_before_execute: bool = True) -> str:

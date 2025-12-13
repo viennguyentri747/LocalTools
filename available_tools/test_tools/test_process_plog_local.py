@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
-from dev_common import *
+from dev.dev_common import *
 from unit_tests.acu_log_tests.periodic_log_constants import (
     LAST_RTK_COMPASS_STATUS_COLUMN,
     LAST_VELOCITY_COLUMN,

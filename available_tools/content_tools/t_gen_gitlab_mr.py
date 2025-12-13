@@ -6,9 +6,9 @@ from pathlib import Path
 from textwrap import dedent
 from typing import Optional, List
 
-from dev_common import *
-from dev_common.gitlab_utils import get_gl_project, is_gl_ref_exists
-from dev_common.tools_utils import display_content_to_copy
+from dev.dev_common import *
+from dev.dev_common.gitlab_utils import get_gl_project, is_gl_ref_exists
+from dev.dev_common.tools_utils import display_content_to_copy
 
 JIRA_BASE_URL = "https://intelliantech.atlassian.net"
 

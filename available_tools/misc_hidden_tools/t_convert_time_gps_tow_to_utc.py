@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import argparse # Import the argparse module for named command-line arguments
 from pathlib import Path
 from typing import List
-from dev_common.tools_utils import ToolTemplate, build_examples_epilog
+from dev.dev_common.tools_utils import ToolTemplate, build_examples_epilog
 
 def get_tool_templates() -> List[ToolTemplate]:
     return [

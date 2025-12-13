@@ -1,6 +1,6 @@
 
 
-from dev_common.constants import *
+from dev.dev_common.constants import *
 
 
 def get_md_todo_checkbox(is_done: bool) -> str:

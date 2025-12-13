@@ -12,7 +12,7 @@ import argparse
 from pathlib import Path
 from typing import List
 
-from dev_common import *
+from dev.dev_common import *
 
 ARG_SENTENCE = f"{ARGUMENT_LONG_PREFIX}sentence"
 

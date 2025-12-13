@@ -16,7 +16,7 @@ from typing import List, Optional, Tuple
 import requests
 
 
-from dev_common.tools_utils import ToolTemplate, build_examples_epilog
+from dev.dev_common.tools_utils import ToolTemplate, build_examples_epilog
 
 
 def get_tool_templates() -> List[ToolTemplate]:

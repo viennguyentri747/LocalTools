@@ -7,8 +7,8 @@ import re
 from pathlib import Path
 from typing import List, NamedTuple, Optional
 
-from dev_common import *
-from dev_common.git_utils import checkout_branch, git_stage_and_commit
+from dev.dev_common import *
+from dev.dev_common.git_utils import checkout_branch, git_stage_and_commit
 
 # Define the paths and file prefixes
 IMX_PREFIX = "IS_IMX-5_v"

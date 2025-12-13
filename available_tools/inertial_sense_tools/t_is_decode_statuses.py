@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 from typing import List, Tuple
 
-from dev_common.tools_utils import ToolTemplate, build_examples_epilog
+from dev.dev_common.tools_utils import ToolTemplate, build_examples_epilog
 from available_tools.inertial_sense_tools.decode_gen_fault_status_utils import (
     decode_gen_fault_status,
     print_decoded_status as print_gen_fault_status,

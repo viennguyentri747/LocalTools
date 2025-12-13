@@ -19,7 +19,7 @@ from typing import Optional
 
 # This import is assumed from your original script.
 # It should contain a function `str_to_slug` that sanitizes strings for filenames.
-from dev_common import *
+from dev.dev_common import *
 
 # --- Configuration ---
 # ⚠️ IMPORTANT: Update these two variables with your Obsidian vault details.

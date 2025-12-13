@@ -8,8 +8,8 @@ from typing import Dict, Iterable, List, Tuple
 
 from available_tools.test_tools import test_ins_monitor_msg_on_acu as ins_monitor_tool
 from available_tools.test_tools import test_tail_p_log_on_acu as tail_p_log_tool
-from dev_common import *
-from dev_common.custom_structures import ForwardedTool
+from dev.dev_common import *
+from dev.dev_common.custom_structures import ForwardedTool
 
 ARG_TEST_MODE = f"{ARGUMENT_LONG_PREFIX}mode"
 

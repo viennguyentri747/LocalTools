@@ -2,8 +2,8 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 from typing import Callable, Dict, List, Any, Optional
-from dev_common import *
-from dev_common.constants import *
+from dev.dev_common import *
+from dev.dev_common.constants import *
 
 
 class IesaLocalRepoInfo:

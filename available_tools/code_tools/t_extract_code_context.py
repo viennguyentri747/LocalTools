@@ -5,17 +5,11 @@ import argparse
 from pathlib import Path
 import sys
 from typing import Dict, Iterable, List
-
 from available_tools.code_tools.common_utils import *
 from available_tools.code_tools.context_from_git_diff import get_diff_tool_templates, main_git_diff
-from available_tools.code_tools.context_from_git_lab_mr import (
-    ARG_SHOULD_INCLUDE_FILE_CONTENT,
-    get_mr_tool_templates,
-    main_git_mr,
-)
+from available_tools.code_tools.context_from_git_lab_mr import ( ARG_SHOULD_INCLUDE_FILE_CONTENT, get_mr_tool_templates, main_git_mr, )
 from available_tools.code_tools.context_from_paths import DEFAULT_MAX_WORKERS, get_paths_tool_templates, main_paths
-from dev_common import *
-from dev_common.custom_structures import ForwardedTool
+from dev.dev_common import *
 
 FORWARDED_TOOLS: Dict[str, ForwardedTool] = {
     EXTRACT_MODE_PATHS: ForwardedTool(

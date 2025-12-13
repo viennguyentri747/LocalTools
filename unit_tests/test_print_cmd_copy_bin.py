@@ -1,5 +1,5 @@
 #!/home/vien/local_tools/MyVenvFolder/bin/python
-from dev_common import *
+from dev.dev_common import *
 
 
 # md5sum( OUTPUT_IESA_PATH )  # Ensure the path exists and is correct

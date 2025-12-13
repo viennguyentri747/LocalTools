@@ -1,7 +1,7 @@
 #!/home/vien/local_tools/MyVenvFolder/bin/python
 import sys
 import json
-from dev_common.noti_utils import show_noti
+from dev.dev_common.noti_utils import show_noti
 
 
 def main() -> int:

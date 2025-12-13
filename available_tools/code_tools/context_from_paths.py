@@ -3,12 +3,12 @@ from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 import tiktoken
 import platform
 from pathlib import Path
-from dev_common import *
+from dev.dev_common import *
 import os
 import sys
 from typing import List, Tuple
 from available_tools.code_tools.common_utils import *
-from dev_specific.custom_gitingest import CustomIngestResult, IngestConfig, run_ingest
+from dev.dev_specific.custom_gitingest import CustomIngestResult, IngestConfig, run_ingest
 
 DEFAULT_MAX_WORKERS = 10
 CONTEXT_FOLDER_PREFIX_PATHS = 'context_paths_'

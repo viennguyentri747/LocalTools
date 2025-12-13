@@ -5,8 +5,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple, TextIO
 import tiktoken
-from dev_common.constants import LINE_SEPARATOR_NO_ENDLINE
-from dev_common.format_utils import beautify_number
+from dev.dev_common.constants import LINE_SEPARATOR_NO_ENDLINE
+from dev.dev_common.format_utils import beautify_number
 from pathspec.gitignore import GitIgnoreSpec
 
 

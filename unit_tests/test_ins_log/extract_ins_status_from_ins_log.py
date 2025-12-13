@@ -2,7 +2,7 @@
 import re
 import argparse
 
-from dev_common import *
+from dev.dev_common import *
 
 # The log data provided in your question
 log_data = ""

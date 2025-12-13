@@ -8,7 +8,7 @@ import subprocess
 import zipfile
 from pathlib import Path
 from typing import Optional
-from dev_common import *
+from dev.dev_common import *
 
 # --- Configuration ---
 SDK_INSTALL_DIR = INSENSE_SDK_REPO_PATH / IESA_INSENSE_SDK_REPO_NAME

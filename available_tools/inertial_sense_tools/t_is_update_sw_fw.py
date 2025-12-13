@@ -4,7 +4,7 @@
 import argparse
 from pathlib import Path
 from typing import List
-from dev_common import *
+from dev.dev_common import *
 from available_tools.inertial_sense_tools.update_is_fws_utils import *
 from available_tools.inertial_sense_tools.update_is_sdk_utils import *
 

@@ -15,7 +15,7 @@ from requests import Response
 
 # Ensure these imports exist in your environment
 from available_tools.test_tools.test_ut_since_startup.common import *
-from dev_common import *
+from dev.dev_common import *
 
 SSM_USER = "root"
 PING_TARGET = ACU_IP
@@ -185,8 +185,10 @@ class RequestLogger:
         LOG(f"{LOG_PREFIX_MSG_INFO} REQUEST: {key}", log_type=ELogType.DEBUG)
         LOG(f"{LOG_PREFIX_MSG_INFO} RESPONSE: {new_filtered_value if new_filtered_value else '<empty>'}", log_type=ELogType.DEBUG)
 
+
 # --- HTTP Client ---
 T = TypeVar("T", bound=ApiResponse)
+
 
 class SsmHttpClient:
     """HTTP helper that wraps requests.Session and logs calls with typed parsing."""
@@ -208,13 +210,7 @@ class SsmHttpClient:
             return path
         return f"{self.base_url}/{path.lstrip('/')}"
 
-    def request(
-        self,
-        path: str,
-        *,
-        method: str = "GET",
-        response_type: Optional[Type[T]] = None
-    ) -> Union[T, str, None]:
+    def request(self, path: str, *, method: str = "GET", response_type: Optional[Type[T]] = None, allow_read_timeout: bool = False) -> Union[T, str, None]:
 
         url = self._build_url(path)
         method = method.upper()
@@ -223,6 +219,13 @@ class SsmHttpClient:
         try:
             response = self.session.request(method=method, url=url, timeout=self.timeout)
             response.raise_for_status()
+        except requests.ReadTimeout:
+            if allow_read_timeout:
+                self.logger.log(key, "READ TIMEOUT")
+                return None
+            else:
+                self.logger.log(key, "ERROR: Read timeout")
+                raise
         except requests.RequestException as exc:
             self.logger.log(key, f"ERROR: {exc}")
             raise
@@ -412,8 +415,10 @@ def should_run_test(config: TestSequenceConfig, name: str) -> bool:
 # --- Main Test Logic ---
 
 def wait_for_system_up(client: SsmHttpClient, config: TestSequenceConfig,
-                       reboot_start: float) -> tuple[MetricRecord, float]:
-    deadline = reboot_start + config.ssm_reboot_timeout
+                       start_count_time: Optional[float] = None) -> tuple[MetricRecord, float]:
+    if start_count_time is None:
+        start_count_time = time.time()
+    deadline = start_count_time + config.ssm_reboot_timeout
     while True:
         now = time.time()
         if now > deadline:
@@ -424,7 +429,7 @@ def wait_for_system_up(client: SsmHttpClient, config: TestSequenceConfig,
             client.request("/api/system/status", response_type=SystemState)
 
             ssm_up_time = time.time()
-            elapsed = int(ssm_up_time - reboot_start)
+            elapsed = int(ssm_up_time - start_count_time)
             record = MetricRecord(seconds=elapsed, timestamp=timestamp_str(ssm_up_time))
             return record, ssm_up_time
         except requests.RequestException:
@@ -555,6 +560,7 @@ def log_overall_summary(ssm_ip: str, metrics: List[IterationMetrics], total_iter
     log_section(f"SUMMARY ANALYSIS ON {ssm_ip} ({metrics[-1].iteration} of {total_iterations} iterations)")
     log_metric_summary("Total Time", [m.total_time for m in metrics], [
                        m.total_timestamp for m in metrics], show_timestamps)
+
     def summarize(label: str, attr: str) -> None:
         records = [getattr(m, attr) for m in metrics if getattr(m, attr) is not None]
         if not records:
@@ -594,19 +600,21 @@ def wait_between_iterations(wait_secs: int) -> None:
 def run_single_iteration(iteration: int, config: TestSequenceConfig, ssm_ip: str,
                          client: SsmHttpClient) -> IterationMetrics:
     log_section(f"STARTING ITERATION {iteration} of {config.total_iterations}")
+    LOG(f"{LOG_PREFIX_MSG_INFO} Waiting for SSM to be up before iteration...")
+    wait_for_system_up(client, config)
     random_offset = random.randint(TN_OFFSET_MIN, TN_OFFSET_MAX)
     set_tn_offset(client, random_offset)
     tn_settle_time = 3
     LOG(f"{LOG_PREFIX_MSG_INFO} Sleeping {tn_settle_time} seconds after TN offset update...", highlight=False)
     time.sleep(tn_settle_time)
     LOG(f"{LOG_PREFIX_MSG_INFO} Issuing reboot request to {config.ssm_ip}/api/system/reboot")
-    client.request("/api/system/reboot")
+    client.request("/api/system/reboot", allow_read_timeout=True)
     sleep_time = 5
     LOG(f"{LOG_PREFIX_MSG_INFO} Sleeping {sleep_time} seconds before polling...")
     time.sleep(sleep_time)
-    reboot_start = time.time()
+    reboot_start_time = time.time()
     LOG(f"{LOG_PREFIX_MSG_INFO} Waiting for SSM to respond...")
-    server_up, ssm_up_time = wait_for_system_up(client, config, reboot_start)
+    server_up, ssm_up_time = wait_for_system_up(client, config, reboot_start_time)
     LOG(f"{LOG_PREFIX_MSG_INFO} SSM up after {server_up.seconds} sec, checking parallel statuses...")
 
     gps_fix: Optional[MetricRecord] = None
@@ -614,7 +622,7 @@ def run_single_iteration(iteration: int, config: TestSequenceConfig, ssm_ip: str
     aim_ready: Optional[MetricRecord] = None
     if any(should_run_test(config, name) for name in (TEST_GPS_FIX, TEST_PING, TEST_AIM_READY)):
         gps_fix, ping_ready, aim_ready = wait_for_parallel_statuses(
-            client, config, ssm_ip, reboot_start, ssm_up_time)
+            client, config, ssm_ip, reboot_start_time, ssm_up_time)
         summary_components: List[str] = []
         if gps_fix:
             summary_components.append(f"GPS:{gps_fix.seconds}")
@@ -632,11 +640,11 @@ def run_single_iteration(iteration: int, config: TestSequenceConfig, ssm_ip: str
     connected: Optional[MetricRecord] = None
     if should_run_test(config, TEST_CONNECTED):
         LOG(f"{LOG_PREFIX_MSG_INFO} Waiting for APN connection status with timeout = {config.apn_online_timeout}...")
-        connected = wait_for_connected(client, config, reboot_start)
+        connected = wait_for_connected(client, config, reboot_start_time)
     else:
         LOG(f"{LOG_PREFIX_MSG_INFO} Connected status check skipped (not requested).")
 
-    total_time = int(time.time() - reboot_start)
+    total_time = int(time.time() - reboot_start_time)
     total_timestamp = timestamp_str(time.time())
 
     return IterationMetrics(

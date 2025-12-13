@@ -3,7 +3,7 @@ import os
 import subprocess
 import re
 import time
-from dev_common.core_utils import LOG
+from dev.dev_common.core_utils import LOG
 
 # Constants for duration string matching
 NOTI_DURATION_LONG = "long"

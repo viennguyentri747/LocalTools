@@ -7,7 +7,7 @@ from typing import List, Optional
 from dataclasses import dataclass, field
 from typing import Any
 
-from dev_common.core_utils import LOG
+from dev.dev_common.core_utils import LOG
 
 
 @dataclass

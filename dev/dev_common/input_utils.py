@@ -15,11 +15,11 @@ from prompt_toolkit.filters import has_completions
 from prompt_toolkit.keys import Keys
 
 
-from dev_common.algo_utils import PathSearchConfig, fuzzy_find_paths
-from dev_common.constants import ARG_PATH_LONG, ARG_PATH_SHORT, ARG_PATHS_LONG, ARG_PATHS_SHORT, ARGUMENT_LONG_PREFIX, LINE_SEPARATOR
-from dev_common.core_utils import LOG
-from dev_common.file_utils import expand_and_check_path
-from dev_common.gui_utils import _get_terminal_size
+from dev.dev_common.algo_utils import PathSearchConfig, fuzzy_find_paths
+from dev.dev_common.constants import ARG_PATH_LONG, ARG_PATH_SHORT, ARG_PATHS_LONG, ARG_PATHS_SHORT, ARGUMENT_LONG_PREFIX, LINE_SEPARATOR
+from dev.dev_common.core_utils import LOG
+from dev.dev_common.file_utils import expand_and_check_path
+from dev.dev_common.gui_utils import _get_terminal_size
 
 MENTION_SYMBOL = '@'
 

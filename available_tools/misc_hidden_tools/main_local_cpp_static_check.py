@@ -8,8 +8,8 @@ import shlex
 from typing import List, Dict
 import tempfile
 import shutil
-from dev_common.constants import OW_SW_PATH
-from dev_common.core_utils import run_shell
+from dev.dev_common.constants import OW_SW_PATH
+from dev.dev_common.core_utils import run_shell
 
 CPPCHECK_ENABLE_OPTIONS: Dict[int, str] = {
     1: 'all',

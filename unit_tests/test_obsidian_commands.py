@@ -16,7 +16,7 @@ import json
 from pathlib import Path
 from typing import Optional, Dict, List
 
-from dev_common import *
+from dev.dev_common import *
 
 # --- Configuration ---
 OBSIDIAN_API_KEY = read_value_from_credential_file(CREDENTIALS_FILE_PATH, OBSIDIAN_API_TOKEN_KEY_NAME)
@@ -340,7 +340,7 @@ def create_jira_note_in_obsidian(ticket_key: str, ticket_title: str, markdown_co
         integrator = ObsidianAPIIntegrator(api_key=OBSIDIAN_API_KEY)
         
         # This import can be moved to the top of the file if dev_common is always available
-        from dev_common import str_to_slug
+        from dev.dev_common import str_to_slug
         note_name = f"{ticket_key}_{str_to_slug(ticket_title)}"
         
         return integrator.create_note_with_template(

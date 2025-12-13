@@ -24,7 +24,7 @@ EOF
     local duration="${3:-$default_duration}"
 
     # Run detached, use disown to avoid hangup signal
-    ~/local_tools/dev_common/noti_utils.py --title "$title" --message "$message" --duration "$duration"
+    ~/local_tools/dev/dev_common/noti_utils.py --title "$title" --message "$message" --duration "$duration"
 }
 
 countdown() {

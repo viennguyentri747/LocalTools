@@ -9,8 +9,8 @@ import argparse
 from pathlib import Path
 from typing import List
 from available_tools.test_tools.common import ACU_SCRIPT_DIR
-from dev_common import *
-from dev_iesa import *
+from dev.dev_common import *
+from dev.dev_iesa import *
 
 DEFAULT_LOCAL_FILE = ACU_SCRIPT_DIR / "test_ins_monitor_messages.py"
 

@@ -1,5 +1,5 @@
 import argparse
-from dev_common import *
+from dev.dev_common import *
 
 # Default paths
 DEFAULT_OUTPUT_BASE_DIR = 'testing'

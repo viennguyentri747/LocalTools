@@ -10,7 +10,7 @@ from available_tools.test_tools import test_pattern_in_acu_logs_local as pattern
 from available_tools.test_tools.test_ut_since_startup import test_ut_acquisition_status_via_bash as bash_status_tool
 from available_tools.test_tools.test_ut_since_startup import test_ut_acquisition_status as python_status_tool
 from available_tools.test_tools import test_process_plog_local as compact_plog_tool
-from dev_common import *
+from dev.dev_common import *
 
 
 ARG_TEST_MODE = f"{ARGUMENT_LONG_PREFIX}mode"

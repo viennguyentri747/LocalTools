@@ -6,8 +6,8 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
-from dev_common.core_utils import *
-from dev_common.input_utils import prompt_confirmation
+from dev.dev_common.core_utils import *
+from dev.dev_common.input_utils import prompt_confirmation
 
 # --- Constants ---
 CMD_GIT = 'git'
@@ -204,6 +204,26 @@ def git_diff_on_file(repo_path: Path | str, base_ref: str, rel_path: str) -> str
     """
     result = run_shell(f"{CMD_GIT} diff {base_ref} -- {rel_path}", cwd=repo_path,
                        capture_output=True, text=True)
+    return result.stdout
+
+
+def git_diff_worktree(repo_path: Path | str, extra_args: Optional[List[str]] = None) -> str:
+    """
+    Returns the diff output of the working tree (against HEAD) for the repo.
+    """
+    cmd: List[str] = [CMD_GIT, "diff"]
+    if extra_args:
+        cmd.extend(extra_args)
+    result = run_shell(
+        cmd,
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check_throw_exception_on_exit_code=False,
+    )
+    if result.returncode != 0:
+        LOG(f"WARNING: git diff failed in '{repo_path}' with code {result.returncode}.", file=sys.stderr)
+        return ""
     return result.stdout
 
 

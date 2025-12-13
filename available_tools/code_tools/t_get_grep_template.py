@@ -6,7 +6,7 @@ import shlex
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
-from dev_common import *
+from dev.dev_common import *
 
 
 @dataclass(frozen=True)

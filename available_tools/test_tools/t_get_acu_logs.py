@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
 from available_tools.test_tools.common import *
-from dev_common import *
+from dev.dev_common import *
 
 DEFAULT_LOG_TYPE_PREFIXES = [P_LOG_PREFIX, T_LOG_PREFIX, E_LOG_PREFIX]
 DEFAULT_LOG_OUTPUT_PATH = ACU_LOG_PATH

@@ -1,6 +1,6 @@
 #!/home/vien/local_tools/MyVenvFolder/bin/python
-from dev_common import *
-from dev_iesa import *
+from dev.dev_common import *
+from dev.dev_iesa import *
 
 new_iesa_path = OW_OUTPUT_IESA_PATH
 new_iesa_name = new_iesa_path.name

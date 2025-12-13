@@ -40,9 +40,9 @@ def get_home_path() -> Path:
         wsl_home_result = run_shell(["echo", "$HOME"], capture_output=True, is_run_wsl_if_window=True)
         wsl_home = wsl_home_result.stdout.strip()
         resolved_path = Path(f"{WSL_ROOT_FROM_WIN_DRIVE}/{wsl_home.lstrip('/')}")
+        print(f"Using local home path: {resolved_path}")
     else:
         resolved_path = Path.home()
-    print(f"Using local home path: {resolved_path}")
     return resolved_path
 
 

@@ -4,8 +4,8 @@ import shlex
 import sys
 from pathlib import Path
 from typing import Optional
-from dev_common.core_independent_utils import LOG_EXCEPTION_STR
-from dev_common.core_utils import LOG, run_shell
+from dev.dev_common.core_independent_utils import LOG_EXCEPTION_STR
+from dev.dev_common.core_utils import LOG, run_shell
 
 CMD_DOCKER = "docker"
 

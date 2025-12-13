@@ -12,9 +12,9 @@ import subprocess
 import sys
 import textwrap
 from typing import Any, Dict, List, Optional, Tuple, Union
-from dev_common import *
-from dev_common.gitlab_utils import *
-from dev_iesa import *
+from dev.dev_common import *
+from dev.dev_common.gitlab_utils import *
+from dev.dev_iesa import *
 import yaml
 import traceback
 
@@ -40,6 +40,7 @@ PREFIX_OW_BUILD_ARTIFACT = f"iesa_test_"
 TEMP_OW_BUILD_OUTPUT_PATH = TEMP_FOLDER_PATH / "ow_build_output/"
 MANIFEST_OUT_ARTIFACT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}manifest.xml"
 IESA_OUT_ARTIFACT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}build.iesa"
+
 
 def get_tool_templates() -> List[ToolTemplate]:
     return [
@@ -86,8 +87,9 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_MAKE_CLEAN: True,
                 ARG_FORCE_REMOVE_TMP_BUILD: True,
                 ARG_IS_DEBUG_BUILD: True,
-                ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME, IESA_ADC_LIB_REPO_NAME],
+                ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME],
             },
+            hidden=True,
             # override_cmd_invocation=DEFAULT_CMD_INVOCATION,
         ),
     ]
@@ -211,6 +213,7 @@ def main() -> None:
 
     # TODO: improve handling on interactive mode (check it actually success before print copy commands)
     iesa_artifact_path: Optional[Path] = None
+    # iesa_original_md5: Optional[str] = None
     if build_type == BUILD_TYPE_IESA:
         LOG(f"{MAIN_STEP_LOG_PREFIX} IESA build finished. Renaming artifact...")
         if OW_OUTPUT_IESA_PATH.is_file():
@@ -227,7 +230,8 @@ def main() -> None:
             LOG(f"Find output IESA here (WSL path): {new_iesa_output_abs_path}")
             iesa_artifact_path = new_iesa_output_abs_path
             # run_shell(f"sudo chmod 644 {new_iesa_output_abs_path}")
-            original_md5 = md5sum(new_iesa_output_abs_path)
+            # original_md5 = md5sum(new_iesa_output_abs_path) #Will require PERMISSION
+            # iesa_original_md5 = original_md5
 
             command_to_display = create_scp_ut_and_run_cmd(
                 local_path=new_iesa_output_abs_path,
@@ -246,6 +250,7 @@ def main() -> None:
         "timestamp": datetime.utcnow().isoformat(),
         "build_type": build_type,
         "manifest_branch": manifest_branch,
+        # "original_iesa_md5": iesa_original_md5,
         "raw_arg_inputs": {k: v for k, v in vars(args).items()},
         "finalized_params": {
             "manifest_content": actual_manifest.to_serializable_dict(),
@@ -271,8 +276,8 @@ def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: st
     if not use_current_ow_branch:
         base_manifest_branch = ow_manifest_branch
         LOG(f"Checking if manifest branch '{base_manifest_branch}' exists in '{ow_sw_path_str}'...")
-        branch_exists_result = git_is_ref_or_branch_existing(OW_SW_PATH, base_manifest_branch)
-        if branch_exists_result.returncode != 0:
+        is_branch_exists = git_is_ref_or_branch_existing(OW_SW_PATH, base_manifest_branch)
+        if not is_branch_exists:
             LOG(f"ERROR: Manifest branch '{base_manifest_branch}' does not exist in '{ow_sw_path_str}'. Please ensure the branch is available.", file=sys.stderr)
             sys.exit(1)
         LOG(f"Manifest branch '{base_manifest_branch}' exists.")
@@ -330,7 +335,7 @@ def pre_build_setup(build_type: str, manifest_source: str, ow_manifest_branch: s
         reset_or_create_tmp_build(force_remove_tmp_build)
         # Sync other repos from manifest of REMOTE OW_SW
         manifest_sync_from_remote_path = init_and_sync_from_remote(ow_manifest_branch, manifest_source=manifest_source,
-                                                           use_current_ow_branch=use_current_ow_branch)
+                                                                   use_current_ow_branch=use_current_ow_branch)
         manifest_snapshot_path = manifest_sync_from_remote_path
     else:
         LOG("Skipping tmp_build reset and repo sync due to --sync false flag.")
@@ -591,6 +596,7 @@ def collect_repo_changes(repo_name: str, rel_path: str) -> Dict[str, Any]:
             "relative_path_vs_tmp_build": rel_path,
             "status_lines": [],
             "has_changes": False,
+            "diff_file_path": None,
         }
 
     exclude_pattern = "':(exclude)tmp_local_gitlab_ci/'"
@@ -599,15 +605,39 @@ def collect_repo_changes(repo_name: str, rel_path: str) -> Dict[str, Any]:
         LOG(f"\nChanges in {repo_name} ({rel_path}):")
         for line in changes:
             LOG(" ", line)
+        diff_file_path = export_repo_diff_artifact(repo_name, repo_path)
     else:
         LOG(f"\nNo changes detected in {repo_name}.")
+        diff_file_path = None
 
     return {
         "repo_name": repo_name,
         "relative_path_vs_tmp_build": rel_path,
         "status_lines": changes,
         "has_changes": bool(changes),
+        "diff_file_path": str(diff_file_path) if diff_file_path else None,
     }
+
+
+def export_repo_diff_artifact(repo_name: str, repo_path: Path) -> Optional[Path]:
+    """
+    Export the working tree diff for a repo that was overwritten into the temp output folder.
+    """
+    ensure_temp_build_output_dir()
+    safe_repo_name = sanitize_str_to_file_name(repo_name) or repo_name
+    diff_filename = f"iesa_test_diff_{safe_repo_name}"
+    diff_path = TEMP_OW_BUILD_OUTPUT_PATH / diff_filename
+    diff_content = git_diff_worktree(repo_path).strip()
+    if not diff_content:
+        if diff_path.exists():
+            diff_path.unlink()
+        LOG(f"No diff content for '{repo_name}', skipping artifact export.")
+        return None
+
+    with open(diff_path, "w", encoding="utf-8") as diff_file:
+        diff_file.write(diff_content + "\n")
+    LOG(f"Saved diff for '{repo_name}' to '{diff_path}'.")
+    return diff_path
 
 
 def ensure_temp_build_output_dir() -> None:

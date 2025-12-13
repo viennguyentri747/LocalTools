@@ -9,9 +9,9 @@ import sys
 from typing import List, Dict, Any, Optional, Set, Tuple
 from enum import IntEnum, auto
 import pyperclip
-from dev_common.constants import LINE_SEPARATOR, CMD_EXPLORER, WSL_SELECT_FLAG
-from dev_common.custom_structures import *
-from dev_common.core_utils import LOG, convert_win_to_wsl_path, run_shell, convert_wsl_to_win_path
+from dev.dev_common.constants import LINE_SEPARATOR, CMD_EXPLORER, WSL_SELECT_FLAG
+from dev.dev_common.custom_structures import *
+from dev.dev_common.core_utils import LOG, convert_win_to_wsl_path, run_shell, convert_wsl_to_win_path
 
 
 class ToolFolderPriority(IntEnum):

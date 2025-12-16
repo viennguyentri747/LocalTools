@@ -157,15 +157,15 @@ def select_firmware_pair(pairs: List[FirmwarePair]) -> Optional[FirmwarePair]:
 
 
 def update_firmware(pair: FirmwarePair) -> None:
-    LOG(f"\n🚀 Starting firmware update process in: {OW_KIM_FTM_FW_PATH}")
-    os.chdir(OW_KIM_FTM_FW_PATH)
+    LOG(f"\n🚀 Starting firmware update process in: {OW_SW_KIM_FTM_FW_PATH}")
+    os.chdir(OW_SW_KIM_FTM_FW_PATH)
 
     new_imx_path = Path(pair.imx_full_path.name)
-    LOG(f"Copying from {pair.imx_full_path} to {OW_KIM_FTM_FW_PATH / new_imx_path}")
+    LOG(f"Copying from {pair.imx_full_path} to {OW_SW_KIM_FTM_FW_PATH / new_imx_path}")
     new_imx_path.write_bytes(pair.imx_full_path.read_bytes())
 
     new_gpx_path = Path(pair.gpx_full_path.name)
-    LOG(f"Copying from {pair.gpx_full_path} to {OW_KIM_FTM_FW_PATH / new_gpx_path}")
+    LOG(f"Copying from {pair.gpx_full_path} to {OW_SW_KIM_FTM_FW_PATH / new_gpx_path}")
     new_gpx_path.write_bytes(pair.gpx_full_path.read_bytes())
 
     new_imx_path.chmod(0o755)
@@ -182,7 +182,7 @@ def update_firmware(pair: FirmwarePair) -> None:
     LOG("\n🧹 Scanning for OLD firmware files to remove...")
     extra_files = [
         f
-        for f in OW_KIM_FTM_FW_PATH.iterdir()
+        for f in OW_SW_KIM_FTM_FW_PATH.iterdir()
         if (f.name.startswith(IMX_PREFIX) or f.name.startswith(GPX_PREFIX))
         and f.name not in {new_imx_path.name, new_gpx_path.name}
     ]
@@ -212,8 +212,8 @@ def update_firmware(pair: FirmwarePair) -> None:
     # Interactive receiver version update and commit
     current_rcvr_version = ""
     try:
-        if OW_KIM_RCVR_VERSION_FILE_PATH.exists():
-            current_rcvr_version = OW_KIM_RCVR_VERSION_FILE_PATH.read_text(encoding="utf-8").strip()
+        if OW_SW_KIM_RCVR_VERSION_FILE_PATH.exists():
+            current_rcvr_version = OW_SW_KIM_RCVR_VERSION_FILE_PATH.read_text(encoding="utf-8").strip()
     except Exception as exc:
         LOG(f"⚠️ WARNING: Failed to read current receiver version: {exc}")
 
@@ -229,19 +229,19 @@ def update_firmware(pair: FirmwarePair) -> None:
     new_rcvr_version = user_input if user_input else current_rcvr_version
     if new_rcvr_version != current_rcvr_version:
         try:
-            OW_KIM_RCVR_VERSION_FILE_PATH.write_text(new_rcvr_version + "\n", encoding="utf-8")
+            OW_SW_KIM_RCVR_VERSION_FILE_PATH.write_text(new_rcvr_version + "\n", encoding="utf-8")
             LOG(f"Version updated to {new_rcvr_version}!")
         except Exception as exc:
             LOG(f"❌ ERROR: Failed to write receiver version file: {exc}")
 
     # Stage and commit changes in OW_SW_PATH
     try:
-        rel_fw_dir = str(OW_KIM_FTM_FW_PATH.relative_to(OW_SW_PATH))
-        rel_rcvr_file = str(OW_KIM_RCVR_VERSION_FILE_PATH.relative_to(OW_SW_PATH))
+        rel_fw_dir = str(OW_SW_KIM_FTM_FW_PATH.relative_to(OW_SW_PATH))
+        rel_rcvr_file = str(OW_SW_KIM_RCVR_VERSION_FILE_PATH.relative_to(OW_SW_PATH))
     except Exception:
         # Fallback to absolute paths if relative computation fails
-        rel_fw_dir = str(OW_KIM_FTM_FW_PATH)
-        rel_rcvr_file = str(OW_KIM_RCVR_VERSION_FILE_PATH)
+        rel_fw_dir = str(OW_SW_KIM_FTM_FW_PATH)
+        rel_rcvr_file = str(OW_SW_KIM_RCVR_VERSION_FILE_PATH)
 
     git_stage_and_commit(
         OW_SW_PATH,

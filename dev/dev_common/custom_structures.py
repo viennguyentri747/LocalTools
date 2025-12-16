@@ -132,7 +132,7 @@ class ToolTemplate:
     search_root: Optional[Path]
     no_need_live_edit: bool
     usage_note: str = ""
-    run_now_without_modify: bool = False
+    should_run_now: bool = False
     should_hidden: bool = False
     override_cmd_invocation: Optional[str] = None
 
@@ -143,7 +143,7 @@ class ToolTemplate:
         self.search_root = search_root
         self.no_need_live_edit = no_need_live_edit
         self.usage_note = usage_note
-        self.run_now_without_modify = should_run_now
+        self.should_run_now = should_run_now
         self.should_hidden = hidden
         self.override_cmd_invocation = override_cmd_invocation
 

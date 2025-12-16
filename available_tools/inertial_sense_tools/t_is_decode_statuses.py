@@ -11,7 +11,7 @@ from available_tools.inertial_sense_tools.decode_gen_fault_status_utils import (
 )
 from available_tools.inertial_sense_tools.decode_gps_status_utils import print_gps_status_report
 from available_tools.inertial_sense_tools.decode_hdw_status_utils import (
-    decode_hdw_status,
+    decode_system_hdw_status,
     print_decoded_status as print_hdw_status,
 )
 from available_tools.inertial_sense_tools.decode_ins_status_utils import (
@@ -19,13 +19,13 @@ from available_tools.inertial_sense_tools.decode_ins_status_utils import (
     print_decoded_status as print_ins_status,
 )
 
-SUPPORTED_TYPES: Tuple[str, ...] = ("gen_fault", "gps", "hdw", "ins")
+SUPPORTED_TYPES: Tuple[str, ...] = ("gen_fault", "gps", "system_hdw", "ins")
 
 def get_tool_templates() -> List[ToolTemplate]:
     return [
         ToolTemplate(
             name="Decode INS Status",
-            extra_description="Decode INS status integer",
+            extra_description="Decode INS status integer. check it in `insStatus` in ``tail -F /var/log/ins_monitor_log | grep -i INS1Msg`",
             args={
                 "--type": "ins",
                 "--status": "0x00031000",
@@ -33,17 +33,17 @@ def get_tool_templates() -> List[ToolTemplate]:
         ),
         ToolTemplate(
             name="Decode GPS Status",
-            extra_description="Decode GPS status integer",
+            extra_description="Decode GPS status integer, check it in `status` in `tail -F /var/log/ins_monitor_log | grep -i DID_GPS1_POS`",
             args={
                 "--type": "gps",
                 "--status": "0x312",
             },
         ),
         ToolTemplate(
-            name="Decode HDW Status",
-            extra_description="Decode hardware status integer, check it with `tail -F /var/log/ins_monitor_log | grep -i INS1Msg`",
+            name="Decode SYSTEM HDW Status",
+            extra_description="Decode SYSTEM hardware status integer, `hdwStatus` in `tail -F /var/log/ins_monitor_log | grep -i INS1Msg` or via DID_SYS_PARAMS",
             args={
-                "--type": "hdw",
+                "--type": "system_hdw",
                 "--status": "0x2088010",
             },
         ),
@@ -96,9 +96,9 @@ def decode_message(message_type: str, status_value: str) -> None:
         print("\n" + "=" * 40 + "\n")
         return
 
-    if message_type == "hdw":
+    if message_type == "system_hdw":
         print(f"\nDecoding HDW Status: 0x{status_value:08X} ({status_value})")
-        decoded = decode_hdw_status(status_value)
+        decoded = decode_system_hdw_status(status_value)
         print_hdw_status(decoded)
         print("\n" + "=" * 60 + "\n")
         return

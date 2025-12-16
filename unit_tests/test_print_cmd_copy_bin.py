@@ -13,9 +13,9 @@ LOG("Use this below command to copy to target IP:\n")
 
 
 command = (
-    f'sudo chmod -R 755 {OW_BUILD_BINARY_OUTPUT_PATH} && '
+    f'sudo chmod -R 755 {OW_SW_BUILD_BINARY_OUTPUT_PATH} && '
     f'while true; do '
-    f'read -e -p "Enter binary path: " -i "{OW_BUILD_BINARY_OUTPUT_PATH}/" BIN_PATH && '
+    f'read -e -p "Enter binary path: " -i "{OW_SW_BUILD_BINARY_OUTPUT_PATH}/" BIN_PATH && '
     f'if [ -f "$BIN_PATH" ]; then break; else echo "Error: File $BIN_PATH does not exist. Please try again."; fi; '
     f'done && '
     f'BIN_NAME=$(basename "$BIN_PATH") && '

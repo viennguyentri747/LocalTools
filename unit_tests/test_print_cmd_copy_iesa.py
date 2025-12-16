@@ -2,9 +2,9 @@
 from dev.dev_common import *
 from dev.dev_iesa import *
 
-new_iesa_path = OW_OUTPUT_IESA_PATH
+new_iesa_path = OW_SW_OUTPUT_IESA_PATH
 new_iesa_name = new_iesa_path.name
-new_iesa_output_abs_path = OW_OUTPUT_IESA_PATH
+new_iesa_output_abs_path = OW_SW_OUTPUT_IESA_PATH
 
 command = create_scp_ut_and_run_cmd(
     local_path=new_iesa_output_abs_path,

@@ -185,12 +185,12 @@ def main() -> None:
 
     # Always display binary build finish + command to copy
     LOG(f"{MAIN_STEP_LOG_PREFIX} Binary build finished.")
-    LOG(f"Find output binary files in '{OW_BUILD_BINARY_OUTPUT_PATH}'")
+    LOG(f"Find output binary files in '{OW_SW_BUILD_BINARY_OUTPUT_PATH}'")
     LOG(f"{LINE_SEPARATOR}")
     command_to_display = (
-        f'sudo chmod -R 755 {OW_BUILD_BINARY_OUTPUT_PATH} && '
+        f'sudo chmod -R 755 {OW_SW_BUILD_BINARY_OUTPUT_PATH} && '
         f'while true; do '
-        f'read -e -p "Enter binary path: " -i "{OW_BUILD_BINARY_OUTPUT_PATH}/" BIN_PATH && '
+        f'read -e -p "Enter binary path: " -i "{OW_SW_BUILD_BINARY_OUTPUT_PATH}/" BIN_PATH && '
         f'if [ -f "$BIN_PATH" ]; then break; else echo "Error: File $BIN_PATH does not exist. Please try again."; fi; '
         f'done && '
         f'BIN_NAME=$(basename "$BIN_PATH") && '
@@ -216,7 +216,7 @@ def main() -> None:
     # iesa_original_md5: Optional[str] = None
     if build_type == BUILD_TYPE_IESA:
         LOG(f"{MAIN_STEP_LOG_PREFIX} IESA build finished. Renaming artifact...")
-        if OW_OUTPUT_IESA_PATH.is_file():
+        if OW_SW_OUTPUT_IESA_PATH.is_file():
             # safe_branch = sanitize_str_to_file_name(manifest_branch)
             # new_iesa_name = f"{PREFIX_OW_BUILD_ARTIFACT}build.iesa"
             new_iesa_path = IESA_OUT_ARTIFACT_PATH
@@ -224,9 +224,9 @@ def main() -> None:
             if new_iesa_path.exists():
                 new_iesa_path.unlink()
 
-            shutil.move(str(OW_OUTPUT_IESA_PATH), str(new_iesa_path))
+            shutil.move(str(OW_SW_OUTPUT_IESA_PATH), str(new_iesa_path))
             new_iesa_output_abs_path = new_iesa_path.resolve()
-            LOG(f"Renamed '{OW_OUTPUT_IESA_PATH.name}' to '{new_iesa_path.name}'")
+            LOG(f"Renamed '{OW_SW_OUTPUT_IESA_PATH.name}' to '{new_iesa_path.name}'")
             LOG(f"Find output IESA here (WSL path): {new_iesa_output_abs_path}")
             iesa_artifact_path = new_iesa_output_abs_path
             # run_shell(f"sudo chmod 644 {new_iesa_output_abs_path}")
@@ -243,7 +243,7 @@ def main() -> None:
             display_content_to_copy(command_to_display, purpose="Copy IESA to target IP", is_copy_to_clipboard=True)
         else:
             LOG(
-                f"ERROR: Expected IESA artifact not found at '{OW_OUTPUT_IESA_PATH}' or it's not a file.", file=sys.stderr)
+                f"ERROR: Expected IESA artifact not found at '{OW_SW_OUTPUT_IESA_PATH}' or it's not a file.", file=sys.stderr)
             sys.exit(1)
 
     metadata_payload: Dict[str, Any] = {
@@ -258,7 +258,7 @@ def main() -> None:
             "overridden_repos": overridden_repo_changes,
         },
         "output_paths": {
-            "binary_directory": str(OW_BUILD_BINARY_OUTPUT_PATH),
+            "binary_directory": str(OW_SW_BUILD_BINARY_OUTPUT_PATH),
             "iesa_artifact_path": str(iesa_artifact_path) if iesa_artifact_path else None,
             "manifest_path": str(MANIFEST_OUT_ARTIFACT_PATH),
         },
@@ -385,9 +385,7 @@ def run_build(build_type: str, interactive: bool, make_clean: bool = True, is_de
 
     docker_image = prepare_docker_image_from_gitlab_ci(GITLAB_CI_YML_PATH)
     LOG(f"Using Docker image: {docker_image}")
-    docker_cmd_base = (
-        f"docker run -it --rm -v {OW_SW_PATH}:{OW_SW_PATH} -w {OW_SW_PATH} {docker_image}"
-    )
+    docker_cmd_base = ( f"docker run -it --rm -v {OW_SW_PATH}:{OW_SW_PATH} -w {OW_SW_PATH} {docker_image}" )
 
     # Command to find and convert script files to Unix format
     dos2unix_cmd = (
@@ -431,37 +429,37 @@ def run_build(build_type: str, interactive: bool, make_clean: bool = True, is_de
 
 
 def reset_or_create_tmp_build(force_remove_tmp_build: bool) -> None:
-    repo_dir = OW_BUILD_FOLDER_PATH / '.repo'
+    repo_dir = OW_SW_BUILD_FOLDER_PATH / '.repo'
     manifest_file = repo_dir / 'manifest.xml'
     manifests_git_head = repo_dir / 'manifests' / '.git' / 'HEAD'
 
-    if OW_BUILD_FOLDER_PATH.exists():
+    if OW_SW_BUILD_FOLDER_PATH.exists():
         should_remove: bool = False
         is_reset_instead_clearing: bool = not force_remove_tmp_build and repo_dir.is_dir(
         ) and manifest_file.is_file() and manifests_git_head.is_file()
         if (is_reset_instead_clearing):
-            LOG(f"Resetting existing repo in {OW_BUILD_FOLDER_PATH}...")
+            LOG(f"Resetting existing repo in {OW_SW_BUILD_FOLDER_PATH}...")
             try:
                 run_shell("repo forall -c 'git reset --hard' && repo forall -c 'git clean -fdx'",
-                          cwd=OW_BUILD_FOLDER_PATH)
+                          cwd=OW_SW_BUILD_FOLDER_PATH)
             except subprocess.CalledProcessError:
-                LOG(f"Warning: 'repo forall' failed in {OW_BUILD_FOLDER_PATH}. Assuming broken repo and clearing...")
+                LOG(f"Warning: 'repo forall' failed in {OW_SW_BUILD_FOLDER_PATH}. Assuming broken repo and clearing...")
                 should_remove = True
         else:
-            LOG(f"Force removing tmp_build folder at {OW_BUILD_FOLDER_PATH}...")
+            LOG(f"Force removing tmp_build folder at {OW_SW_BUILD_FOLDER_PATH}...")
             should_remove = True
         if should_remove:
             # Move back to parent directory before removing tmp_build
             original_cwd = Path.cwd()
-            if is_current_relative_to(Path.cwd(), OW_BUILD_FOLDER_PATH):
+            if is_current_relative_to(Path.cwd(), OW_SW_BUILD_FOLDER_PATH):
                 LOG(f"{LOG_PREFIX_MSG_WARNING} Current directory is inside tmp_build, changing to {OW_SW_PATH}...")
                 os.chdir(OW_SW_PATH)
             else:
                 LOG(f"Current directory {original_cwd} is outside tmp_build, no need to change directory.")
-            clear_directory(OW_BUILD_FOLDER_PATH, remove_dir_itself=True)
-            OW_BUILD_FOLDER_PATH.mkdir(parents=True)
+            clear_directory(OW_SW_BUILD_FOLDER_PATH, remove_dir_itself=True)
+            OW_SW_BUILD_FOLDER_PATH.mkdir(parents=True)
     else:
-        OW_BUILD_FOLDER_PATH.mkdir(parents=True)
+        OW_SW_BUILD_FOLDER_PATH.mkdir(parents=True)
 
 
 def get_tisdk_ref_from_ci_yml(file_path: str) -> Optional[str]:
@@ -496,16 +494,16 @@ def get_tisdk_ref_from_ci_yml(file_path: str) -> Optional[str]:
 
 
 def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, use_current_ow_branch: bool) -> Path:
-    LOG(f"{MAIN_STEP_LOG_PREFIX} Init and Sync repo at {OW_BUILD_FOLDER_PATH}...")
+    LOG(f"{MAIN_STEP_LOG_PREFIX} Init and Sync repo at {OW_SW_BUILD_FOLDER_PATH}...")
     repo_root_for_manifest = str(OW_SW_PATH)
     if is_platform_windows():
         repo_root_for_manifest = convert_win_to_wsl_path(repo_root_for_manifest)
     manifest_repo_url = get_manifest_repo_url(manifest_source, repo_root_for_manifest)
     run_shell(f"repo init {manifest_repo_url} -b {manifest_repo_branch} -m {IESA_MANIFEST_RELATIVE_PATH}",
-              cwd=OW_BUILD_FOLDER_PATH)
+              cwd=OW_SW_BUILD_FOLDER_PATH)
 
     # Construct the full path to the manifest file
-    manifest_full_path = Path(OW_BUILD_FOLDER_PATH / ".repo" / "manifests" / IESA_MANIFEST_RELATIVE_PATH)
+    manifest_full_path = Path(OW_SW_BUILD_FOLDER_PATH / ".repo" / "manifests" / IESA_MANIFEST_RELATIVE_PATH)
     manifest_snapshot_content = ""
     # Check if the manifest file exists before trying to read it
     LOG("\n--------------------- MANIFEST ---------------------")
@@ -537,7 +535,7 @@ def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, u
     if not manifest or not is_manifest_valid(manifest):
         LOG_EXCEPTION_STR("Parsed manifest is invalid or empty.")
 
-    run_shell("repo sync", cwd=OW_BUILD_FOLDER_PATH)
+    run_shell("repo sync", cwd=OW_SW_BUILD_FOLDER_PATH)
     return manifest_full_path
 
 
@@ -548,7 +546,7 @@ def sync_local_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
         LOG_EXCEPTION_STR(f"Could not find repo info for '{repo_name}'")
 
     src_path = local_repo_info.repo_local_path
-    dest_root_path = OW_BUILD_FOLDER_PATH / repo_rel_path_vs_tmp_build
+    dest_root_path = OW_SW_BUILD_FOLDER_PATH / repo_rel_path_vs_tmp_build
 
     if not src_path.is_dir() or not dest_root_path.is_dir():
         LOG(f"ERROR: Source or destination not found at {src_path} or {dest_root_path}", file=sys.stderr)
@@ -588,7 +586,7 @@ def sync_local_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
 
 
 def collect_repo_changes(repo_name: str, rel_path: str) -> Dict[str, Any]:
-    repo_path = OW_BUILD_FOLDER_PATH / rel_path
+    repo_path = OW_SW_BUILD_FOLDER_PATH / rel_path
     if not repo_path.exists():
         LOG(f"WARNING: Repo path '{repo_path}' not found when collecting changes for '{repo_name}'.")
         return {

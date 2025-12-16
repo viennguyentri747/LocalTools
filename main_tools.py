@@ -106,7 +106,8 @@ def diplay_templates(tool_path: Path, templates: List[ToolTemplate]) -> int:
         return 0
 
     selected_template: ToolTemplate = selected.data
-
+    LOG(f"{LINE_SEPARATOR}", show_time=False)
+    LOG(f"Selected template: {selected_template.name}")
     # Build and run final command
     cmd_line = build_template_run_command(tool_path, selected_template)
 
@@ -124,11 +125,11 @@ def diplay_templates(tool_path: Path, templates: List[ToolTemplate]) -> int:
         LOG(f"Usage note:\n{selected_template.usage_note}")
 
     if final_cmd:
-        if selected_template.run_now_without_modify:
+        if selected_template.should_run_now:
             LOG(f"{LINE_SEPARATOR}", show_time=False)
             LOG(f"Running template command now ...")
             run_shell(final_cmd)
-            LOG(f"{LINE_SEPARATOR}", show_time=False)
+            # LOG(f"{LINE_SEPARATOR}", show_time=False)
 
         else:
             tool_stem = tool_path.stem
@@ -208,7 +209,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     tool = interactive_tool_select(f"Select a tool", tool_nodes)
     if tool is None:
         return 0
-
+    LOG(f"{LINE_SEPARATOR}", show_time=False)
     LOG(f"Selected tool: {tool.full_path} ....")
 
     # Only show templates for Python tools

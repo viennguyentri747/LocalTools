@@ -67,7 +67,7 @@ def decode_flags(status: int) -> List[GpsStatusFlags]:
 
 
 def decode_gps_status(status: Union[int, str]) -> Dict[str, object]:
-    """Decode the GPS status integer into a structured mapping."""
+    """Decode the GPS status integer into a structured mapping. This can be get from DID_GPS1_POS message"""
     if isinstance(status, str):
         status = int(status, 0)
 

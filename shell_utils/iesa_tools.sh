@@ -1,8 +1,24 @@
 #!/bin/bash
+ow_sw_path=$HOME/ow_sw_tools
+
+docker_ow_build() {
+    local OW_SW_PATH="$ow_sw_path"
+    local docker_image="oneweb_sw:latest"
+    local chmod_cmd="find ${OW_SW_PATH}/packaging -type f \\( -name '*.py' -o -name '*.sh' \\) -exec chmod +x {} \\; -exec echo 'Granted execute permission to: {}' \\;"    local keep_interactive_shell="exec bash"
+    # Build the full bash command
+    local bash_cmd="echo 'Granting execute permissions to script files...' && ${chmod_cmd} && ${keep_interactive_shell}"
+    # Build and run the docker command
+    docker run -it --rm \
+        -v "${OW_SW_PATH}:${OW_SW_PATH}" \
+        -w "${OW_SW_PATH}" \
+        "${docker_image}" \
+        bash -c "${bash_cmd}"
+}
+
 
 sync_from_tmp_build() {
   echo -e "Available Repositories:\n---------------------"
-  repo_list=($(grep -oP 'name="\K[^"]+' "$HOME/ow_sw_tools/tools/manifests/iesa_manifest_gitlab.xml" | grep -v -w -E "intellian_adc|oneweb_legacy|oneweb_n|prototyping|third_party_apps"))
+  repo_list=($(grep -oP 'name="\K[^"]+' "$ow_sw_path/tools/manifests/iesa_manifest_gitlab.xml" | grep -v -w -E "intellian_adc|oneweb_legacy|oneweb_n|prototyping|third_party_apps"))
   for i in "${!repo_list[@]}"; do
     echo "$((i+1)). ${repo_list[i]}"
   done

@@ -63,13 +63,21 @@ ssh_acu() {
     local last_octet="$RESOLVED_OCTET"
     local ip_prefix=$(get_ip "$RESOLVED_AREA")
     [ $? -ne 0 ] && return 1  # Check if get_ip failed
+    local full_ip="${ip_prefix}.$last_octet"
     
     # Adjusted options (ConnectionAttempts handled by loop, so strictly 1 here is good)
-    SSH_OPTS="-o ConnectTimeout=0 -o ConnectionAttempts=1 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-    sshpass -p "$ut_pass" ssh -t $SSH_OPTS \
-        "root@${ip_prefix}.${last_octet}" \
-        ssh $SSH_OPTS "root@$target_acu_ip"
+    ssh_acu_ip "$full_ip"
+}
 
+ssh_acu_ip() {
+    local ip="$1"
+    if [ -z "$ip" ]; then
+        echo "Usage: ssh_acu_ip <IP>"
+        return 1
+    fi
+    local full_ip="$ip"
+    SSH_OPTS="-o ConnectTimeout=0 -o ConnectionAttempts=1 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    sshpass -p "$ut_pass" ssh -t $SSH_OPTS "root@$full_ip" ssh $SSH_OPTS "root@$target_acu_ip"
 }
 
 run_acu_cmd() {

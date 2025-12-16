@@ -10,16 +10,20 @@ from available_tools.inertial_sense_tools.decode_gen_fault_status_utils import (
     print_decoded_status as print_gen_fault_status,
 )
 from available_tools.inertial_sense_tools.decode_gps_status_utils import print_gps_status_report
-from available_tools.inertial_sense_tools.decode_hdw_status_utils import (
+from available_tools.inertial_sense_tools.decode_system_hdw_status_utils import (
     decode_system_hdw_status,
     print_decoded_status as print_hdw_status,
+)
+from available_tools.inertial_sense_tools.decode_gps_hdw_status_utils import (
+    decode_gps_hdw_status,
+    print_decoded_status as print_gps_hdw_status,
 )
 from available_tools.inertial_sense_tools.decode_ins_status_utils import (
     decode_ins_status,
     print_decoded_status as print_ins_status,
 )
 
-SUPPORTED_TYPES: Tuple[str, ...] = ("gen_fault", "gps", "system_hdw", "ins")
+SUPPORTED_TYPES: Tuple[str, ...] = ("gen_fault", "gps", "gps_hdw", "system_hdw", "ins")
 
 def get_tool_templates() -> List[ToolTemplate]:
     return [
@@ -37,6 +41,14 @@ def get_tool_templates() -> List[ToolTemplate]:
             args={
                 "--type": "gps",
                 "--status": "0x312",
+            },
+        ),
+        ToolTemplate(
+            name="Decode GPS Hardware Status",
+            extra_description="Decode GPS hardware status integer, `status` in DID_GPX_HDW_STATUS.",
+            args={
+                "--type": "gps_hdw",
+                "--status": "0x80010001",
             },
         ),
         ToolTemplate(
@@ -94,6 +106,13 @@ def decode_message(message_type: str, status_value: str) -> None:
         decoded = decode_ins_status(status_value)
         print_ins_status(decoded)
         print("\n" + "=" * 40 + "\n")
+        return
+
+    if message_type == "gps_hdw":
+        print(f"\nDecoding GPS HDW Status: 0x{status_value:08X} ({status_value})")
+        decoded = decode_gps_hdw_status(status_value)
+        print_gps_hdw_status(decoded)
+        print("\n" + "=" * 60 + "\n")
         return
 
     if message_type == "system_hdw":

@@ -3,36 +3,60 @@
 from enum import IntFlag
 from typing import Dict, Iterable, List, Union
 
+from dev.dev_common.core_independent_utils import LOG
+from dev.dev_iesa.iesa_repo_utils import (
+    get_enum_declaration_from_path,
+    get_path_to_inertial_sense_data_set_header,
+)
+
+ENUM_GEN_FAULT_CODES = "eGenFaultCodes"
+
+_HEADER_PATH = get_path_to_inertial_sense_data_set_header()
+_GEN_FAULT_VALUES = get_enum_declaration_from_path(ENUM_GEN_FAULT_CODES, _HEADER_PATH)
+
+
+def _get(name: str) -> int:
+    try:
+        return _GEN_FAULT_VALUES[name]
+    except KeyError as exc:
+        raise KeyError(f"Missing {name} in {ENUM_GEN_FAULT_CODES}") from exc
+
 
 class GeneralFaultCode(IntFlag):
     """Bit flags that compose the general fault status field."""
 
-    INS_STATE_ORUN_UVW = 0x00000001
-    INS_STATE_ORUN_LAT = 0x00000002
-    INS_STATE_ORUN_ALT = 0x00000004
-    UNHANDLED_INTERRUPT = 0x00000010
-    GNSS_CRITICAL_FAULT = 0x00000020
-    GNSS_TX_LIMITED = 0x00000040
-    GNSS_RX_OVERRUN = 0x00000080
-    INIT_SENSORS = 0x00000100
-    INIT_SPI = 0x00000200
-    CONFIG_SPI = 0x00000400
-    GNSS1_INIT = 0x00000800
-    GNSS2_INIT = 0x00001000
-    FLASH_INVALID_VALUES = 0x00002000
-    FLASH_CHECKSUM_FAILURE = 0x00004000
-    FLASH_WRITE_FAILURE = 0x00008000
-    SYS_FAULT_GENERAL = 0x00010000
-    SYS_FAULT_CRITICAL = 0x00020000
-    SENSOR_SATURATION = 0x00040000
-    INIT_IMU = 0x00100000
-    INIT_BAROMETER = 0x00200000
-    INIT_MAGNETOMETER = 0x00400000
-    INIT_I2C = 0x00800000
-    CHIP_ERASE_INVALID = 0x01000000
-    EKF_GNSS_TIME_FAULT = 0x02000000
-    GNSS_RECEIVER_TIME = 0x04000000
-    GNSS_GENERAL_FAULT = 0x08000000
+    INS_STATE_ORUN_UVW = _get("GFC_INS_STATE_ORUN_UVW")
+    INS_STATE_ORUN_LAT = _get("GFC_INS_STATE_ORUN_LAT")
+    INS_STATE_ORUN_ALT = _get("GFC_INS_STATE_ORUN_ALT")
+    UNHANDLED_INTERRUPT = _get("GFC_UNHANDLED_INTERRUPT")
+    GNSS_CRITICAL_FAULT = _get("GFC_GNSS_CRITICAL_FAULT")
+    GNSS_TX_LIMITED = _get("GFC_GNSS_TX_LIMITED")
+    GNSS_RX_OVERRUN = _get("GFC_GNSS_RX_OVERRUN")
+    INIT_SENSORS = _get("GFC_INIT_SENSORS")
+    INIT_SPI = _get("GFC_INIT_SPI")
+    CONFIG_SPI = _get("GFC_CONFIG_SPI")
+    GNSS1_INIT = _get("GFC_GNSS1_INIT")
+    GNSS2_INIT = _get("GFC_GNSS2_INIT")
+    FLASH_INVALID_VALUES = _get("GFC_FLASH_INVALID_VALUES")
+    FLASH_CHECKSUM_FAILURE = _get("GFC_FLASH_CHECKSUM_FAILURE")
+    FLASH_WRITE_FAILURE = _get("GFC_FLASH_WRITE_FAILURE")
+    SYS_FAULT_GENERAL = _get("GFC_SYS_FAULT_GENERAL")
+    SYS_FAULT_CRITICAL = _get("GFC_SYS_FAULT_CRITICAL")
+    SENSOR_SATURATION = _get("GFC_SENSOR_SATURATION")
+    INIT_IMU = _get("GFC_INIT_IMU")
+    INIT_BAROMETER = _get("GFC_INIT_BAROMETER")
+    INIT_MAGNETOMETER = _get("GFC_INIT_MAGNETOMETER")
+    INIT_I2C = _get("GFC_INIT_I2C")
+    CHIP_ERASE_INVALID = _get("GFC_CHIP_ERASE_INVALID")
+    EKF_GNSS_TIME_FAULT = _get("GFC_EKF_GNSS_TIME_FAULT")
+    GNSS_RECEIVER_TIME = _get("GFC_GNSS_RECEIVER_TIME")
+    GNSS_GENERAL_FAULT = _get("GFC_GNSS_GENERAL_FAULT")
+
+
+LOG(
+    f"[IESA] Parsed {ENUM_GEN_FAULT_CODES}: "
+    f"{ {k: hex(v) if isinstance(v, int) else v for k, v in _GEN_FAULT_VALUES.items()} }"
+)
 
 
 FLAG_DESCRIPTIONS: Dict[GeneralFaultCode, str] = {

@@ -28,31 +28,31 @@ SUPPORTED_TYPES: Tuple[str, ...] = ("gen_fault", "gps", "gps_hdw", "system_hdw",
 def get_tool_templates() -> List[ToolTemplate]:
     return [
         ToolTemplate(
-            name="Decode INS Status",
-            extra_description="Decode INS status integer. check it in `insStatus` in ``tail -F /var/log/ins_monitor_log | grep -i INS1Msg`",
+            name="Decode INS Status Integer",
+            extra_description="Check it in `insStatus` in ``tail -F /var/log/ins_monitor_log | grep -i INS1Msg`",
             args={
                 "--type": "ins",
                 "--status": "0x00031000",
             },
         ),
         ToolTemplate(
-            name="Decode GPS Status",
-            extra_description="Decode GPS status integer, check it in `status` in `tail -F /var/log/ins_monitor_log | grep -i DID_GPS1_POS`",
+            name="Decode GPS Status Integer",
+            extra_description="Check it in `status` in `tail -F /var/log/ins_monitor_log | grep -i DID_GPS1_POS`",
             args={
                 "--type": "gps",
                 "--status": "0x312",
             },
         ),
         ToolTemplate(
-            name="Decode GPS Hardware Status",
-            extra_description="Decode GPS hardware status integer, `status` in DID_GPX_HDW_STATUS.",
+            name="Decode GPS Hardware Status Integer",
+            extra_description="Check it in `status` in DID_GPX_HDW_STATUS.",
             args={
                 "--type": "gps_hdw",
                 "--status": "0x80010001",
             },
         ),
         ToolTemplate(
-            name="Decode SYSTEM HDW Status",
+            name="Decode SYSTEM HDW Status Integer",
             extra_description="Decode SYSTEM hardware status integer, `hdwStatus` in `tail -F /var/log/ins_monitor_log | grep -i INS1Msg` or via DID_SYS_PARAMS",
             args={
                 "--type": "system_hdw",

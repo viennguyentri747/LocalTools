@@ -32,7 +32,7 @@ def get_tool_templates() -> List[ToolTemplate]:
             extra_description="Check it in `insStatus` in ``tail -F /var/log/ins_monitor_log | grep -i INS1Msg`",
             args={
                 "--type": "ins",
-                "--status": "0x00031000",
+                "--status": "0x50351f7",
             },
         ),
         ToolTemplate(

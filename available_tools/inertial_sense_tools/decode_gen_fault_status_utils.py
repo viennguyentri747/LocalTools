@@ -1,7 +1,8 @@
 """Utility helpers for decoding general fault status messages from Inertial Sense devices."""
 
+from dataclasses import dataclass, field
 from enum import IntFlag
-from typing import Dict, Iterable, List, Union
+from typing import Dict, Iterable, List, Optional, Union
 
 from dev.dev_common.core_independent_utils import LOG
 from dev.dev_iesa.iesa_repo_utils import (
@@ -103,52 +104,90 @@ for _flag in GeneralFaultCode:
     ALL_KNOWN_FLAGS_MASK |= _flag.value
 
 
-def decode_gen_fault_status(status: Union[int, str]) -> Dict[str, object]:
-    """Decode a general fault status integer into structured details."""
+@dataclass
+class GeneralFaultFlagInfo:
+    """Details for an individual general fault flag."""
+
+    code: GeneralFaultCode
+    description: str
+    is_gpx_related: bool
+
+    @property
+    def label(self) -> str:
+        return f"{self.code.name} (0x{self.code.value:08X})"
+
+
+@dataclass
+class GeneralFaultStatus:
+    """Structured representation of a general fault status value."""
+
+    raw_value: int
+    active_flags: List[GeneralFaultFlagInfo] = field(default_factory=list)
+    unknown_bits: Optional[int] = None
+
+    @property
+    def overall_status_hex(self) -> str:
+        return f"0x{self.raw_value:08X}"
+
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            "overall_status_hex": self.overall_status_hex,
+            "active_flags": [
+                {
+                    "flag": flag.code,
+                    "label": flag.label,
+                    "description": flag.description,
+                    "is_gpx_related": flag.is_gpx_related,
+                }
+                for flag in self.active_flags
+            ],
+            "unknown_bits": None if self.unknown_bits is None else f"0x{self.unknown_bits:08X}",
+        }
+
+    def __str__(self) -> str:
+        lines = [f"General Fault Status: {self.overall_status_hex}", "=" * 60, "Active Flags:"]
+        if not self.active_flags:
+            lines.append("  None")
+        else:
+            for flag in self.active_flags:
+                label = flag.label
+                if flag.is_gpx_related:
+                    label = f"{label} [GPX-related]"
+                lines.append(f"  - {label}")
+                lines.append(f"      {flag.description}")
+
+        if self.unknown_bits:
+            lines.extend(["", "Unknown Bits:", f"  0x{self.unknown_bits:08X}"])
+
+        return "\n".join(lines)
+
+
+def decode_gen_fault_status(status: Union[int, str]) -> GeneralFaultStatus:
+    """Decode a general fault status integer into a structured object."""
     if isinstance(status, str):
         status = int(status, 0)
 
-    active_flags: List[Dict[str, object]] = list(_iter_active_flags(status))
+    active_flags = list(_iter_active_flags(status))
     unknown_bits = status & ~ALL_KNOWN_FLAGS_MASK
 
-    return {
-        "Overall Status Value (Hex)": f"0x{status:08X}",
-        "Active Flags": active_flags,
-        "Unknown Bits": None if not unknown_bits else f"0x{unknown_bits:08X}",
-    }
+    general_fault_status = GeneralFaultStatus(raw_value=status, active_flags=active_flags, unknown_bits=unknown_bits or None)
+
+    LOG(f"Decoded general fault status: {general_fault_status}", highlight=True)
+    return general_fault_status
 
 
-def _iter_active_flags(status: int) -> Iterable[Dict[str, object]]:
+def _iter_active_flags(status: int) -> Iterable[GeneralFaultFlagInfo]:
     """Yield decoded flags that are active in the provided status value."""
     for flag in GeneralFaultCode:
         if status & flag.value:
-            yield {
-                "flag": flag,
-                "label": f"{flag.name} (0x{flag.value:08X})",
-                "description": FLAG_DESCRIPTIONS.get(flag, flag.name.replace("_", " ").title()),
-                "is_gpx_related": bool(flag & GPX_STATUS_RELATED_FLAGS),
-            }
+            yield GeneralFaultFlagInfo(
+                code=flag,
+                description=FLAG_DESCRIPTIONS.get(flag, flag.name.replace("_", " ").title()),
+                is_gpx_related=bool(flag & GPX_STATUS_RELATED_FLAGS),
+            )
 
 
-def print_decoded_status(decoded_status: Dict[str, object]) -> None:
+def print_decoded_status(decoded_status: Union[GeneralFaultStatus, int, str]) -> None:
     """Print a human readable summary of the general fault status."""
-    status_hex = decoded_status["Overall Status Value (Hex)"]
-    active_flags: List[Dict[str, object]] = decoded_status["Active Flags"]
-    unknown_bits = decoded_status["Unknown Bits"]
-
-    print(f"General Fault Status: {status_hex}")
-    print("=" * 60)
-    print("Active Flags:")
-    if not active_flags:
-        print("  None")
-    else:
-        for item in active_flags:
-            label = item["label"]
-            if item["is_gpx_related"]:
-                label = f"{label} [GPX-related]"
-            print(f"  - {label}")
-            print(f"      {item['description']}")
-
-    if unknown_bits:
-        print("\nUnknown Bits:")
-        print(f"  {unknown_bits}")
+    status_obj = decoded_status if isinstance(decoded_status, GeneralFaultStatus) else decode_gen_fault_status(decoded_status)
+    print(str(status_obj))

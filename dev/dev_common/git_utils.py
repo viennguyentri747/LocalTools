@@ -82,7 +82,7 @@ def checkout_branch(repo_path: Path, branch_name: str, *, create_when_missing: b
         checkout_cmd = [CMD_GIT, 'checkout', branch_name]
     else:
         checkout_cmd = [CMD_GIT, 'checkout', '-b', branch_name]
-    run_git_wsl(checkout_cmd, cwd=repo_path, check=True)
+    run_shell(checkout_cmd, cwd=repo_path, check_throw_exception_on_exit_code=True)
     LOG(f"✅ Now on branch '{branch_name}'.")
 
 

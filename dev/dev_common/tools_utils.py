@@ -10,8 +10,8 @@ from typing import List, Dict, Any, Optional, Set, Tuple
 from enum import IntEnum, auto
 import pyperclip
 from dev.dev_common.constants import LINE_SEPARATOR, CMD_EXPLORER, WSL_SELECT_FLAG
-from dev.dev_common.custom_structures import *
-from dev.dev_common.core_utils import LOG, convert_win_to_wsl_path, run_shell, convert_wsl_to_win_path
+from dev.dev_common import *
+# from dev.dev_common.core_utils import LOG, convert_win_to_wsl_path, run_shell, convert_wsl_to_win_path
 
 
 class ToolFolderPriority(IntEnum):
@@ -211,7 +211,7 @@ def display_content_to_copy(
     LOG(f"\n", show_time=False)
     if extra_prefix_descriptions:
         LOG(f"{extra_prefix_descriptions}", show_time=False)
-    LOG(f"\n", show_time=False)
+        LOG(f"\n", show_time=False)
     LOG(f"✅ Content{purpose_text}{clipboard_status}:", show_time=True)
     LOG(f"{LINE_SEPARATOR}", show_time=False)
     LOG(f"{content}", show_time=False)

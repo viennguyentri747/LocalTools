@@ -1,7 +1,8 @@
 """Utility helpers for decoding GPS hardware status messages from Inertial Sense devices."""
 
+from dataclasses import dataclass, field
 from enum import Flag
-from typing import Dict, Union
+from typing import Dict, List, Union
 
 from dev.dev_common.core_independent_utils import LOG
 from dev.dev_iesa.iesa_repo_utils import (
@@ -77,6 +78,46 @@ class GpsHdwStatusFlags(Flag):
     FAULT_SYS_CRITICAL = _get("GPX_HDW_STATUS_FAULT_SYS_CRITICAL")
 
 
+@dataclass
+class GpsHardwareStatus:
+    """Structured representation of a decoded GPS hardware status value."""
+
+    raw_value: int
+    receiver_state: Dict[str, bool] = field(default_factory=dict)
+    reset_counts: Dict[str, int] = field(default_factory=dict)
+    pps_and_timing: Dict[str, bool] = field(default_factory=dict)
+    signal_quality: Dict[str, bool] = field(default_factory=dict)
+    system_and_maintenance: Dict[str, object] = field(default_factory=dict)
+    communications: Dict[str, bool] = field(default_factory=dict)
+    faults_and_warnings: Dict[str, bool] = field(default_factory=dict)
+
+    @property
+    def overall_status_hex(self) -> str:
+        return f"0x{self.raw_value:08X}"
+
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            "raw_value": self.raw_value,
+            "overall_status_hex": self.overall_status_hex,
+            "sections": {
+                "GNSS Receiver State": self.receiver_state,
+                "GNSS Reset Counts": self.reset_counts,
+                "PPS & Timing": self.pps_and_timing,
+                "Signal Quality": self.signal_quality,
+                "System & Maintenance": self.system_and_maintenance,
+                "Communications": self.communications,
+                "Faults & Warnings": self.faults_and_warnings,
+            },
+        }
+
+    def __str__(self) -> str:
+        lines = [f"GPS Hardware Status: {self.overall_status_hex}"]
+        for section, values in self.to_dict()["sections"].items():
+            lines.append(section)
+            lines.extend(_format_section_lines(values))
+        return "\n".join(lines)
+
+
 def get_bit_status(status: int) -> str:
     """Decode the Built-in Test (BIT) status field."""
     bit_field = status & GPS_HDW_STATUS_BIT_MASK
@@ -112,66 +153,81 @@ def is_set(status: int, flag: GpsHdwStatusFlags) -> bool:
     return (status & flag.value) != 0
 
 
-def decode_gps_hdw_status(status: Union[int, str]) -> Dict[str, object]:
-    """Decode a 32-bit GPS hardware status value into a structured mapping."""
+def decode_gps_hdw_status(status: Union[int, str]) -> GpsHardwareStatus:
+    """Decode a 32-bit GPS hardware status value into a structured object."""
     if isinstance(status, str):
         status = int(status, 0)
 
-    line_separator = f"\n{'=' * 60}\n"
-    indent = " " * 4
-
-    return {
-        "Overall Status Value (Hex)": f"0x{status:08X}",
-        f"{line_separator}GNSS RECEIVER STATE": {
-            indent + "GNSS1 satellite signals received": is_set(status, GpsHdwStatusFlags.GNSS1_SATELLITE_RX),
-            indent + "GNSS2 satellite signals received": is_set(status, GpsHdwStatusFlags.GNSS2_SATELLITE_RX),
-            indent + "GNSS1 time-of-week valid": is_set(status, GpsHdwStatusFlags.GNSS1_TIME_OF_WEEK_VALID),
-            indent + "GNSS2 time-of-week valid": is_set(status, GpsHdwStatusFlags.GNSS2_TIME_OF_WEEK_VALID),
-            indent + "GNSS1 init fault": is_set(status, GpsHdwStatusFlags.FAULT_GNSS1_INIT),
-            indent + "GNSS2 init fault": is_set(status, GpsHdwStatusFlags.FAULT_GNSS2_INIT),
-        },
-        f"{line_separator}GNSS RESET COUNTS": {
-            indent + "GNSS1 reset count": get_reset_count(status, GNSS1_RESET_COUNT_MASK, GNSS1_RESET_COUNT_OFFSET),
-            indent + "GNSS2 reset count": get_reset_count(status, GNSS2_RESET_COUNT_MASK, GNSS2_RESET_COUNT_OFFSET),
-        },
-        f"{line_separator}PPS & TIMING": {
-            indent + "GPS PPS time-synchronized": is_set(status, GpsHdwStatusFlags.GPS_PPS_TIMESYNC),
-            indent + "No GPS1 PPS signal": is_set(status, GpsHdwStatusFlags.ERR_NO_GPS1_PPS),
-            indent + "No GPS2 PPS signal": is_set(status, GpsHdwStatusFlags.ERR_NO_GPS2_PPS),
-            indent + "Any PPS-related error": bool(status & GPS_HDW_STATUS_ERR_PPS_MASK),
-        },
-        f"{line_separator}SIGNAL QUALITY": {
-            indent + "GPS1 low C/N0": is_set(status, GpsHdwStatusFlags.ERR_LOW_CNO_GPS1),
-            indent + "GPS2 low C/N0": is_set(status, GpsHdwStatusFlags.ERR_LOW_CNO_GPS2),
-            indent + "GPS1 irregular C/N0": is_set(status, GpsHdwStatusFlags.ERR_CNO_GPS1_IRREGULAR),
-            indent + "GPS2 irregular C/N0": is_set(status, GpsHdwStatusFlags.ERR_CNO_GPS2_IRREGULAR),
-            indent + "Any C/N0-related error": bool(status & GPS_HDW_STATUS_ERR_CNO_MASK),
-        },
-        f"{line_separator}SYSTEM & MAINTENANCE": {
-            indent + "Firmware update required": is_set(status, GpsHdwStatusFlags.GNSS_FW_UPDATE_REQUIRED),
-            indent + "LED enabled (Manufacturing test)": is_set(status, GpsHdwStatusFlags.LED_ENABLED),
-            indent + "System reset required": is_set(status, GpsHdwStatusFlags.SYSTEM_RESET_REQUIRED),
-            indent + "Flash write pending": is_set(status, GpsHdwStatusFlags.FLASH_WRITE_PENDING),
-            indent + "Built-in Test (BIT) status": get_bit_status(status),
-            indent + "Cause of last reset": get_reset_cause(status),
-        },
-        f"{line_separator}COMMUNICATIONS": {
-            indent + "Communications Tx buffer limited": is_set(status, GpsHdwStatusFlags.ERR_COM_TX_LIMITED),
-            indent + "Communications Rx overrun": is_set(status, GpsHdwStatusFlags.ERR_COM_RX_OVERRUN),
-        },
-        f"{line_separator}FAULTS & WARNINGS": {
-            indent + "Critical system fault (CPU)": is_set(status, GpsHdwStatusFlags.FAULT_SYS_CRITICAL),
-            indent + "Temperature out of spec": is_set(status, GpsHdwStatusFlags.ERR_TEMPERATURE),
-        },
+    receiver_state = {
+        "GNSS1 satellite signals received": is_set(status, GpsHdwStatusFlags.GNSS1_SATELLITE_RX),
+        "GNSS2 satellite signals received": is_set(status, GpsHdwStatusFlags.GNSS2_SATELLITE_RX),
+        "GNSS1 time-of-week valid": is_set(status, GpsHdwStatusFlags.GNSS1_TIME_OF_WEEK_VALID),
+        "GNSS2 time-of-week valid": is_set(status, GpsHdwStatusFlags.GNSS2_TIME_OF_WEEK_VALID),
+        "GNSS1 init fault": is_set(status, GpsHdwStatusFlags.FAULT_GNSS1_INIT),
+        "GNSS2 init fault": is_set(status, GpsHdwStatusFlags.FAULT_GNSS2_INIT),
     }
 
+    reset_counts = {
+        "GNSS1 reset count": get_reset_count(status, GNSS1_RESET_COUNT_MASK, GNSS1_RESET_COUNT_OFFSET),
+        "GNSS2 reset count": get_reset_count(status, GNSS2_RESET_COUNT_MASK, GNSS2_RESET_COUNT_OFFSET),
+    }
 
-def print_decoded_status(decoded_status: Dict[str, object], indent: int = 0) -> None:
-    """Recursively print the decoded status dictionary."""
-    for key, value in decoded_status.items():
-        prefix = " " * indent
-        if isinstance(value, dict):
-            print(f"{prefix}{key}")
-            print_decoded_status(value, indent + 4)
-        else:
-            print(f"{prefix}{key}: {value}")
+    pps_and_timing = {
+        "GPS PPS time-synchronized": is_set(status, GpsHdwStatusFlags.GPS_PPS_TIMESYNC),
+        "No GPS1 PPS signal": is_set(status, GpsHdwStatusFlags.ERR_NO_GPS1_PPS),
+        "No GPS2 PPS signal": is_set(status, GpsHdwStatusFlags.ERR_NO_GPS2_PPS),
+        "Any PPS-related error": bool(status & GPS_HDW_STATUS_ERR_PPS_MASK),
+    }
+
+    signal_quality = {
+        "GPS1 low C/N0": is_set(status, GpsHdwStatusFlags.ERR_LOW_CNO_GPS1),
+        "GPS2 low C/N0": is_set(status, GpsHdwStatusFlags.ERR_LOW_CNO_GPS2),
+        "GPS1 irregular C/N0": is_set(status, GpsHdwStatusFlags.ERR_CNO_GPS1_IRREGULAR),
+        "GPS2 irregular C/N0": is_set(status, GpsHdwStatusFlags.ERR_CNO_GPS2_IRREGULAR),
+        "Any C/N0-related error": bool(status & GPS_HDW_STATUS_ERR_CNO_MASK),
+    }
+
+    system_and_maintenance = {
+        "Firmware update required": is_set(status, GpsHdwStatusFlags.GNSS_FW_UPDATE_REQUIRED),
+        "LED enabled (Manufacturing test)": is_set(status, GpsHdwStatusFlags.LED_ENABLED),
+        "System reset required": is_set(status, GpsHdwStatusFlags.SYSTEM_RESET_REQUIRED),
+        "Flash write pending": is_set(status, GpsHdwStatusFlags.FLASH_WRITE_PENDING),
+        "Built-in Test (BIT) status": get_bit_status(status),
+        "Cause of last reset": get_reset_cause(status),
+    }
+
+    communications = {
+        "Communications Tx buffer limited": is_set(status, GpsHdwStatusFlags.ERR_COM_TX_LIMITED),
+        "Communications Rx overrun": is_set(status, GpsHdwStatusFlags.ERR_COM_RX_OVERRUN),
+    }
+
+    faults_and_warnings = {
+        "Critical system fault (CPU)": is_set(status, GpsHdwStatusFlags.FAULT_SYS_CRITICAL),
+        "Temperature out of spec": is_set(status, GpsHdwStatusFlags.ERR_TEMPERATURE),
+    }
+
+    gpx_hdw_status = GpsHardwareStatus(
+        raw_value=status,
+        receiver_state=receiver_state,
+        reset_counts=reset_counts,
+        pps_and_timing=pps_and_timing,
+        signal_quality=signal_quality,
+        system_and_maintenance=system_and_maintenance,
+        communications=communications,
+        faults_and_warnings=faults_and_warnings,
+    )
+
+    LOG(f"Decoded GPS hardware status: {gpx_hdw_status}", highlight=True)
+    return gpx_hdw_status
+
+
+def _format_section_lines(values: Dict[str, object], indent: int = 4) -> List[str]:
+    """Format a mapping of values into indented strings."""
+    prefix = " " * indent
+    return [f"{prefix}{label}: {value}" for label, value in values.items()]
+
+
+def print_decoded_status(decoded_status: Union[GpsHardwareStatus, int, str]) -> None:
+    """Print a human readable summary of the GPS hardware status."""
+    status_obj = decoded_status if isinstance(decoded_status, GpsHardwareStatus) else decode_gps_hdw_status(decoded_status)
+    print(str(status_obj))

@@ -89,13 +89,13 @@ def find_firmware_pairs_recursively(version_or_fw_path: str) -> List[FirmwarePai
     imx_candidates.sort(key=lambda x: x[1], reverse=True)
     gpx_candidates.sort(key=lambda x: x[1], reverse=True)
 
-    pairs: List[FirmwarePair] = []
-    matched_gpx: set[Path] = set()
+    firmware_pairs: List[FirmwarePair] = []
+    matched_gpx_set: set[Path] = set()
 
     for imx_version, imx_timestamp, imx_path in imx_candidates:
         for gpx_version, gpx_timestamp, gpx_path in gpx_candidates:
-            if imx_version == gpx_version and gpx_path not in matched_gpx:
-                pairs.append(
+            if imx_version == gpx_version and gpx_path not in matched_gpx_set:
+                firmware_pairs.append(
                     FirmwarePair(
                         imx_full_path=imx_path,
                         gpx_full_path=gpx_path,
@@ -103,9 +103,9 @@ def find_firmware_pairs_recursively(version_or_fw_path: str) -> List[FirmwarePai
                         version=imx_version,
                     )
                 )
-                matched_gpx.add(gpx_path)
+                matched_gpx_set.add(gpx_path)
                 break
-    return pairs
+    return firmware_pairs
 
 
 def extract_version_from_filename(filename: str) -> Optional[str]:

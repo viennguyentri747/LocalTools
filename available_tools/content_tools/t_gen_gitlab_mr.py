@@ -10,8 +10,6 @@ from dev.dev_common import *
 from dev.dev_common.gitlab_utils import get_gl_project, is_gl_ref_exists
 from dev.dev_common.tools_utils import display_content_to_copy
 
-JIRA_BASE_URL = "https://intelliantech.atlassian.net"
-
 
 def get_tool_templates() -> List[ToolTemplate]:
     """Provide starter examples for CLI help output."""

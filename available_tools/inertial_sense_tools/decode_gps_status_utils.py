@@ -1,5 +1,6 @@
 """Utility helpers for decoding GPS status messages from Inertial Sense devices."""
 
+from dataclasses import dataclass, field
 from enum import Flag, IntEnum
 from typing import Dict, List, Union
 
@@ -77,6 +78,37 @@ LOG(
 )
 
 
+@dataclass
+class GpsStatusReport:
+    """Structured representation of a decoded GPS status value."""
+
+    raw_status: int
+    fix_type: GpsFixType
+    flags: List[GpsStatusFlags] = field(default_factory=list)
+
+    @property
+    def raw_status_hex(self) -> str:
+        return f"0x{self.raw_status:08X}"
+
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            "raw_status": self.raw_status,
+            "raw_status_hex": self.raw_status_hex,
+            "fix_type": self.fix_type,
+            "flags": self.flags,
+        }
+
+    def __str__(self) -> str:
+        lines = [f"Raw Status: {self.raw_status_hex}", f"Fix Type: {self.fix_type.name} (0x{self.fix_type.value:08X})"]
+        lines.append("Flags:")
+        if not self.flags:
+            lines.append("  None")
+        else:
+            for flag in self.flags:
+                lines.append(f"  {flag.name} (0x{flag.value:08X})")
+        return "\n".join(lines)
+
+
 def decode_fix_type(status: int) -> GpsFixType:
     """Return the fix type encoded within the status integer."""
     fix_value = status & GPS_STATUS_FIX_MASK
@@ -92,31 +124,17 @@ def decode_flags(status: int) -> List[GpsStatusFlags]:
     return [flag for flag in GpsStatusFlags if flag.value & flags_value]
 
 
-def decode_gps_status(status: Union[int, str]) -> Dict[str, object]:
-    """Decode the GPS status integer into a structured mapping. This can be get from DID_GPS1_POS message"""
+def decode_gps_status(status: Union[int, str]) -> GpsStatusReport:
+    """Decode the GPS status integer into a structured mapping. This can be get from DID_GPS1_POS message."""
     if isinstance(status, str):
         status = int(status, 0)
 
-    return {
-        "raw_status": status,
-        "fix_type": decode_fix_type(status),
-        "flags": decode_flags(status),
-    }
+    gps_status_data = GpsStatusReport(raw_status=status, fix_type=decode_fix_type(status), flags=decode_flags(status))
+    LOG(f"Decoded GPS status: {gps_status_data}", highlight=True)
+    return gps_status_data
 
 
-def print_gps_status_report(status: Union[int, str]) -> None:
+def print_gps_status_report(status: Union[int, str, GpsStatusReport]) -> None:
     """Print a human readable summary of the GPS status."""
-    decoded = decode_gps_status(status)
-
-    raw_status = decoded["raw_status"]
-    fix = decoded["fix_type"]
-    flags = decoded["flags"]
-
-    print(f"Raw Status: 0x{raw_status:08X}")
-    print(f"Fix Type: {fix.name} (0x{fix.value:08X})")
-    print("Flags:")
-    if not flags:
-        print("  None")
-    else:
-        for flag in flags:
-            print(f"  {flag.name} (0x{flag.value:08X})")
+    report = status if isinstance(status, GpsStatusReport) else decode_gps_status(status)
+    print(str(report))

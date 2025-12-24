@@ -1,7 +1,8 @@
 """Utility helpers for decoding hardware status messages from Inertial Sense devices."""
 
+from dataclasses import dataclass, field
 from enum import Flag
-from typing import Dict, Union
+from typing import Dict, List, Union
 
 from dev.dev_common.core_independent_utils import LOG
 from dev.dev_iesa.iesa_repo_utils import (
@@ -73,6 +74,42 @@ class HdwStatusFlags(Flag):
     FAULT_SYS_CRITICAL = _get("HDW_STATUS_FAULT_SYS_CRITICAL")
 
 
+@dataclass
+class SystemHardwareStatus:
+    """Structured representation of a decoded hardware status value."""
+
+    raw_value: int
+    motion_and_imu: Dict[str, bool] = field(default_factory=dict)
+    sensor_saturation: Dict[str, bool] = field(default_factory=dict)
+    general_status_and_timing: Dict[str, bool] = field(default_factory=dict)
+    system_and_interface: Dict[str, Union[str, bool]] = field(default_factory=dict)
+    faults_and_warnings: Dict[str, Union[str, int, bool]] = field(default_factory=dict)
+
+    @property
+    def overall_status_hex(self) -> str:
+        return f"0x{self.raw_value:08X}"
+
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            "raw_value": self.raw_value,
+            "overall_status_hex": self.overall_status_hex,
+            "sections": {
+                "Motion & IMU": self.motion_and_imu,
+                "Sensor Saturation": self.sensor_saturation,
+                "General Status & Timing": self.general_status_and_timing,
+                "System & Interface": self.system_and_interface,
+                "Faults & Warnings": self.faults_and_warnings,
+            },
+        }
+
+    def __str__(self) -> str:
+        lines = [f"Hardware Status: {self.overall_status_hex}"]
+        for section, values in self.to_dict()["sections"].items():
+            lines.append(section)
+            lines.extend(_format_section_lines(values))
+        return "\n".join(lines)
+
+
 def get_bit_status(status: int) -> str:
     """Decode the Built-in Test (BIT) status field."""
     bit_field = status & HDW_STATUS_BIT_MASK
@@ -109,61 +146,71 @@ def is_set(hdw_status: int, flag: HdwStatusFlags) -> bool:
     return (hdw_status & flag.value) != 0
 
 
-def decode_system_hdw_status(hdw_status: Union[int, str]) -> Dict[str, object]:
-    """Decode a 32-bit hardware status value into a structured mapping."""
+def decode_system_hdw_status(hdw_status: Union[int, str]) -> SystemHardwareStatus:
+    """Decode a 32-bit hardware status value into a structured object."""
     if isinstance(hdw_status, str):
         hdw_status = int(hdw_status, 0)
 
-    line_separator = f"\n{'=' * 60}\n"
-    indent = " " * 4
-
-    return {
-        "Overall Status Value (Hex)": f"0x{hdw_status:08X}",
-        f"{line_separator}MOTION & IMU": {
-            indent + "Gyro motion detected": is_set(hdw_status, HdwStatusFlags.MOTION_GYR),
-            indent + "Accelerometer motion detected": is_set(hdw_status, HdwStatusFlags.MOTION_ACC),
-            indent + "IMU gyro fault rejection": is_set(hdw_status, HdwStatusFlags.IMU_FAULT_REJECT_GYR),
-            indent + "IMU accelerometer fault rejection": is_set(hdw_status, HdwStatusFlags.IMU_FAULT_REJECT_ACC),
-        },
-        f"{line_separator}SENSOR SATURATION": {
-            indent + "Gyro": is_set(hdw_status, HdwStatusFlags.SATURATION_GYR),
-            indent + "Accelerometer": is_set(hdw_status, HdwStatusFlags.SATURATION_ACC),
-            indent + "Magnetometer": is_set(hdw_status, HdwStatusFlags.SATURATION_MAG),
-            indent + "Barometric Pressure": is_set(hdw_status, HdwStatusFlags.SATURATION_BARO),
-        },
-        f"{line_separator}GENERAL STATUS & TIMING": {
-            indent + "GPS Satellite RX Valid": is_set(hdw_status, HdwStatusFlags.GPS_SATELLITE_RX_VALID),
-            indent + "GPS Time Of Week Valid": is_set(hdw_status, HdwStatusFlags.GPS_TIME_OF_WEEK_VALID),
-            indent + "Time synchronized by GPS PPS": is_set(hdw_status, HdwStatusFlags.GPS_PPS_TIMESYNC),
-            indent + "Reference IMU data received": is_set(hdw_status, HdwStatusFlags.REFERENCE_IMU_RX),
-            indent + "Event on strobe input pin": is_set(hdw_status, HdwStatusFlags.STROBE_IN_EVENT),
-        },
-        f"{line_separator}SYSTEM & INTERFACE": {
-            indent + "Mag Recalibration Complete": is_set(hdw_status, HdwStatusFlags.MAG_RECAL_COMPLETE),
-            indent + "Flash Write Pending": is_set(hdw_status, HdwStatusFlags.FLASH_WRITE_PENDING),
-            indent + "SPI Interface Enabled": is_set(hdw_status, HdwStatusFlags.SPI_INTERFACE_ENABLED),
-            indent + "Built-in Test (BIT) Status": get_bit_status(hdw_status),
-            indent + "Cause of Last Reset": get_reset_cause(hdw_status),
-        },
-        f"{line_separator}FAULTS & WARNINGS": {
-            indent + "Critical System Fault (CPU)": is_set(hdw_status, HdwStatusFlags.FAULT_SYS_CRITICAL),
-            indent + "System Reset Required": is_set(hdw_status, HdwStatusFlags.SYSTEM_RESET_REQUIRED),
-            indent + "Temperature out of spec": is_set(hdw_status, HdwStatusFlags.ERR_TEMPERATURE),
-            indent + "GPS PPS signal noise": is_set(hdw_status, HdwStatusFlags.ERR_GPS_PPS_NOISE),
-            indent + "No GPS PPS signal": is_set(hdw_status, HdwStatusFlags.ERR_NO_GPS_PPS),
-            indent + "Communications Tx buffer limited": is_set(hdw_status, HdwStatusFlags.ERR_COM_TX_LIMITED),
-            indent + "Communications Rx buffer overrun": is_set(hdw_status, HdwStatusFlags.ERR_COM_RX_OVERRUN),
-            indent + "Communications Parse Error Count": get_com_parse_error_count(hdw_status),
-        },
+    motion_and_imu = {
+        "Gyro motion detected": is_set(hdw_status, HdwStatusFlags.MOTION_GYR),
+        "Accelerometer motion detected": is_set(hdw_status, HdwStatusFlags.MOTION_ACC),
+        "IMU gyro fault rejection": is_set(hdw_status, HdwStatusFlags.IMU_FAULT_REJECT_GYR),
+        "IMU accelerometer fault rejection": is_set(hdw_status, HdwStatusFlags.IMU_FAULT_REJECT_ACC),
     }
 
+    sensor_saturation = {
+        "Gyro": is_set(hdw_status, HdwStatusFlags.SATURATION_GYR),
+        "Accelerometer": is_set(hdw_status, HdwStatusFlags.SATURATION_ACC),
+        "Magnetometer": is_set(hdw_status, HdwStatusFlags.SATURATION_MAG),
+        "Barometric Pressure": is_set(hdw_status, HdwStatusFlags.SATURATION_BARO),
+    }
 
-def print_decoded_status(decoded_status: Dict[str, object], indent: int = 0) -> None:
-    """Recursively print the decoded status dictionary."""
-    for key, value in decoded_status.items():
-        prefix = " " * indent
-        if isinstance(value, dict):
-            print(f"{prefix}{key}")
-            print_decoded_status(value, indent + 4)
-        else:
-            print(f"{prefix}{key}: {value}")
+    general_status_and_timing = {
+        "GPS Satellite RX Valid": is_set(hdw_status, HdwStatusFlags.GPS_SATELLITE_RX_VALID),
+        "GPS Time Of Week Valid": is_set(hdw_status, HdwStatusFlags.GPS_TIME_OF_WEEK_VALID),
+        "Time synchronized by GPS PPS": is_set(hdw_status, HdwStatusFlags.GPS_PPS_TIMESYNC),
+        "Reference IMU data received": is_set(hdw_status, HdwStatusFlags.REFERENCE_IMU_RX),
+        "Event on strobe input pin": is_set(hdw_status, HdwStatusFlags.STROBE_IN_EVENT),
+    }
+
+    system_and_interface = {
+        "Mag Recalibration Complete": is_set(hdw_status, HdwStatusFlags.MAG_RECAL_COMPLETE),
+        "Flash Write Pending": is_set(hdw_status, HdwStatusFlags.FLASH_WRITE_PENDING),
+        "SPI Interface Enabled": is_set(hdw_status, HdwStatusFlags.SPI_INTERFACE_ENABLED),
+        "Built-in Test (BIT) Status": get_bit_status(hdw_status),
+        "Cause of Last Reset": get_reset_cause(hdw_status),
+    }
+
+    faults_and_warnings = {
+        "Critical System Fault (CPU)": is_set(hdw_status, HdwStatusFlags.FAULT_SYS_CRITICAL),
+        "System Reset Required": is_set(hdw_status, HdwStatusFlags.SYSTEM_RESET_REQUIRED),
+        "Temperature out of spec": is_set(hdw_status, HdwStatusFlags.ERR_TEMPERATURE),
+        "GPS PPS signal noise": is_set(hdw_status, HdwStatusFlags.ERR_GPS_PPS_NOISE),
+        "No GPS PPS signal": is_set(hdw_status, HdwStatusFlags.ERR_NO_GPS_PPS),
+        "Communications Tx buffer limited": is_set(hdw_status, HdwStatusFlags.ERR_COM_TX_LIMITED),
+        "Communications Rx buffer overrun": is_set(hdw_status, HdwStatusFlags.ERR_COM_RX_OVERRUN),
+        "Communications Parse Error Count": get_com_parse_error_count(hdw_status),
+    }
+
+    system_hdw_status = SystemHardwareStatus(
+        raw_value=hdw_status,
+        motion_and_imu=motion_and_imu,
+        sensor_saturation=sensor_saturation,
+        general_status_and_timing=general_status_and_timing,
+        system_and_interface=system_and_interface,
+        faults_and_warnings=faults_and_warnings,
+    )
+    LOG(f"Decoded system hardware status: {system_hdw_status}", highlight=True)
+    return system_hdw_status
+
+
+def _format_section_lines(values: Dict[str, object], indent: int = 4) -> List[str]:
+    """Format a mapping of values into indented strings."""
+    prefix = " " * indent
+    return [f"{prefix}{label}: {value}" for label, value in values.items()]
+
+
+def print_decoded_status(decoded_status: Union[SystemHardwareStatus, int, str]) -> None:
+    """Print a human readable summary of the hardware status."""
+    status_obj = decoded_status if isinstance(decoded_status, SystemHardwareStatus) else decode_system_hdw_status(decoded_status)
+    print(str(status_obj))

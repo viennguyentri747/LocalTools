@@ -28,7 +28,7 @@ def extract_version_from_zip(zip_path: Path) -> Optional[str]:
         LOG(f"✅ Found SDK version: {version}")
         return version
     LOG(
-        f"⚠️ WARNING: Could not extract version number from filename: {zip_path.name}, falling back to getting whole text after {prefix}"
+        f"⚠️ WARNING: Could not extract version number from filename: {zip_path.name}, falling back to getting whole text after prefix: {prefix}"
     )
     match = re.search(rf"{prefix}(.+)\.zip", zip_path.name)
     if match:
@@ -168,7 +168,7 @@ def get_current_git_branch() -> Optional[str]:
 
 
 def check_commit_changes_to_git(message: str, show_diff: bool = False) -> None:
-    if not confirm_action(f"Do you want to commit '{message}' to Git?"):
+    if not confirm_branch_action(f"Do you want to commit '{message}' to Git?"):
         return
 
     LOG(f"Adding and committing changes to Git: '{message}'")
@@ -184,20 +184,15 @@ def check_commit_changes_to_git(message: str, show_diff: bool = False) -> None:
         LOG("❌ ERROR: Git command not found. Please ensure Git is installed and in your PATH.")
 
 
-def confirm_action(prompt: str) -> bool:
+def confirm_branch_action(prompt: str) -> bool:
     if NO_PROMPT:
         LOG(f"{prompt} (auto-confirmed due to --no-prompt)")
         return True
     while True:
         current_branch = get_current_git_branch()
         branch_info = f" (on branch: {current_branch})" if current_branch else ""
-        response = input(f"{prompt}{branch_info} (y/n): ").strip().lower()
-        if response == "y":
-            return True
-        if response == "n":
-            return False
-        LOG("Invalid input. Please enter 'y' or 'n'.")
-
+        is_confirmed: bool = prompt_confirmation(f"{prompt}{branch_info}")
+        return is_confirmed
 
 def apply_signal_handler(stash_ref: str) -> None:
     try:

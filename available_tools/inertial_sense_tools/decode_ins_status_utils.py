@@ -1,5 +1,6 @@
 """Utility helpers for decoding INS status messages from Inertial Sense devices."""
 
+from dataclasses import dataclass, field
 from typing import Dict, Union
 
 from dev.dev_common.core_independent_utils import LOG
@@ -109,57 +110,120 @@ LOG(
 )
 
 
-def decode_ins_status(ins_status: Union[int, str]) -> Dict[str, Union[str, Dict[str, Union[str, bool]]]]:
-    """Decode a 32-bit INS status value into a structured mapping. Keys are CATEGORICAL heading (for example SOLUTION STATUS) and values corresponding str (corresponding value)/dict(of title: value)."""
+@dataclass
+class InsStatus:
+    """Structured representation of a decoded INS status value."""
+
+    raw_value: int
+    solution_status: str
+    alignment_status: Dict[str, bool] = field(default_factory=dict)
+    aiding_status: Dict[str, bool] = field(default_factory=dict)
+    rtk_status: Dict[str, Union[str, bool]] = field(default_factory=dict)
+    operational_mode: Dict[str, bool] = field(default_factory=dict)
+    gps_fix: str = ""
+    magnetometer_status: Dict[str, bool] = field(default_factory=dict)
+    faults_and_warnings: Dict[str, bool] = field(default_factory=dict)
+    kinematic_calibration_good: bool = False
+
+    @property
+    def overall_status_hex(self) -> str:
+        return f"0x{self.raw_value:08X}"
+
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            "raw_value": self.raw_value,
+            "overall_status_hex": self.overall_status_hex,
+            "solution_status": self.solution_status,
+            "alignment_status": self.alignment_status,
+            "aiding_status": self.aiding_status,
+            "rtk_status": self.rtk_status,
+            "operational_mode": self.operational_mode,
+            "gps_fix": self.gps_fix,
+            "magnetometer_status": self.magnetometer_status,
+            "faults_and_warnings": self.faults_and_warnings,
+            "kinematic_calibration_good": self.kinematic_calibration_good,
+        }
+
+    def __str__(self) -> str:
+        lines = [f"INS Status: {self.overall_status_hex}", f"Solution Status: {self.solution_status}", ""]
+        lines.append("Alignment Status")
+        lines.extend(_format_section_lines(self.alignment_status))
+        lines.append("Aiding Status")
+        lines.extend(_format_section_lines(self.aiding_status))
+        lines.append("RTK Status")
+        lines.extend(_format_section_lines(self.rtk_status))
+        lines.append("Operational Mode")
+        lines.extend(_format_section_lines(self.operational_mode))
+        lines.append(f"GPS Fix: {self.gps_fix}")
+        lines.append("Magnetometer Status")
+        lines.extend(_format_section_lines(self.magnetometer_status))
+        lines.append("Faults & Warnings")
+        lines.extend(_format_section_lines(self.faults_and_warnings))
+        lines.append(f"Kinematic Calibration Good: {self.kinematic_calibration_good}")
+        return "\n".join(lines)
+
+
+def decode_ins_status(ins_status: Union[int, str]) -> InsStatus:
+    """Decode a 32-bit INS status value into a structured object."""
     if isinstance(ins_status, str):
         ins_status = int(ins_status, 0)
 
-    line_separator = f"\n{'=' * 60}\n"
-    indent = " " * 4
-
-    decoded_status: Dict[str, Union[str, Dict[str, object]]] = {
-        "Overall Status Value (Hex)": f"0x{ins_status:08X}",
-        f"{line_separator}SOLUTION STATUS": get_solution_status(ins_status),
-        f"{line_separator}ALIGNMENT STATUS": {
-            indent + "Coarse Heading": is_set(ins_status, INS_STATUS_HDG_ALIGN_COARSE),
-            indent + "Coarse Velocity": is_set(ins_status, INS_STATUS_VEL_ALIGN_COARSE),
-            indent + "Coarse Position": is_set(ins_status, INS_STATUS_POS_ALIGN_COARSE),
-            indent + "Fine Heading": is_set(ins_status, INS_STATUS_HDG_ALIGN_FINE),
-            indent + "Fine Velocity": is_set(ins_status, INS_STATUS_VEL_ALIGN_FINE),
-            indent + "Fine Position": is_set(ins_status, INS_STATUS_POS_ALIGN_FINE),
-        },
-        f"{line_separator}AIDING STATUS": {
-            indent + "GPS Aiding Heading": is_set(ins_status, INS_STATUS_GPS_AIDING_HEADING),
-            indent + "GPS Aiding Position": is_set(ins_status, INS_STATUS_GPS_AIDING_POS),
-            indent + "GPS Aiding Velocity": is_set(ins_status, INS_STATUS_GPS_AIDING_VEL),
-            indent + "GPS Update in Solution": is_set(ins_status, INS_STATUS_GPS_UPDATE_IN_SOLUTION),
-            indent + "Wheel Velocity Aiding": is_set(ins_status, INS_STATUS_WHEEL_AIDING_VEL),
-            indent + "Magnetometer Aiding Heading": is_set(ins_status, INS_STATUS_MAG_AIDING_HEADING),
-        },
-        f"{line_separator}RTK STATUS": {
-            indent + "Compassing Status": get_rtk_compassing_status(ins_status),
-            indent + "Raw GPS Data Error": is_set(ins_status, INS_STATUS_RTK_RAW_GPS_DATA_ERROR),
-            indent + "Base Data Missing": is_set(ins_status, INS_STATUS_RTK_ERR_BASE_DATA_MISSING),
-            indent + "Base Position Moving": is_set(ins_status, INS_STATUS_RTK_ERR_BASE_POSITION_MOVING),
-        },
-        f"{line_separator}OPERATIONAL MODE": {
-            indent + "Navigation Mode": is_set(ins_status, INS_STATUS_NAV_MODE),
-            indent + "Stationary Mode": is_set(ins_status, INS_STATUS_STATIONARY_MODE),
-            indent + "EKF using Reference IMU": is_set(ins_status, INS_STATUS_EKF_USING_REFERENCE_IMU),
-        },
-        f"{line_separator}GPS FIX": get_gps_nav_fix_status(ins_status),
-        f"{line_separator}MAGNETOMETER STATUS": {
-            indent + "Recalibrating": is_set(ins_status, INS_STATUS_MAG_RECALIBRATING),
-            indent + "Interference or Bad Cal": is_set(ins_status, INS_STATUS_MAG_INTERFERENCE_OR_BAD_CAL),
-        },
-        f"{line_separator}FAULTS & WARNINGS": {
-            indent + "General Fault": is_set(ins_status, INS_STATUS_GENERAL_FAULT),
-            indent + "RTOS Task Period Overrun": is_set(ins_status, INS_STATUS_RTOS_TASK_PERIOD_OVERRUN),
-        },
-        f"{line_separator}Kinematic Calibration Good": is_set(ins_status, INS_STATUS_KINEMATIC_CAL_GOOD),
+    alignment_status = {
+        "Coarse Heading": is_set(ins_status, INS_STATUS_HDG_ALIGN_COARSE),
+        "Coarse Velocity": is_set(ins_status, INS_STATUS_VEL_ALIGN_COARSE),
+        "Coarse Position": is_set(ins_status, INS_STATUS_POS_ALIGN_COARSE),
+        "Fine Heading": is_set(ins_status, INS_STATUS_HDG_ALIGN_FINE),
+        "Fine Velocity": is_set(ins_status, INS_STATUS_VEL_ALIGN_FINE),
+        "Fine Position": is_set(ins_status, INS_STATUS_POS_ALIGN_FINE),
     }
 
-    return decoded_status
+    aiding_status = {
+        "GPS Aiding Heading": is_set(ins_status, INS_STATUS_GPS_AIDING_HEADING),
+        "GPS Aiding Position": is_set(ins_status, INS_STATUS_GPS_AIDING_POS),
+        "GPS Aiding Velocity": is_set(ins_status, INS_STATUS_GPS_AIDING_VEL),
+        "GPS Update in Solution": is_set(ins_status, INS_STATUS_GPS_UPDATE_IN_SOLUTION),
+        "Wheel Velocity Aiding": is_set(ins_status, INS_STATUS_WHEEL_AIDING_VEL),
+        "Magnetometer Aiding Heading": is_set(ins_status, INS_STATUS_MAG_AIDING_HEADING),
+    }
+
+    rtk_status = {
+        "Compassing Status": get_rtk_compassing_status(ins_status),
+        "Raw GPS Data Error": is_set(ins_status, INS_STATUS_RTK_RAW_GPS_DATA_ERROR),
+        "Base Data Missing": is_set(ins_status, INS_STATUS_RTK_ERR_BASE_DATA_MISSING),
+        "Base Position Moving": is_set(ins_status, INS_STATUS_RTK_ERR_BASE_POSITION_MOVING),
+    }
+
+    operational_mode = {
+        "Navigation Mode": is_set(ins_status, INS_STATUS_NAV_MODE),
+        "Stationary Mode": is_set(ins_status, INS_STATUS_STATIONARY_MODE),
+        "EKF using Reference IMU": is_set(ins_status, INS_STATUS_EKF_USING_REFERENCE_IMU),
+    }
+
+    magnetometer_status = {
+        "Recalibrating": is_set(ins_status, INS_STATUS_MAG_RECALIBRATING),
+        "Interference or Bad Cal": is_set(ins_status, INS_STATUS_MAG_INTERFERENCE_OR_BAD_CAL),
+    }
+
+    faults_and_warnings = {
+        "General Fault": is_set(ins_status, INS_STATUS_GENERAL_FAULT),
+        "RTOS Task Period Overrun": is_set(ins_status, INS_STATUS_RTOS_TASK_PERIOD_OVERRUN),
+    }
+
+    ins_status_data = InsStatus(
+        raw_value=ins_status,
+        solution_status=get_solution_status(ins_status),
+        alignment_status=alignment_status,
+        aiding_status=aiding_status,
+        rtk_status=rtk_status,
+        operational_mode=operational_mode,
+        gps_fix=get_gps_nav_fix_status(ins_status),
+        magnetometer_status=magnetometer_status,
+        faults_and_warnings=faults_and_warnings,
+        kinematic_calibration_good=is_set(ins_status, INS_STATUS_KINEMATIC_CAL_GOOD),
+    )
+
+    LOG(f"Decoded INS status: {ins_status_data}", highlight=True)
+    return ins_status_data
 
 
 def get_solution_status(ins_status: int) -> str:
@@ -206,12 +270,13 @@ def is_set(ins_status: int, flag: int) -> bool:
     return (ins_status & flag) != 0
 
 
-def print_decoded_status(decoded_status: Dict[str, object], indent: int = 0) -> None:
-    """Recursively print the decoded status dictionary."""
-    for key, value in decoded_status.items():
-        prefix = " " * indent
-        if isinstance(value, dict):
-            print(f"{prefix}{key}")
-            print_decoded_status(value, indent + 4)
-        else:
-            print(f"{prefix}{key}: {value}")
+def _format_section_lines(values: Dict[str, object], indent: int = 4) -> list:
+    """Format a mapping into indented key/value lines."""
+    prefix = " " * indent
+    return [f"{prefix}{label}: {value}" for label, value in values.items()]
+
+
+def print_decoded_status(decoded_status: Union[InsStatus, int, str]) -> None:
+    """Print a human readable summary of the INS status."""
+    status_obj = decoded_status if isinstance(decoded_status, InsStatus) else decode_ins_status(decoded_status)
+    print(str(status_obj))

@@ -21,14 +21,14 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_NOTE_REL_PATHS_TO_ADD_CONTENT: [f"{PATH_TO_WORKING_NOTES}/_Intellian Note working, diary (work log).md"],
                 ARG_DEFAULT_OW_MANIFEST_BRANCH: BRANCH_MANPACK_MASTER,
                 ARG_IS_GEN_CODING_TASK: False,
-                ARG_TICKET_URL: f"{JIRA_COMPANY_URL}/browse/FPA-3",
+                ARG_TICKET_URL: f"{JIRA_COMPANY_URL}/browse/ESA1W-6816",
             },
         )
     ]
 
 
 def extract_key_from_jira_url(url: str) -> Optional[str]:
-    """Extracts a Jira ticket key from a full Jira URL. Ex: https://<company>.atlassian.net/browse/FPA-3 -> FPA-3"""
+    """Extracts a Jira ticket key from a full Jira URL. Ex: https://<company>.atlassian.net/browse/ESA1W-6816 -> ESA1W-6816"""
     match = re.search(r'/browse/([A-Z0-9]+-[0-9]+)', url, re.IGNORECASE)
     if match:
         return match.group(1).upper()  # Return the key, ensuring it's uppercase

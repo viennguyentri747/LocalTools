@@ -22,7 +22,8 @@ NO_PROMPT: bool = False
 
 def extract_version_from_zip(zip_path: Path) -> Optional[str]:
     prefix = "inertial-sense-sdk-"
-    match = re.search(rf"{prefix}([\d\.]+)\.zip", zip_path.name)
+    #Ex: inertial-sense-sdk-2.7.0-rc.zip
+    match = re.search(rf"{prefix}([\d\.]+)([^\.]*?)\.zip", zip_path.name)
     if match:
         version = match.group(1)
         LOG(f"✅ Found SDK version: {version}")
@@ -194,6 +195,7 @@ def confirm_branch_action(prompt: str) -> bool:
         is_confirmed: bool = prompt_confirmation(f"{prompt}{branch_info}")
         return is_confirmed
 
+
 def apply_signal_handler(stash_ref: str) -> None:
     try:
         proceed = True if NO_PROMPT else prompt_confirmation(
@@ -267,22 +269,23 @@ def run_sdk_update(sdk_zip_path: Path, *, no_prompt: bool = False) -> None:
         return
     LOG(f"   -> Extracted version: {version}")
 
-    new_sdk_dir_name = f"inertial-sense-sdk-{version}"
-    new_sdk_path = SDK_INSTALL_DIR / new_sdk_dir_name
-
-    if new_sdk_path.exists():
-        LOG(
-            f"❌ FATAL: SDK folder '{new_sdk_path}' already exists:\n1. 'cd {INSENSE_SDK_REPO_PATH}' and undo all commits\n2. Run 'cd {INSENSE_SDK_REPO_PATH} && git reset --hard && git clean -fd'!"
-        )
+    branch_prefix=f"update-sdk-{str_to_slug(version)}"
+    branch_name = f"{branch_prefix}-{str_to_slug(get_short_date_now())}"
+    repo_path = INSENSE_SDK_REPO_PATH
+    current_branch = git_get_current_branch(repo_path)
+    if current_branch and current_branch.startswith(branch_prefix):
+        LOG(f"❌ FATAL: Already on branch with prefix '{branch_prefix}' -> Aborting update, check again and delete the branch if you want to retry!!")
         return
-
-    branch_name = f"update-sdk-{str_to_slug(version)}-{str_to_slug(get_short_date_now())}"
-    if not checkout_branch(INSENSE_SDK_REPO_PATH, branch_name):
+    
+    if not checkout_branch(repo_path, branch_name):
         return
 
     if not unzip_to_dest(sdk_zip_path, SDK_INSTALL_DIR):
         return
-    git_stage_and_commit(INSENSE_SDK_REPO_PATH, f"Unzip new SDK {version}", auto_confirm=NO_PROMPT)
+    
+    new_sdk_dir_name = f"inertial-sense-sdk-{version}"
+    new_sdk_path = SDK_INSTALL_DIR / new_sdk_dir_name
+    git_stage_and_commit(repo_path, f"Unzip new SDK {version}", auto_confirm=NO_PROMPT)
 
     integrate_libusb(new_sdk_path)
     modify_sdk_cmake_files(version, new_sdk_path)

@@ -433,7 +433,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(table_str)
 
     # Save table to file
-    output_path = f"{TEMP_FOLDER_PATH}/PlogTest_output.txt"
+    output_path = f"{PERSISTENT_TEMP_PATH}/PlogTest_output.txt"
     print(f"{LOG_PREFIX_MSG_INFO} Table output saved to: {output_path}")
     write_to_file(f"{output_path}", table_str)
 
@@ -451,7 +451,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             # Determine output path for graph
             graph_output = args.graph_output
             if not graph_output:
-                graph_output = f"{TEMP_FOLDER_PATH}/PlogTest_graph.png"
+                graph_output = f"{PERSISTENT_TEMP_PATH}/PlogTest_graph.png"
 
             plog_data.plot_columns(
                 column_names=graph_columns,

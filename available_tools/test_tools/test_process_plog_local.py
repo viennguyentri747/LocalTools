@@ -26,7 +26,7 @@ use_posix_paths()
 
 DEFAULT_TIME_WINDOW_HOURS = 0.1  # 6 minutes
 DEFAULT_COLUMNS: List[str] = [TIME_COLUMN, LAST_VELOCITY_COLUMN, LAST_RTK_COMPASS_STATUS_COLUMN]
-DEFAULT_OUTPUT_PATH = TEMP_FOLDER_PATH / "compact_plog.tsv"
+DEFAULT_OUTPUT_PATH = PERSISTENT_TEMP_PATH / "compact_plog.tsv"
 DEFAULT_CMD_INVOCATION = F"cd {REPO_PATH} && {get_win_python_executable_path()} -m available_tools.test_tools.t_test_ut_from_local"
 ARG_PLOG_DIR_OR_FILE = f"{ARGUMENT_LONG_PREFIX}plog_dir_or_file"
 ARG_COLUMNS = f"{ARGUMENT_LONG_PREFIX}columns"

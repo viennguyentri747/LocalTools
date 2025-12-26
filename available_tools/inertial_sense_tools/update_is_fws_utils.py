@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
+import zipfile
 from pathlib import Path
-from typing import List, NamedTuple, Optional
+from typing import List, NamedTuple, Optional, Tuple
 
 from dev.dev_common import *
 from dev.dev_common.git_utils import checkout_branch, git_stage_and_commit
@@ -22,180 +24,140 @@ GPX_SYMLINK = f"current_gpx_fw{GPX_EXTENSION}"
 NO_PROMPT: bool = False
 
 
-class FirmwarePair(NamedTuple):
+class KimFwSet(NamedTuple):
     """A named tuple to hold a pair of firmware files."""
-
-    imx_full_path: Path
-    gpx_full_path: Path
-    timestamp: str
+    imx_full_path: Optional[Path]
+    gpx_full_path: Optional[Path]
     version: str
+    rcvr_version: Optional[str]
 
 
 # ─────────────────────────── Core firmware logic ───────────────────── #
 
 
-def find_firmware_pairs_recursively(version_or_fw_path: str) -> List[FirmwarePair]:
-    """Locate firmware pairs based on an explicit path or version string."""
-    input_path = Path(version_or_fw_path)
-    final_version_pattern: Optional[str] = None
-    search_dir = DOWNLOADS_PATH
+def _extract_rcvr_version_from_entries(entries: List[str]) -> Optional[str]:
+    LOG(f"🔎 Extracting receiver version from .fpkg entries. Available entries: {entries}")
+    for entry in sorted(entries):
+        name = Path(entry).name
+        if name.endswith(".fpk") and not name.endswith(".efpk"):
+            # Match pattern: _v{VERSION}_{anything}.fpk. Ex input = "cxd5610_v0.213_ISv3.0_app.fpk"
+            # Captures everything between _v and the last underscore before .fpk
+            match = re.search(r"_(v[^_]+(?:_[^_]+)*)_app.fpk$", name)
+            if match:
+                LOG(f"🔢 Extracted receiver version: {match.group(1)}")
+                return match.group(1)
+            else:
+                LOG("⚠️ WARNING: Could not extract receiver version from .fpkg name.")
+    return None
 
-    file_name: Optional[str] = None
-    if (
-        (input_path.name.startswith(IMX_PREFIX) or input_path.suffix == IMX_EXTENSION)
-        or (input_path.suffix == IMX_EXTENSION or input_path.name.startswith(GPX_PREFIX))
-        or input_path.suffix == GPX_EXTENSION
-    ):
-        if input_path.is_file():
-            search_dir = input_path.parent.expanduser()
-            file_name = input_path.name
-        elif version_or_fw_path.startswith(IMX_PREFIX) or version_or_fw_path.startswith(GPX_PREFIX):
-            file_name = version_or_fw_path
-        if file_name:
-            file_version_pattern = r"(\d+\.\d+\.\d+[^+]*)"
-            version_match = re.search(file_version_pattern, version_or_fw_path)
-            if version_match:
-                final_version_pattern = re.escape(version_match.group(1))
-    else:
-        final_version_pattern = re.escape(version_or_fw_path)
 
-    if final_version_pattern is None:
-        LOG(f"❌ FATAL: Could not determine version pattern from input: {version_or_fw_path}")
-        return []
+def _extract_fpkg_metadata(fpkg_path: Path) -> Tuple[Optional[Path], Optional[str]]:
+    """Extract IMX .hex (if present) and receiver version from a .fpkg."""
+    LOG(f"🔎 Checking for IMX .hex inside: {fpkg_path}")
+    try:
+        with zipfile.ZipFile(fpkg_path, "r") as zip_ref:
+            entries = zip_ref.namelist()
+            rcvr_version = _extract_rcvr_version_from_entries(entries)
+            hex_entries = [name for name in entries if name.lower().endswith(IMX_EXTENSION)]
+            if not hex_entries:
+                LOG("ℹ️ No IMX .hex found inside fpkg.")
+                return None, rcvr_version
 
-    LOG(f"🔎 Using version pattern: {final_version_pattern}, search dir {search_dir}")
-    imx_pattern = re.compile(
-        rf"{re.escape(IMX_PREFIX)}(?P<version>{final_version_pattern})\+(?P<ts>[\d-]+){re.escape(IMX_EXTENSION)}"
+            imx_entries = [name for name in hex_entries if Path(name).name.startswith(IMX_PREFIX)]
+            selected_entry = sorted(imx_entries or hex_entries)[0]
+
+            temp_dir = Path(TEMP_PATH)
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            target_imx_path = temp_dir / Path(selected_entry).name
+            LOG(f"📦 Extracting IMX firmware from fpkg: {selected_entry} -> {target_imx_path}")
+            with zip_ref.open(selected_entry) as src, target_imx_path.open("wb") as dst:
+                shutil.copyfileobj(src, dst)
+            target_imx_path.chmod(0o755)
+            return target_imx_path, rcvr_version
+    except Exception as exc:
+        LOG(f"⚠️ WARNING: Failed to extract IMX firmware from fpkg: {exc}")
+    return None, None
+
+
+def get_fw_pair(fpkg_fw_path: str) -> Optional[KimFwSet]:
+    """Locate a firmware pair based on an explicit fpkg path."""
+    input_path = Path(fpkg_fw_path).expanduser()
+    if input_path.suffix != GPX_EXTENSION or not input_path.is_file():
+        LOG(f"❌ FATAL: Firmware update requires a .fpkg file path. Got: {fpkg_fw_path}")
+        return None
+
+    gpx_path = input_path
+    gpx_version = extract_version_from_fw_filename(gpx_path.name)
+    if not gpx_version:
+        LOG(f"❌ FATAL: Could not determine version from fpkg filename: {gpx_path} -> Returning None.")
+        return None
+
+    imx_from_fpkg, rcvr_version = _extract_fpkg_metadata(gpx_path)
+    return KimFwSet(
+        imx_full_path=imx_from_fpkg,
+        gpx_full_path=gpx_path,
+        version=gpx_version or "",
+        rcvr_version=rcvr_version,
     )
-    gpx_pattern = re.compile(
-        rf"{re.escape(GPX_PREFIX)}(?P<version>{final_version_pattern})\+(?P<ts>[\d-]+){re.escape(GPX_EXTENSION)}"
-    )
-
-    imx_candidates: List[tuple[str, str, Path]] = []
-    gpx_candidates: List[tuple[str, str, Path]] = []
-
-    for file_path in search_dir.rglob("*"):
-        imx_match = imx_pattern.match(file_path.name)
-        if imx_match:
-            LOG(f"Found IMX firmware file: {file_path}")
-            imx_candidates.append((imx_match.group("version"), imx_match.group("ts"), file_path))
-            continue
-
-        gpx_match = gpx_pattern.match(file_path.name)
-        if gpx_match:
-            LOG(f"Found GPX firmware file: {file_path}")
-            gpx_candidates.append((gpx_match.group("version"), gpx_match.group("ts"), file_path))
-
-    imx_candidates.sort(key=lambda x: x[1], reverse=True)
-    gpx_candidates.sort(key=lambda x: x[1], reverse=True)
-
-    firmware_pairs: List[FirmwarePair] = []
-    matched_gpx_set: set[Path] = set()
-
-    for imx_version, imx_timestamp, imx_path in imx_candidates:
-        for gpx_version, gpx_timestamp, gpx_path in gpx_candidates:
-            if imx_version == gpx_version and gpx_path not in matched_gpx_set:
-                firmware_pairs.append(
-                    FirmwarePair(
-                        imx_full_path=imx_path,
-                        gpx_full_path=gpx_path,
-                        timestamp=imx_timestamp,
-                        version=imx_version,
-                    )
-                )
-                matched_gpx_set.add(gpx_path)
-                break
-    return firmware_pairs
 
 
-def extract_version_from_filename(filename: str) -> Optional[str]:
-    match = re.search(r"(\d+\.\d+\.\d+)", filename)
+def extract_version_from_fw_filename(filename: str) -> Optional[str]:
+    match = re.search(r"(\d+\.\d+\.\d+[^+]*)", filename)
     return match.group(1) if match else None
 
 
-def select_firmware_pair(pairs: List[FirmwarePair]) -> Optional[FirmwarePair]:
-    if not pairs:
-        LOG("❌ Error: No matching firmware file sets found.")
-        return None
-
-    # Auto-select latest by timestamp if no_prompt is set
-    if NO_PROMPT:
-        best = sorted(pairs, key=lambda p: p.timestamp, reverse=True)[0]
-        LOG(f"✅ Auto-selected firmware set: {best.imx_full_path.name}, {best.gpx_full_path.name} (--no_prompt)")
-        return best
-
-    if len(pairs) == 1:
-        LOG(
-            f"✅ Found one matching firmware set: {pairs[0].imx_full_path.name}, {pairs[0].gpx_full_path.name}"
-        )
-        return pairs[0]
-
-    LOG("🔎 Found multiple firmware sets. Please choose one:")
-    display_pairs = pairs[:3]
-
-    for i, pair in enumerate(display_pairs):
-        LOG(f"  [{i + 1}] IMX: {pair.imx_full_path.name}")
-        LOG(f"     GPX: {pair.gpx_full_path.name}")
-
-    options = [str(i + 1) for i in range(len(display_pairs))]
-    while True:
-        choice_str = prompt_input_with_options(
-            f"Enter your choice (1-{len(display_pairs)})",
-            options=options,
-            default_input="1",
-        )
-        if choice_str is None:
-            LOG("Input cancelled. Defaulting to option 1.")
-            return display_pairs[0]
-        try:
-            choice_index = int(choice_str) - 1
-            if 0 <= choice_index < len(display_pairs):
-                return display_pairs[choice_index]
-            LOG("Invalid choice. Please try again.")
-        except (ValueError, IndexError):
-            LOG("Invalid input. Please enter a number from the list.")
+def extract_timestamp_from_fw_filename(filename: str) -> Optional[str]:
+    match = re.search(r"\+([\d-]+)", filename)
+    return match.group(1) if match else None
 
 
-def update_firmware(pair: FirmwarePair) -> None:
+def update_firmware(fw_set: KimFwSet) -> None:
     LOG(f"\n🚀 Starting firmware update process in: {OW_SW_KIM_FTM_FW_PATH}")
     os.chdir(OW_SW_KIM_FTM_FW_PATH)
 
-    new_imx_path = Path(pair.imx_full_path.name)
-    LOG(f"Copying from {pair.imx_full_path} to {OW_SW_KIM_FTM_FW_PATH / new_imx_path}")
-    new_imx_path.write_bytes(pair.imx_full_path.read_bytes())
+    def copy_firmware(src_path: Path, symlink: str) -> str:
+        if not src_path:
+            return ""
+        new_path = Path(src_path.name)
+        LOG(f"Copying from {src_path} to {OW_SW_KIM_FTM_FW_PATH / new_path}")
+        new_path.write_bytes(src_path.read_bytes())
+        new_path.chmod(0o755)
+        Path(symlink).unlink(missing_ok=True)
+        Path(symlink).symlink_to(new_path)
+        return new_path.name
 
-    new_gpx_path = Path(pair.gpx_full_path.name)
-    LOG(f"Copying from {pair.gpx_full_path} to {OW_SW_KIM_FTM_FW_PATH / new_gpx_path}")
-    new_gpx_path.write_bytes(pair.gpx_full_path.read_bytes())
-
-    new_imx_path.chmod(0o755)
-    Path(IMX_SYMLINK).unlink(missing_ok=True)
-    Path(IMX_SYMLINK).symlink_to(new_imx_path)
-
-    new_gpx_path.chmod(0o755)
-    Path(GPX_SYMLINK).unlink(missing_ok=True)
-    Path(GPX_SYMLINK).symlink_to(new_gpx_path)
+    new_imx_name = copy_firmware(fw_set.imx_full_path, IMX_SYMLINK)
+    new_gpx_name = copy_firmware(fw_set.gpx_full_path, GPX_SYMLINK)
 
     LOG("\n✅ Seeds updated successfully:")
-    os.system(f"ls -l {IMX_SYMLINK} {GPX_SYMLINK}")
+    symlinks_to_list = []
+    if fw_set.imx_full_path:
+        symlinks_to_list.append(IMX_SYMLINK)
+    if fw_set.gpx_full_path:
+        symlinks_to_list.append(GPX_SYMLINK)
+    os.system(f"ls -l {' '.join(symlinks_to_list)}")
 
-    LOG("\n🧹 Scanning for OLD firmware files to remove...")
-    extra_files = [
-        f
-        for f in OW_SW_KIM_FTM_FW_PATH.iterdir()
-        if (f.name.startswith(IMX_PREFIX) or f.name.startswith(GPX_PREFIX))
-        and f.name not in {new_imx_path.name, new_gpx_path.name}
+    LOG("\n🧹 Scanning for OLD firmwares files to remove...")
+    # Only remove imx if there is new_imx, only remove gpx if there is new_gpx
+    redundant_paths: List[Path] = [
+        path
+        for path in OW_SW_KIM_FTM_FW_PATH.iterdir()
+        if (
+            (path.name.startswith(IMX_PREFIX) and new_imx_name and path.name != new_imx_name)
+            or (path.name.startswith(GPX_PREFIX) and new_gpx_name and path.name != new_gpx_name)
+        )
     ]
 
-    if extra_files:
-        LOG("Found OLD firmware files:")
-        for f in extra_files:
+    if redundant_paths:
+        LOG("Found OLD firmware file(s) to remove:")
+        for f in redundant_paths:
             LOG(f"  - {f.name}")
 
         try:
-            is_ok = True if NO_PROMPT else prompt_confirmation("Do you want to remove these old firmware files?")
+            # Always prompt for extra cleanup
+            is_ok = prompt_confirmation("Do you want to remove these old firmware files?")
             if is_ok:
-                for f in extra_files:
+                for f in redundant_paths:
                     try:
                         f.unlink()
                         LOG(f"Removed: {f.name}")
@@ -217,12 +179,13 @@ def update_firmware(pair: FirmwarePair) -> None:
     except Exception as exc:
         LOG(f"⚠️ WARNING: Failed to read current receiver version: {exc}")
 
-    # if NO_PROMPT:
-    #     LOG("Skipping interactive receiver version update due to --no_prompt.")
-    # else:
-    # ALWAYS PROMPT for this
     LOG("Change receiver version interactively:")
-    prompt_msg = "Edit or press Enter to use current RCVR version:"
+    detected_rcvr_version = fw_set.rcvr_version or "N/A"
+    current_rcvr_display = current_rcvr_version or "N/A"
+    prompt_msg = (
+        "Edit or press Enter to use current RCVR version "
+        f"(Current Rcvr = {current_rcvr_display}, Detected = {detected_rcvr_version}):"
+    )
     user_input_opt = prompt_input(prompt_msg, default_input=current_rcvr_version)
     user_input = (user_input_opt or "").strip()
 
@@ -245,27 +208,35 @@ def update_firmware(pair: FirmwarePair) -> None:
 
     git_stage_and_commit(
         OW_SW_PATH,
-        f"Update firmware to version {pair.version}",
+        f"Update firmware to version {fw_set.version}",
         stage_paths=[rel_fw_dir, rel_rcvr_file],
         auto_confirm=NO_PROMPT,
     )
 
 
-def run_fw_update(version_or_fw_path: str, *, no_prompt: bool = False) -> None:
+def run_fw_update(fpkg_fw_path: str, *, no_prompt: bool = False) -> None:
     global NO_PROMPT
     NO_PROMPT = no_prompt
-    firmware_pairs = find_firmware_pairs_recursively(version_or_fw_path)
-    selected_pair = select_firmware_pair(firmware_pairs)
-
-    if not selected_pair:
+    pair: Optional[KimFwSet] = get_fw_pair(fpkg_fw_path)
+    if not pair or pair.imx_full_path is None:
+        LOG("❌ FATAL: No firmware pair available (no IMX) -> Aborting update.")
         return
 
-    version = selected_pair.version or extract_version_from_filename(selected_pair.imx_full_path.name)
+    version = pair.version or extract_version_from_fw_filename(pair.gpx_full_path.name)
     if not version:
-        LOG("Could not extract version from firmware filename.")
+        LOG(f"❌ FATAL: Could not extract version from firmware pair: {pair} -> Aborting update.")
         return
 
-    branch_name = f"update-fw-{str_to_slug(version)}-{str_to_slug(get_short_date_now())}"
-    if not checkout_branch(OW_SW_PATH, branch_name):
+    branch_prefix = f"update-fw-{str_to_slug(version)}"
+    branch_name = f"{branch_prefix}-{str_to_slug(get_short_date_now())}"
+    repo_path = OW_SW_PATH
+    current_branch = git_get_current_branch(repo_path)
+    if current_branch and current_branch.startswith(branch_prefix):
+        LOG(f"❌ FATAL: Already on branch with prefix '{branch_prefix}' -> Aborting update, check again and delete the branch if you want to retry!!")
         return
-    update_firmware(selected_pair)
+
+    LOG(f"🔀 Switching to branch {branch_name}...")
+    if not checkout_branch(repo_path, branch_name):
+        LOG("❌ FATAL: Could not switch/create branch -> Aborting update.")
+        return
+    update_firmware(pair)

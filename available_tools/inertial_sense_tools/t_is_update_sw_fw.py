@@ -54,7 +54,7 @@ def main() -> None:
     parser.add_argument(ARG_UPDATE_SDK, type=lambda x: x.lower() == TRUE_STR_VALUE,
                         default=False, help="Run SDK update workflow (true or false).", )
     parser.add_argument("-v", ARG_VERSION_OR_FW_PATH, type=str, default=None,
-                        help="Firmware version (e.g., '2.6.0-rc.22') or firmware file path.", )
+                        help="Firmware .fpkg file path (e.g., ~/downloads/IS-firmware_r2.6.0+YYYY-MM-DD-HHMMSS.fpkg).", )
     parser.add_argument(ARG_SDK_PATH, ARG_PATH_SHORT, type=Path, default=None,
                         help="Path to the new SDK zip file (e.g., ~/downloads/inertial-sense-sdk-2.6.0.zip).", )
     parser.add_argument(ARG_NO_PROMPT, type=lambda x: x.lower() == TRUE_STR_VALUE, default=False,
@@ -69,7 +69,10 @@ def main() -> None:
         fw_arg = get_arg_value(args, ARG_VERSION_OR_FW_PATH)
         if not fw_arg:
             parser.error("--version_or_fw_path is required when --update_fw is true.")
-        run_fw_update(fw_arg, no_prompt=args.no_prompt)
+        fw_path = Path(fw_arg).expanduser()
+        if fw_path.suffix != GPX_EXTENSION or not fw_path.is_file():
+            parser.error("--version_or_fw_path must point to an existing .fpkg file.")
+        run_fw_update(str(fw_path), no_prompt=args.no_prompt)
 
     if args.update_sdk:
         if args.sdk_path is None:

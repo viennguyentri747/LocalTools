@@ -71,7 +71,6 @@ def checkout_branch(repo_path: Path, branch_name: str, *, create_when_missing: b
         LOG(f"✅ Already on branch '{branch_name}'.")
         return True
 
-    LOG(f"🔀 Switching to branch '{branch_name}' in '{repo_path}'...")
     branch_exists = git_is_ref_or_branch_existing(repo_path, branch_name)
     if not branch_exists and not create_when_missing:
         LOG(f"❌ ERROR: Branch '{branch_name}' does not exist in '{repo_path}' and auto-create is disabled.")
@@ -82,8 +81,10 @@ def checkout_branch(repo_path: Path, branch_name: str, *, create_when_missing: b
         checkout_cmd = [CMD_GIT, 'checkout', branch_name]
     else:
         checkout_cmd = [CMD_GIT, 'checkout', '-b', branch_name]
+    LOG(f"🔀 Switching to branch '{branch_name}' in '{repo_path}'...")
     run_shell(checkout_cmd, cwd=repo_path, check_throw_exception_on_exit_code=True)
     LOG(f"✅ Now on branch '{branch_name}'.")
+    return True
 
 
 def git_fetch(repo_path: Path) -> bool:

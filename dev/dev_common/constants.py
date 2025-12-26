@@ -77,8 +77,9 @@ AVAILABLE_TOOLS_PATH = REPO_PATH / "available_tools"
 CREDENTIALS_FILE_PATH = REPO_PATH / ".my_credentials.env"
 CORE_REPOS_PATH = HOME_PATH / "workspace" / "intellian_core_repos/"
 OW_SW_PATH = CORE_REPOS_PATH / "oneweb_project_sw_tools"
-TEMP_FOLDER_PATH = REPO_PATH / "temp"
-ACU_LOG_PATH = TEMP_FOLDER_PATH / "acu_logs/"
+TEMP_PATH = "/tmp/local_tools_workdir/"
+PERSISTENT_TEMP_PATH = REPO_PATH / "temp"
+ACU_LOG_PATH = PERSISTENT_TEMP_PATH / "acu_logs/"
 
 INSENSE_SDK_REPO_PATH = CORE_REPOS_PATH / IESA_INSENSE_SDK_REPO_NAME
 DOWNLOADS_PATH = HOME_PATH / "downloads"

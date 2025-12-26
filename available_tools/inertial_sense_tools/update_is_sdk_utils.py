@@ -11,8 +11,8 @@ from typing import Optional
 from dev.dev_common import *
 
 # --- Configuration ---
-SDK_INSTALL_DIR = INSENSE_SDK_REPO_PATH / IESA_INSENSE_SDK_REPO_NAME
-LIBUSB_ZIP_PATH = Path.home() / "downloads" / "libusb-master-1-0.zip"
+INSENSE_SDK_UNPACK_DIR = INSENSE_SDK_REPO_PATH / "InsenseSDK"
+LIBUSB_ZIP_SRC_PATH = Path.home() / "downloads" / "libusb-master-1-0.zip"
 NO_PROMPT: bool = False
 
 
@@ -22,8 +22,8 @@ NO_PROMPT: bool = False
 
 def extract_version_from_zip(zip_path: Path) -> Optional[str]:
     prefix = "inertial-sense-sdk-"
-    #Ex: inertial-sense-sdk-2.7.0-rc.zip
-    match = re.search(rf"{prefix}([\d\.]+)([^\.]*?)\.zip", zip_path.name)
+    # Ex: inertial-sense-sdk-2.7.0-rc.zip
+    match = re.search(rf"{prefix}([\d\.]+[^\.]*?)\.zip", zip_path.name)
     if match:
         version = match.group(1)
         LOG(f"✅ Found SDK version: {version}")
@@ -60,11 +60,11 @@ def integrate_libusb(new_sdk_path: Path) -> None:
     libusb_src_dir = new_sdk_path / "src" / "libusb"
     libusb_temp_dir = libusb_src_dir / "libusb-master"
 
-    if not LIBUSB_ZIP_PATH.exists():
-        LOG(f"⚠️ WARNING: libusb zip not found at '{LIBUSB_ZIP_PATH}'. Skipping integration.")
+    if not LIBUSB_ZIP_SRC_PATH.exists():
+        LOG(f"⚠️ WARNING: libusb zip not found at '{LIBUSB_ZIP_SRC_PATH}'. Skipping integration.")
         return
 
-    if not unzip_to_dest(LIBUSB_ZIP_PATH, libusb_src_dir):
+    if not unzip_to_dest(LIBUSB_ZIP_SRC_PATH, libusb_src_dir):
         return
 
     if not libusb_temp_dir.exists():
@@ -196,60 +196,116 @@ def confirm_branch_action(prompt: str) -> bool:
         return is_confirmed
 
 
-def apply_signal_handler(stash_ref: str) -> None:
+def _sdk_rel_path(new_sdk_path: Optional[Path]) -> Optional[str]:
+    if not new_sdk_path:
+        return None
     try:
-        proceed = True if NO_PROMPT else prompt_confirmation(
-            f"Apply signal handler changes from stash '{stash_ref}' and create a commit?"
+        return new_sdk_path.relative_to(INSENSE_SDK_REPO_PATH).as_posix()
+    except ValueError:
+        LOG(
+            f"⚠️ WARNING: SDK path '{new_sdk_path}' is not within repo '{INSENSE_SDK_REPO_PATH}'. Skipping path rewrite."
         )
-        if not proceed:
-            LOG("Skipping applying signal handler changes.")
+        return None
+
+
+def _build_stash_replaced_path_map(old_stash_files: list[str], new_sdk_rel_path: str) -> dict[str, str]:
+    LOG(
+        f"Building path replacement map for stash application. New SDK relative path: '{new_sdk_rel_path}', Target files: {old_stash_files}")
+    path_map: dict[str, str] = {}
+    sdk_dir_pattern = re.compile(r"(?:^|/)(inertial-sense-sdk-[^/]+)(/.*)?$")
+    for old_file_path in old_stash_files:
+        match = sdk_dir_pattern.search(old_file_path)
+        if not match:
+            continue
+        suffix = match.group(2) or ""
+        new_path = f"{new_sdk_rel_path}{suffix}"
+        if old_file_path != new_path:
+            path_map[old_file_path] = new_path
+    return path_map
+
+
+# replaced_path_map: dict[old_path: str, new_path: str]
+def _get_rewrited_stash_patch(patch_text: str, replaced_path_map: dict[str, str]) -> str:
+    # update stash patch to replace previous path with "old_path" and new path with "new_path"
+    if not replaced_path_map:
+        return patch_text
+    rewrite_prefixes = ("diff --git ", "--- ", "+++ ", "rename from ", "rename to ", "copy from ", "copy to ")
+    lines = patch_text.splitlines()
+    for idx, line in enumerate(lines):
+        if not line.startswith(rewrite_prefixes):
+            continue
+        for old_path, new_path in replaced_path_map.items():
+            line = line.replace(f"a/{old_path}", f"a/{new_path}")
+            line = line.replace(f"b/{old_path}", f"b/{new_path}")
+            if line.startswith(("rename from ", "rename to ", "copy from ", "copy to ")):
+                line = line.replace(old_path, new_path)
+        lines[idx] = line
+    patched = "\n".join(lines)
+    if patch_text.endswith("\n"):
+        patched += "\n"
+    return patched
+
+
+def _extract_patch_paths(patch_text: str) -> list[str]:
+    paths: set[str] = set()
+    for line in patch_text.splitlines():
+        if not line.startswith("diff --git "):
+            continue
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        for part in parts[2:4]:
+            path = part[2:] if part.startswith(("a/", "b/")) else part
+            if path and path != "/dev/null":
+                paths.add(path)
+    return sorted(paths)
+
+
+def apply_signal_handler(stash_ref: str, new_sdk_path: Optional[Path] = None) -> None:
+    try:
+        patch_path = Path(__file__).resolve().parent / "sdk_signal_handler.patch"
+        if not patch_path.exists():
+            LOG(f"❌ ERROR: Patch file not found at '{patch_path}'.")
             return
 
-        try:
-            res_subject = subprocess.run(
-                ["git", "log", "--format=%s", "-n", "1", stash_ref],
-                capture_output=True,
-                text=True,
-                check=True,
-                cwd=INSENSE_SDK_REPO_PATH,
-            )
-            subject = res_subject.stdout.strip() or f"Apply stash {stash_ref}"
-        except subprocess.CalledProcessError:
-            subject = f"Apply stash {stash_ref}"
-
-        try:
-            res_files = subprocess.run(
-                ["git", "stash", "show", "--name-only", stash_ref],
-                capture_output=True,
-                text=True,
-                check=True,
-                cwd=INSENSE_SDK_REPO_PATH,
-            )
-            files = [f.strip() for f in res_files.stdout.splitlines() if f.strip()]
-        except subprocess.CalledProcessError:
-            files = []
-
-        LOG(f"Applying stash '{stash_ref}' in repo '{INSENSE_SDK_REPO_PATH}'...")
-        subprocess.run(["git", "stash", "apply", stash_ref], check=True, cwd=INSENSE_SDK_REPO_PATH)
-
-        if files:
-            LOG(f"Staging {len(files)} file(s) from stash...")
-            try:
-                subprocess.run(["git", "add", *files], check=True, cwd=INSENSE_SDK_REPO_PATH)
-            except subprocess.CalledProcessError:
-                LOG("Some files from stash don't exist at original paths; staging all changes as fallback.")
-                subprocess.run(["git", "add", "-A"], check=True, cwd=INSENSE_SDK_REPO_PATH)
+        patch_text = patch_path.read_text()
+        old_patch_paths = _extract_patch_paths(patch_text)
+        new_sdk_rel_path = _sdk_rel_path(new_sdk_path)
+        path_map: dict[str, str] = {}
+        rewritten_paths = list(old_patch_paths)
+        if new_sdk_rel_path and old_patch_paths:
+            path_map = _build_stash_replaced_path_map(old_patch_paths, new_sdk_rel_path)
+            if path_map:
+                LOG(f"Paths to rewrite in patch: {path_map}")
+                patch_text = _get_rewrited_stash_patch(patch_text, path_map)
+                rewritten_paths = [path_map.get(path, path) for path in old_patch_paths]
+            else:
+                LOG("⚠️ WARNING: No paths to rewrite in patch; applying as-is.")
+        elif not old_patch_paths:
+            LOG("⚠️ WARNING: No file paths found in patch; applying as-is.")
         else:
-            LOG("No files reported by 'git stash show'; staging all changes as fallback.")
-            subprocess.run(["git", "add", "-A"], check=True, cwd=INSENSE_SDK_REPO_PATH)
+            LOG("⚠️ WARNING: No new SDK path provided; applying patch without path rewrite.")
 
+        LOG(f"Applying signal handler patch from '{patch_path}'...")
+        res_apply = subprocess.run([CMD_GIT, "apply", "--index", "-"], input=patch_text,
+                                   text=True, capture_output=True, cwd=INSENSE_SDK_REPO_PATH, )
+        if res_apply.returncode != 0:
+            LOG(f"Patch file: '{patch_path}'")
+            LOG(f"Patch contents:\n{colorize_patch(patch_text)}")
+            LOG(f"❌ ERROR: Failed to apply patch automatically, please review above patch contents and edit manually the following files: {', '.join(rewritten_paths)}")
+            return
+
+        if not git_has_staged_changes(INSENSE_SDK_REPO_PATH):
+            LOG("⚠️ WARNING: No staged changes after applying patch; skipping commit.")
+            return
+
+        subject = f"Apply signal handler patch {stash_ref}".strip()
         LOG(f"Committing with subject: {subject}")
-        subprocess.run(["git", "commit", "-m", subject], check=True, cwd=INSENSE_SDK_REPO_PATH)
-        LOG("✅ Applied signal handler stash and committed successfully.")
-    except subprocess.CalledProcessError as exc:
-        LOG(f"❌ ERROR: Failed while applying stash '{stash_ref}': {exc}")
-    except FileNotFoundError:
-        LOG("❌ ERROR: Git command not found. Please ensure Git is installed and in your PATH.")
+        run_shell([CMD_GIT, "commit", "-m", subject], check_throw_exception_on_exit_code=True,
+                  cwd=INSENSE_SDK_REPO_PATH)
+        LOG("✅ Applied signal handler patch and committed successfully.")
+    except Exception as exc:
+        LOG_EXCEPTION(exc, msg=f"Failed while applying patch '{stash_ref}'", exit=False)
 
 
 # ─────────────────────────── Public entry point ─────────────────────── #
@@ -269,28 +325,28 @@ def run_sdk_update(sdk_zip_path: Path, *, no_prompt: bool = False) -> None:
         return
     LOG(f"   -> Extracted version: {version}")
 
-    branch_prefix=f"update-sdk-{str_to_slug(version)}"
+    branch_prefix = f"update-sdk-{str_to_slug(version)}"
     branch_name = f"{branch_prefix}-{str_to_slug(get_short_date_now())}"
     repo_path = INSENSE_SDK_REPO_PATH
     current_branch = git_get_current_branch(repo_path)
     if current_branch and current_branch.startswith(branch_prefix):
         LOG(f"❌ FATAL: Already on branch with prefix '{branch_prefix}' -> Aborting update, check again and delete the branch if you want to retry!!")
         return
-    
+
     if not checkout_branch(repo_path, branch_name):
         return
 
-    if not unzip_to_dest(sdk_zip_path, SDK_INSTALL_DIR):
+    if not unzip_to_dest(sdk_zip_path, INSENSE_SDK_UNPACK_DIR):
         return
-    
+
     new_sdk_dir_name = f"inertial-sense-sdk-{version}"
-    new_sdk_path = SDK_INSTALL_DIR / new_sdk_dir_name
+    new_sdk_path = INSENSE_SDK_UNPACK_DIR / new_sdk_dir_name
     git_stage_and_commit(repo_path, f"Unzip new SDK {version}", auto_confirm=NO_PROMPT)
 
     integrate_libusb(new_sdk_path)
     modify_sdk_cmake_files(version, new_sdk_path)
-    cleanup_old_sdks(SDK_INSTALL_DIR, new_sdk_dir_name)
+    cleanup_old_sdks(INSENSE_SDK_UNPACK_DIR, new_sdk_dir_name)
 
     LOG("\n🎉 SDK update process finished successfully!")
     signal_handler_stash_ref = "bca3b5c"
-    apply_signal_handler(signal_handler_stash_ref)
+    apply_signal_handler(signal_handler_stash_ref, new_sdk_path)

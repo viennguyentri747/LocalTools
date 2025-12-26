@@ -293,3 +293,19 @@ def git_get_porcelain_status_lines(repo_path: Path, exclude_pattern: str | None 
 
     status_lines: List[str] = [line for line in result.stdout.splitlines() if line.strip()]
     return status_lines
+
+
+def git_has_staged_changes(repo_path: Path | str) -> bool:
+    """Returns True when the git index contains staged changes."""
+    result = run_shell(
+        [CMD_GIT, "diff", "--cached", "--name-only"],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check_throw_exception_on_exit_code=False,
+    )
+    if result.returncode != 0:
+        LOG(f"WARNING: git diff --cached failed in '{repo_path}' with code {result.returncode}.",
+            file=sys.stderr)
+        return False
+    return bool(result.stdout.strip())

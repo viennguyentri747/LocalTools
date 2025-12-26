@@ -13,6 +13,19 @@ import xml.etree.ElementTree as ET
 
 from dev.dev_common.core_utils import LOG, LOG_EXCEPTION, LOG_EXCEPTION_STR, run_shell
 
+def colorize_patch(patch_content_str: str) -> str:
+    lines = patch_content_str.splitlines(keepends=True)
+    colored = []
+    for line in lines:
+        if line.startswith('-') and not line.startswith('---'):
+            colored.append(f'\033[31m{line}\033[0m')  # Red
+        elif line.startswith('+') and not line.startswith('+++'):
+            colored.append(f'\033[32m{line}\033[0m')  # Green
+        elif line.startswith('@@'):
+            colored.append(f'\033[36m{line}\033[0m')  # Cyan
+        else:
+            colored.append(line)
+    return ''.join(colored)
 
 def expand_and_check_path(path_str: str) -> Tuple[bool, str]:
     """Expand a path (user and env vars) and check existence.

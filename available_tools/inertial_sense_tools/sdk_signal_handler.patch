@@ -1,0 +1,75 @@
+diff --git a/InsenseSDK/inertial-sense-sdk-2.6.0-rc/cltool/src/cltool_main.cpp b/InsenseSDK/inertial-sense-sdk-2.6.0-rc/cltool/src/cltool_main.cpp
+index 947b2e1..f6a1d95 100644
+--- a/InsenseSDK/inertial-sense-sdk-2.6.0-rc/cltool/src/cltool_main.cpp
++++ b/InsenseSDK/inertial-sense-sdk-2.6.0-rc/cltool/src/cltool_main.cpp
+@@ -33,6 +33,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
+ */
+ 
+ #include <signal.h>
++#include <csetjmp>
+ 
+ // Contains command line parsing and utility functions.  Include this in your project to use these utility functions.
+ #include "cltool.h"
+@@ -49,6 +50,21 @@ static bool g_enableDataCallback = false;
+ int g_devicesUpdating = 0;
+ InertialSense *g_inertialSenseInterface = NULL;
+ 
++static serial_port_t port;
++
++jmp_buf gBuffer;        // A buffer to hold info on where to jump to
++
++void catch_signal(int signalNumber)
++{
++    signal(SIGTERM, catch_signal);       // Reactivate this handler.
++
++    longjmp             // Jump back into the normal flow of the program
++    (
++        gBuffer,        // using this context to say where to jump to
++        signalNumber    // and passing back the value of the signal.
++    );
++}
++
+ static void sendNmea(serial_port_t &port, string nmeaMsg);
+ 
+ static void display_server_client_status(InertialSense* i, bool server=false, bool showMessageSummary=false, bool refreshDisplay=false)
+@@ -895,6 +911,24 @@ static int cltool_dataStreaming()
+     inertialSenseInterface.setErrorHandler(cltool_errorCallback);
+     inertialSenseInterface.EnableDeviceValidation(!g_commandLineOptions.disableDeviceValidation);
+ 
++    int sig;
++	if ((sig = setjmp(gBuffer)) != 0)
++	{
++		// This path implies that a signal was thrown, and
++		// that the setjmp function returned the signal
++		// which puts use at this point.
++
++		// Now that we are out of the signal handler it is
++		// normally safe to do anything.
++        cout << "Signal caught! " << sig << ", closing serial" << endl;
++
++		// Closing the serial port (also flushes it) before exiting
++		serialPortClose(&port);
++
++        // Allow destructors to be called.
++		return 0;
++	}
++
+     // [C++ COMM INSTRUCTION] STEP 2: Open serial port
+     if (!inertialSenseInterface.Open(g_commandLineOptions.comPort.c_str(), g_commandLineOptions.baudRate, g_commandLineOptions.disableBroadcastsOnClose))
+     {
+@@ -1093,6 +1127,7 @@ static void sendNmea(serial_port_t &port, string nmeaMsg)
+ 
+ static int inertialSenseMain()
+ {
++    signal(SIGTERM, catch_signal);
+     g_inertialSenseDisplay.SetDisplayMode((cInertialSenseDisplay::eDisplayMode)g_commandLineOptions.displayMode);
+     g_inertialSenseDisplay.SetKeyboardNonBlocking();
+     // g_inertialSenseDisplay.Clear();     // clear display
+@@ -1132,7 +1167,6 @@ static int inertialSenseMain()
+     }
+     else if (!g_commandLineOptions.nmeaMessage.empty() || g_commandLineOptions.nmeaRx)
+     {
+-        serial_port_t port;
+         serialPortPlatformInit(&port);
+         if (!serialPortOpen(&port, g_commandLineOptions.comPort.c_str(), g_commandLineOptions.baudRate, 0))
+         {   // Failed to open port

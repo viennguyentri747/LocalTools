@@ -173,6 +173,8 @@ def _build_fzf_wrapper_command(description: str, prompt: str, bind_command: str,
         f"NC='\\033[0m'; "
         # Run any prerequisite commands (e.g., defining shell functions)
         f"{prerequisite_commands} "
+        f"export SHELL=/bin/bash; " # Forces fzf (and commands it spawns) to run your bindings and reload commands with Bash semantics
+        # f"export SHELL=/usr/bin/zsh; "
         # Run the fzf command and capture its output
         f'selection=$({fzf_runner}); '
         f'if [ -n "$selection" ]; then '
@@ -648,7 +650,9 @@ def main() -> None:
         return
 
     LOG(f"{display_name} -> launching interactive search")
-    run_shell(["bash", "-lc", full_output], want_shell=False, show_cmd=True)
+    # list_cmd = get_shell_exec_cmd_as_list() + [full_output]
+    list_cmd = ["bash", "-lc"] + [full_output]
+    run_shell(list_cmd, want_shell=False, show_cmd=True)
 
 
 if __name__ == "__main__":

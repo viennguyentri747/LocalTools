@@ -80,7 +80,7 @@ def gen_content_markdown(ticket: JiraTicket, coding_task_info: Optional[CodingTa
             f"# Repos to make change:{spacing_between_line_around_headers}"
             f"{repo_list_str}{spacing_between_line_around_headers}"
             f"# Create branch command:{spacing_between_line_around_headers}"
-            f"```bash{spacing_between_lines}"
+            f"```{get_shell_name()}{spacing_between_lines}"
             f"{gen_checkout_command(ticket, coding_task_info.main_ow_branch)}{spacing_between_lines}"
             f"```{spacing_between_line_around_headers}"
         )

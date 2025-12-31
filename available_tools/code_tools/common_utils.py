@@ -97,7 +97,8 @@ def save_changed_files(repo_path: Path, base: str, target: str, output_dir: Path
 
             try:
                 show_cmd = f"{CMD_GIT} -C {str(repo_path)} show {base}:{file_path_str}"
-                content_result = run_shell(show_cmd, capture_output=True, text=True, check_throw_exception_on_exit_code=True, encoding='utf-8')
+                content_result = run_shell(show_cmd, capture_output=True, text=True,
+                                           check_throw_exception_on_exit_code=True, encoding='utf-8')
                 file_content = content_result.stdout
 
                 prefixed_filename = f"{FILE_PREFIX}{original_path.name}"

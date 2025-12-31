@@ -1,9 +1,18 @@
-source_bashrc() {
-    if [[ -f "$HOME/.bashrc" ]]; then
-        echo "[INFO] Sourcing ~/.bashrc to apply user configurations..."
-        source "$HOME/.bashrc"
+source_shell_config() {
+    local shell_type config_path
+    if [ -n "$ZSH_VERSION" ]; then
+        shell_type="zsh"
+        config_path="$HOME/.zshrc"
     else
-        echo "[WARN] ~/.bashrc not found. Skipping sourcing."
+        shell_type="bash"
+        config_path="$HOME/.bashrc"
+    fi
+
+    if [[ -f "$config_path" ]]; then
+        echo "[INFO] Sourcing ${config_path} for ${shell_type} to apply user configurations..."
+        source "$config_path"
+    else
+        echo "[WARN] ${config_path} not found. Skipping sourcing."
     fi
 }
 

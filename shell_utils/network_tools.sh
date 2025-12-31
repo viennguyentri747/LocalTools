@@ -76,8 +76,8 @@ ssh_acu_ip() {
         return 1
     fi
     local full_ip="$ip"
-    SSH_OPTS="-o ConnectTimeout=0 -o ConnectionAttempts=1 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-    sshpass -p "$ut_pass" ssh -t $SSH_OPTS "root@$full_ip" ssh $SSH_OPTS "root@$target_acu_ip"
+    SSH_OPTS=(-o ConnectTimeout=0 -o ConnectionAttempts=1 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
+    sshpass -p "$ut_pass" ssh -t "${SSH_OPTS[@]}" "root@$full_ip" ssh "${SSH_OPTS[@]}" "root@$target_acu_ip"
 }
 
 run_acu_cmd() {
@@ -127,7 +127,7 @@ ssh_ssm() {
         return 1
     fi
     local ip_prefix=$(get_ip "$RESOLVED_AREA") || return 1
-    sshpass -p $ut_pass ssh -t -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -- "root@${ip_prefix}.$RESOLVED_OCTET"
+    sshpass -p "$ut_pass" ssh -t -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -- "root@${ip_prefix}.$RESOLVED_OCTET"
 }
 
 reboot_ssm() {
@@ -371,14 +371,15 @@ scp_acu() {
         return 1  # Check if get_ip failed
     fi
 
-    if [[ -z "$last_octet" || -z "${@:3:$#-3}" || -z "$remote_path" ]]; then
+    local local_path_count=$(( $# - 3 ))
+    if [[ -z "$last_octet" || "$local_path_count" -le 0 || -z "$remote_path" ]]; then
         echo "Usage: scp_acu <area> <last-octet-of-IP> <local-path(s)> <remote-path>"
         echo "Ex: scp_acu nor 73 ~/workspace/ut_data_from_remote/cal_files_76/* /var/volatile/calibration/"
         return 1
     fi
 
     # Process all arguments except the first two and the last one as local paths
-    local local_paths=("${@:3:$#-3}") # This captures all arguments from the 3rd to the penultimate as local paths
+    local local_paths=("${@:3:$local_path_count}") # This captures all arguments from the 3rd to the penultimate as local paths
     echo "Attempting to SCP files from: ${local_paths[@]} to $remote_path on remote"
     for path in "${local_paths[@]}"; do
         echo "scp -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -J root@${ip_prefix}.$last_octet $path root@$common_ip_prefix.254:$remote_path"

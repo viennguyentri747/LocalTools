@@ -9,6 +9,7 @@ import zipfile
 from pathlib import Path
 from typing import Optional
 from dev.dev_common import *
+from dev.dev_common.git_utils import BranchExistRequirement, checkout_branch, git_is_local_branch_existing
 
 # --- Configuration ---
 INSENSE_SDK_UNPACK_DIR = INSENSE_SDK_REPO_PATH / "InsenseSDK"
@@ -78,7 +79,7 @@ def integrate_libusb(new_sdk_path: Path) -> None:
     LOG(f"   -> Removing empty directory '{libusb_temp_dir.name}'...")
     shutil.rmtree(libusb_temp_dir)
     LOG("   -> libusb integration complete.")
-    git_stage_and_commit(INSENSE_SDK_REPO_PATH, "Integrate libusb", auto_confirm=NO_PROMPT)
+    git_stage_and_commit(INSENSE_SDK_REPO_PATH, "Integrate libusb", suppress_output=True)
 
 
 def modify_sdk_cmake_files(new_sdk_version: str, new_sdk_path: Path) -> None:
@@ -129,12 +130,10 @@ def modify_sdk_cmake_files(new_sdk_version: str, new_sdk_path: Path) -> None:
             LOG(f"   -> Set INSENSE_SDK_VERSION to \"{new_sdk_version}\" in '{cmake_path.name}'.")
         else:
             LOG(f"   -> ⚠️ WARNING: Version already set or pattern mismatch in '{cmake_path}'.")
-    except FileNotFoundError:
-        LOG(f"❌ ERROR: Top-level CMakeLists.txt not found at '{cmake_path}'.")
     except Exception as exc:
         LOG(f"❌ ERROR: Failed to update top-level CMakeLists.txt: {exc}")
 
-    git_stage_and_commit(INSENSE_SDK_REPO_PATH, "Update CMakeLists.txt files", show_diff=True, auto_confirm=NO_PROMPT)
+    git_stage_and_commit(INSENSE_SDK_REPO_PATH, "Update CMakeLists.txt files", show_diff=True, suppress_output=True)
 
 
 def cleanup_old_sdks(install_dir: Path, new_sdk_dir_name: str) -> None:
@@ -147,7 +146,7 @@ def cleanup_old_sdks(install_dir: Path, new_sdk_dir_name: str) -> None:
             except Exception as exc:
                 LOG(f"❌ ERROR: Failed to remove '{item.name}': {exc}")
     LOG("   -> Cleanup complete.")
-    git_stage_and_commit(INSENSE_SDK_REPO_PATH, "Cleanup old SDKs", auto_confirm=NO_PROMPT)
+    git_stage_and_commit(INSENSE_SDK_REPO_PATH, "Cleanup old SDKs", suppress_output=True)
 
 
 def get_current_git_branch() -> Optional[str]:
@@ -166,23 +165,6 @@ def get_current_git_branch() -> Optional[str]:
     except FileNotFoundError:
         LOG("❌ ERROR: Git command not found. Please ensure Git is installed and in your PATH.")
         return None
-
-
-def check_commit_changes_to_git(message: str, show_diff: bool = False) -> None:
-    if not confirm_branch_action(f"Do you want to commit '{message}' to Git?"):
-        return
-
-    LOG(f"Adding and committing changes to Git: '{message}'")
-    try:
-        subprocess.run(["git", "add", "."], check=True, cwd=INSENSE_SDK_REPO_PATH)
-        if show_diff:
-            subprocess.run(["git", "--no-pager", "diff", "--cached"], check=True, cwd=INSENSE_SDK_REPO_PATH)
-        subprocess.run(["git", "commit", "-m", message], check=True, cwd=INSENSE_SDK_REPO_PATH)
-        LOG("✅ Changes committed successfully.")
-    except subprocess.CalledProcessError as exc:
-        LOG(f"❌ ERROR: Git commit failed: {exc}")
-    except FileNotFoundError:
-        LOG("❌ ERROR: Git command not found. Please ensure Git is installed and in your PATH.")
 
 
 def confirm_branch_action(prompt: str) -> bool:
@@ -269,19 +251,19 @@ def apply_signal_handler(stash_ref: str, new_sdk_path: Optional[Path] = None) ->
             return
 
         patch_text = patch_path.read_text()
-        old_patch_paths = _extract_patch_paths(patch_text)
+        old_patch_rel_paths = _extract_patch_paths(patch_text)
         new_sdk_rel_path = _sdk_rel_path(new_sdk_path)
         path_map: dict[str, str] = {}
-        rewritten_paths = list(old_patch_paths)
-        if new_sdk_rel_path and old_patch_paths:
-            path_map = _build_stash_replaced_path_map(old_patch_paths, new_sdk_rel_path)
+        rewritten_patch_rel_paths = list(old_patch_rel_paths)
+        if new_sdk_rel_path and old_patch_rel_paths:
+            path_map = _build_stash_replaced_path_map(old_patch_rel_paths, new_sdk_rel_path)
             if path_map:
                 LOG(f"Paths to rewrite in patch: {path_map}")
                 patch_text = _get_rewrited_stash_patch(patch_text, path_map)
-                rewritten_paths = [path_map.get(path, path) for path in old_patch_paths]
+                rewritten_patch_rel_paths = [path_map.get(path, path) for path in old_patch_rel_paths]
             else:
                 LOG("⚠️ WARNING: No paths to rewrite in patch; applying as-is.")
-        elif not old_patch_paths:
+        elif not old_patch_rel_paths:
             LOG("⚠️ WARNING: No file paths found in patch; applying as-is.")
         else:
             LOG("⚠️ WARNING: No new SDK path provided; applying patch without path rewrite.")
@@ -291,8 +273,12 @@ def apply_signal_handler(stash_ref: str, new_sdk_path: Optional[Path] = None) ->
                                    text=True, capture_output=True, cwd=INSENSE_SDK_REPO_PATH, )
         if res_apply.returncode != 0:
             LOG(f"Patch file: '{patch_path}'")
-            LOG(f"Patch contents:\n{colorize_patch(patch_text)}")
-            LOG(f"❌ ERROR: Failed to apply patch automatically, please review above patch contents and edit manually the following files: {', '.join(rewritten_paths)}")
+            rewritten_insense_patch_abs_paths = [str(INSENSE_SDK_REPO_PATH / path)
+                                                 for path in rewritten_patch_rel_paths]
+            LOG(
+                f"❌ ERROR: Failed to automatically apply patch to 1 or more file(s): ")
+            LOG(f"Patch is at: {patch_path}")
+            LOG(f"File paths to apply patch: {', '.join(rewritten_insense_patch_abs_paths)}")
             return
 
         if not git_has_staged_changes(INSENSE_SDK_REPO_PATH):
@@ -311,7 +297,7 @@ def apply_signal_handler(stash_ref: str, new_sdk_path: Optional[Path] = None) ->
 # ─────────────────────────── Public entry point ─────────────────────── #
 
 
-def run_sdk_update(sdk_zip_path: Path, *, no_prompt: bool = False) -> None:
+def run_sdk_update(sdk_zip_path: Path, *, no_prompt: bool = False, base_branch: Optional[str] = None) -> None:
     global NO_PROMPT
     sdk_zip_path = sdk_zip_path.expanduser()
     NO_PROMPT = no_prompt
@@ -325,15 +311,21 @@ def run_sdk_update(sdk_zip_path: Path, *, no_prompt: bool = False) -> None:
         return
     LOG(f"   -> Extracted version: {version}")
 
-    branch_prefix = f"update-sdk-{str_to_slug(version)}"
-    branch_name = f"{branch_prefix}-{str_to_slug(get_short_date_now())}"
     repo_path = INSENSE_SDK_REPO_PATH
-    current_branch = git_get_current_branch(repo_path)
-    if current_branch and current_branch.startswith(branch_prefix):
-        LOG(f"❌ FATAL: Already on branch with prefix '{branch_prefix}' -> Aborting update, check again and delete the branch if you want to retry!!")
+    if not checkout_branch(repo_path, base_branch, branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_EXIST, allow_empty=True, ):
+        LOG(f"❌ FATAL: Failed to checkout base branch '{base_branch}'")
         return
 
-    if not checkout_branch(repo_path, branch_name):
+    branch_prefix = f"update-sdk-{str_to_slug(version)}"
+    target_branch_name = f"{branch_prefix}-{str_to_slug(get_short_date_now())}"
+
+    if git_is_local_branch_existing(repo_path, target_branch_name):
+        LOG(
+            f"❌ FATAL: Already having target branch {target_branch_name} -> Aborting update, check again and delete the branch if you want to retry!!")
+        return
+
+    if not checkout_branch(repo_path, target_branch_name, branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_NOT_EXIST, ):
+        LOG("❌ FATAL: Could not switch/create branch -> Aborting update.")
         return
 
     if not unzip_to_dest(sdk_zip_path, INSENSE_SDK_UNPACK_DIR):
@@ -341,7 +333,7 @@ def run_sdk_update(sdk_zip_path: Path, *, no_prompt: bool = False) -> None:
 
     new_sdk_dir_name = f"inertial-sense-sdk-{version}"
     new_sdk_path = INSENSE_SDK_UNPACK_DIR / new_sdk_dir_name
-    git_stage_and_commit(repo_path, f"Unzip new SDK {version}", auto_confirm=NO_PROMPT)
+    git_stage_and_commit(repo_path, f"Unzip new SDK {version}", suppress_output=True)
 
     integrate_libusb(new_sdk_path)
     modify_sdk_cmake_files(version, new_sdk_path)

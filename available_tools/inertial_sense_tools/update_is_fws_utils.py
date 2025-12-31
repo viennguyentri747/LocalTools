@@ -10,7 +10,12 @@ from pathlib import Path
 from typing import List, NamedTuple, Optional, Tuple
 
 from dev.dev_common import *
-from dev.dev_common.git_utils import checkout_branch, git_stage_and_commit
+from dev.dev_common.git_utils import (
+    BranchExistRequirement,
+    checkout_branch,
+    git_is_local_branch_existing,
+    git_stage_and_commit,
+)
 
 # Define the paths and file prefixes
 IMX_PREFIX = "IS_IMX-5_v"
@@ -181,10 +186,10 @@ def update_firmware(fw_set: KimFwSet) -> None:
 
     LOG("Change receiver version interactively:")
     detected_rcvr_version = fw_set.rcvr_version or "N/A"
-    current_rcvr_display = current_rcvr_version or "N/A"
+    # current_rcvr_display = current_rcvr_version or "N/A"
     prompt_msg = (
         "Edit or press Enter to use current RCVR version "
-        f"(Current Rcvr = {current_rcvr_display}, Detected = {detected_rcvr_version}):"
+        f"(Detected = {detected_rcvr_version}):"
     )
     user_input_opt = prompt_input(prompt_msg, default_input=current_rcvr_version)
     user_input = (user_input_opt or "").strip()
@@ -214,7 +219,7 @@ def update_firmware(fw_set: KimFwSet) -> None:
     )
 
 
-def run_fw_update(fpkg_fw_path: str, *, no_prompt: bool = False) -> None:
+def run_fw_update(fpkg_fw_path: str, *, no_prompt: bool = False, base_branch: Optional[str] = None) -> None:
     global NO_PROMPT
     NO_PROMPT = no_prompt
     pair: Optional[KimFwSet] = get_fw_pair(fpkg_fw_path)
@@ -226,17 +231,32 @@ def run_fw_update(fpkg_fw_path: str, *, no_prompt: bool = False) -> None:
     if not version:
         LOG(f"❌ FATAL: Could not extract version from firmware pair: {pair} -> Aborting update.")
         return
+    
+    repo_path = OW_SW_PATH
+    if not checkout_branch(
+            repo_path,
+            base_branch,
+            branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_EXIST,
+            allow_empty=True,
+    ):
+        LOG(f"❌ FATAL: Failed to checkout base branch '{base_branch}'")
+        return
 
     branch_prefix = f"update-fw-{str_to_slug(version)}"
-    branch_name = f"{branch_prefix}-{str_to_slug(get_short_date_now())}"
-    repo_path = OW_SW_PATH
-    current_branch = git_get_current_branch(repo_path)
-    if current_branch and current_branch.startswith(branch_prefix):
-        LOG(f"❌ FATAL: Already on branch with prefix '{branch_prefix}' -> Aborting update, check again and delete the branch if you want to retry!!")
+    target_branch_name = f"{branch_prefix}-{str_to_slug(get_short_date_now())}"
+
+    if git_is_local_branch_existing(repo_path, target_branch_name):
+        LOG(
+            f"❌ FATAL: Already having target branch {target_branch_name} -> Aborting update, check again and delete the branch if you want to retry!!")
         return
 
-    LOG(f"🔀 Switching to branch {branch_name}...")
-    if not checkout_branch(repo_path, branch_name):
+    LOG(f"🔀 Creating and switching to branch {target_branch_name}...")
+    if not checkout_branch(
+            repo_path,
+            target_branch_name,
+            branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_NOT_EXIST,
+    ):
         LOG("❌ FATAL: Could not switch/create branch -> Aborting update.")
         return
+
     update_firmware(pair)

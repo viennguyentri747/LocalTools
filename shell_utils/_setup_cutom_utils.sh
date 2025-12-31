@@ -5,13 +5,19 @@
 #   *) export PATH="/usr/local/bin:$PATH" && echo "Added /usr/local/bin to PATH" ;;
 # esac
 
-echo "[DEBUG] Current shell: $0, BASH_VERSION: $BASH_VERSION, SHELL env: $SHELL"
+echo "[DEBUG] Current shell: $0, BASH_VERSION: ${BASH_VERSION-}, ZSH_VERSION: ${ZSH_VERSION-}, SHELL env: $SHELL"
 
-# Find the directory where this script itself lives
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Get the absolute path to this script
-THIS_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+# Find the directory where this script itself lives (bash/zsh compatible)
+if [[ -n "${BASH_VERSION-}" ]]; then
+    THIS_SOURCE="${BASH_SOURCE[0]}"
+elif [[ -n "${ZSH_VERSION-}" ]]; then
+    THIS_SOURCE="${(%):-%N}"
+    THIS_SOURCE="${THIS_SOURCE:A}"
+else
+    THIS_SOURCE="$0"
+fi
+SCRIPT_DIR="$(cd "$(dirname "$THIS_SOURCE")" && pwd)"
+THIS_SCRIPT="$SCRIPT_DIR/$(basename "$THIS_SOURCE")"
 
 # Loop through all .sh files in that directory except this one
 loaded_str=""
@@ -36,8 +42,9 @@ fi
 
 # Run startup utils
 echo "Running startup scripts..."
+load_ssh_keys
 mount_h
-monitor_stock not_restart_if_running
+monitor_stock not_restart_if_running run_in_background
 
 # # Configure bash completion behavior
 # bind 'set show-all-if-ambiguous on'

@@ -10,10 +10,10 @@ _git_qhelp() {
 
 _git_qpush() {
   # Get a list of all configured remotes
-  _remotes=$(command git remote)
+  _remotes=($(command git remote))
 
   # Exit if no remotes are configured
-  if [ -z "$_remotes" ]; then
+  if [ ${#_remotes[@]} -eq 0 ]; then
     echo "No remotes found to push to."
     return 1
   fi
@@ -27,7 +27,7 @@ _git_qpush() {
     
     # Check if the local branch is ahead of ANY remote
     any_ahead=0
-    for _r in $_remotes; do
+    for _r in "${_remotes[@]}"; do
       # Count commits on the local branch that are not on the remote branch.
       ahead=$(command git rev-list --count "${_r}/${_b}..${_b}" 2>/dev/null || echo 0)
       if [ "${ahead:-0}" -gt 0 ]; then
@@ -65,7 +65,7 @@ _git_qpush() {
     echo
 
     # Format the list of remotes for the confirmation message
-    _remotes_list=$(echo "$_remotes" | tr '\n' ' ')
+    _remotes_list="${_remotes[*]}"
     
     # Ask for confirmation before staging, committing, and pushing
     printf "Stage, commit, and push branch [%s] to ALL remotes [%s]? (y/N) " "$_b" "$_remotes_list"
@@ -92,7 +92,7 @@ _git_qpush() {
 
   # Push to all remotes
   all_pushed=true
-  for _r in $_remotes; do
+  for _r in "${_remotes[@]}"; do
     echo "--> Pushing to remote '$_r'..."
     if ! command git push "$_r" "$_b"; then
         echo "!! Failed to push to '$_r'."
@@ -136,4 +136,20 @@ git() {
 
   # Everything else → real git
   command git "$@"
+}
+
+_ensure_ssh_agent() {
+  # Check if agent is running and accessible, start if not
+  if [ -z "$SSH_AGENT_PID" ] || ! kill -0 "$SSH_AGENT_PID" 2>/dev/null; then
+    eval "$(ssh-agent -s)" > /dev/null
+  fi
+}
+
+load_ssh_keys() {
+  _ensure_ssh_agent
+
+  KEYS=(id_ed25519_intel_github id_ed25519_personal_github)
+  for KEY_NAME in "${KEYS[@]}"; do
+    ssh-add -l | grep -q "$KEY_NAME" || ssh-add "$HOME/.ssh/$KEY_NAME"
+  done
 }

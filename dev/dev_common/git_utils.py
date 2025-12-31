@@ -3,6 +3,7 @@
 import subprocess
 import re
 import sys
+from enum import Enum, auto
 from pathlib import Path
 from typing import List, Optional
 
@@ -11,6 +12,15 @@ from dev.dev_common.input_utils import prompt_confirmation
 
 # --- Constants ---
 CMD_GIT = 'git'
+
+
+class EBranchExistRequirement(Enum):
+    NONE = auto()
+    BRANCH_MUST_EXIST = auto()
+    BRANCH_MUST_NOT_EXIST = auto()
+
+
+BranchExistRequirement = EBranchExistRequirement
 
 
 def sanitize_ref_for_filename(ref: str) -> str:
@@ -61,19 +71,52 @@ def git_is_ref_or_branch_existing(repo_path: Path, branch_name: str) -> bool:
     return result.returncode == 0
 
 
-def checkout_branch(repo_path: Path, branch_name: str, *, create_when_missing: bool = True) -> bool:
+def git_is_local_branch_existing(repo_path: Path, branch_name: str) -> bool:
+    """Checks if a local branch exists in the given repo."""
+    result = run_shell(
+        [CMD_GIT, "show-ref", "--verify", "--quiet", f"refs/heads/{branch_name}"],
+        cwd=repo_path,
+        check_throw_exception_on_exit_code=False,
+    )
+    return result.returncode == 0
+
+
+def git_get_all_local_branches(repo_path: Path) -> List[str]:
+    """Returns a list of all local branches in the given repo."""
+    branches = run_shell("git branch --list", cwd=repo_path, capture_output=True, text=True).stdout.strip()
+    return branches.split('\n') if branches else []
+
+
+def checkout_branch(
+        repo_path: Path,
+        branch_name: Optional[str],
+        *,
+        branch_exist_requirement: EBranchExistRequirement = BranchExistRequirement.NONE,
+        allow_empty: bool = False,
+) -> bool:
     """Checkout (optionally create) a branch inside ``repo_path``.
 
     Returns ``True`` when the checkout succeeds and ``False`` otherwise.
     """
+    normalized_branch = (branch_name or "").strip()
+    if not normalized_branch:
+        if allow_empty:
+            return True
+        LOG("❌ ERROR: Branch name is empty; cannot checkout.")
+        return False
+    branch_name = normalized_branch
     current_branch = git_get_current_branch(repo_path)
     if current_branch == branch_name:
         LOG(f"✅ Already on branch '{branch_name}'.")
         return True
 
     branch_exists = git_is_ref_or_branch_existing(repo_path, branch_name)
-    if not branch_exists and not create_when_missing:
+    local_branch_exists = git_is_local_branch_existing(repo_path, branch_name)
+    if branch_exist_requirement == BranchExistRequirement.BRANCH_MUST_EXIST and not branch_exists:
         LOG(f"❌ ERROR: Branch '{branch_name}' does not exist in '{repo_path}' and auto-create is disabled.")
+        return False
+    if branch_exist_requirement == BranchExistRequirement.BRANCH_MUST_NOT_EXIST and local_branch_exists:
+        LOG(f"❌ ERROR: Branch '{branch_name}' already exists in '{repo_path}'.")
         return False
 
     checkout_cmd: List[str]
@@ -228,15 +271,7 @@ def git_diff_worktree(repo_path: Path | str, extra_args: Optional[List[str]] = N
     return result.stdout
 
 
-def git_stage_and_commit(
-    repo_path: Path,
-    message: str,
-    *,
-    show_diff: bool = False,
-    stage_paths: Optional[List[str]] = None,
-    auto_confirm: bool = False,
-    prompt: Optional[str] = None,
-) -> bool:
+def git_stage_and_commit( repo_path: Path, message: str, *, show_diff: bool = False, stage_paths: Optional[List[str]] = None, auto_confirm: bool = True, prompt: Optional[str] = None, suppress_output: bool = False, ) -> bool:
     """
     Stage changes (optionally limited to specific paths) and create a commit in the given repo.
 
@@ -247,6 +282,7 @@ def git_stage_and_commit(
         stage_paths: Specific paths to stage (relative or absolute). If None or empty, stage all changes (-A).
         auto_confirm: If True, skip interactive confirmation prompt.
         prompt: Optional custom confirmation prompt message.
+        suppress_output: If True, suppress git command output.
 
     Returns:
         True if commit succeeded, False otherwise.
@@ -265,15 +301,34 @@ def git_stage_and_commit(
         if stage_paths and len(stage_paths) > 0:
             # Convert paths to strings (git accepts absolute or relative)
             paths = [str(p) for p in stage_paths]
-            run_shell([CMD_GIT, 'add', *paths], check_throw_exception_on_exit_code=True, cwd=repo_path)
+            run_shell(
+                [CMD_GIT, 'add', *paths],
+                check_throw_exception_on_exit_code=True,
+                cwd=repo_path,
+                capture_output=suppress_output,
+            )
         else:
-            run_shell([CMD_GIT, 'add', '-A'], check_throw_exception_on_exit_code=True, cwd=repo_path)
+            run_shell(
+                [CMD_GIT, 'add', '-A'],
+                check_throw_exception_on_exit_code=True,
+                cwd=repo_path,
+                capture_output=suppress_output,
+            )
 
         if show_diff:
-            run_shell([CMD_GIT, '--no-pager', 'diff', '--cached'],
-                      check_throw_exception_on_exit_code=True, cwd=repo_path)
+            run_shell(
+                [CMD_GIT, '--no-pager', 'diff', '--cached'],
+                check_throw_exception_on_exit_code=True,
+                cwd=repo_path,
+                capture_output=suppress_output,
+            )
 
-        run_shell([CMD_GIT, 'commit', '-m', message], check_throw_exception_on_exit_code=True, cwd=repo_path)
+        run_shell(
+            [CMD_GIT, 'commit', '-m', message],
+            check_throw_exception_on_exit_code=True,
+            cwd=repo_path,
+            capture_output=suppress_output,
+        )
         LOG("✅ Changes committed successfully.")
         return True
     except Exception as e:

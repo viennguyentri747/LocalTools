@@ -157,11 +157,13 @@ BRANCH_MANPACK_MASTER = "manpack_master"
 BRANCH_MASTER = "master"
 OW_MAIN_BRANCHES = [BRANCH_MANPACK_MASTER, BRANCH_MASTER]
 
-# New common argument names for Inertial Sense tools
+# Common argument names for Inertial Sense tools
 ARG_UPDATE_FW = f"{ARGUMENT_LONG_PREFIX}update_fw"
 ARG_UPDATE_SDK = f"{ARGUMENT_LONG_PREFIX}update_sdk"
 ARG_NO_PROMPT = f"{ARGUMENT_LONG_PREFIX}no_prompt"
 ARG_SDK_PATH = f"{ARGUMENT_LONG_PREFIX}sdk_path"
+ARG_OW_SW_BASE_BRANCH = f"{ARGUMENT_LONG_PREFIX}ow_sw_base_branch"
+ARG_INSENSE_CL_BASE_BRANCH = f"{ARGUMENT_LONG_PREFIX}insense_cl_base_branch"
 
 # Emojis
 SUCCESS_EMOJI = "✅"

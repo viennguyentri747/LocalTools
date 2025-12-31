@@ -383,7 +383,8 @@ def run_build(build_type: str, interactive: bool, make_clean: bool = True, is_de
     else:
         LOG_EXCEPTION_STR(f"Unknown build type: {build_type}, expected {BUILD_TYPE_BINARY} or {BUILD_TYPE_IESA}")
 
-    docker_image = prepare_docker_image_from_gitlab_ci(GITLAB_CI_YML_PATH)
+    # docker_image: str = get_docker_image_from_gitlab_ci(GITLAB_CI_YML_PATH)
+    docker_image: str = "oneweb_test:v1"
     LOG(f"Using Docker image: {docker_image}")
     docker_cmd_base = ( f"docker run -it --rm -v {OW_SW_PATH}:{OW_SW_PATH} -w {OW_SW_PATH} {docker_image}" )
 

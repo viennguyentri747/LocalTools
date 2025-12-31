@@ -83,7 +83,7 @@ def docker_parse_image_from_gitlab_ci(gitlab_ci_path: Path | str) -> str:
     return docker_image
 
 
-def prepare_docker_image_from_gitlab_ci(gitlab_ci_path: Path | str, *, auto_pull: bool = True) -> str:
+def get_docker_image_from_gitlab_ci(gitlab_ci_path: Path | str, *, auto_pull: bool = True) -> str:
     """
     Retrieves the Docker image name from .gitlab-ci.yml and ensures it exists locally.
     """

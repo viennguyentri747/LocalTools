@@ -3,8 +3,9 @@ ow_sw_path=$HOME/ow_sw_tools
 
 docker_ow_build() {
     local OW_SW_PATH="$ow_sw_path"
-    local docker_image="oneweb_sw:latest"
-    local chmod_cmd="find ${OW_SW_PATH}/packaging -type f \\( -name '*.py' -o -name '*.sh' \\) -exec chmod +x {} \\; -exec echo 'Granted execute permission to: {}' \\;"    local keep_interactive_shell="exec bash"
+    local docker_image="${1:-oneweb_sw:latest}"
+    [ -z "$1" ] && echo "docker_image not provided, using default: ${docker_image}"
+    local chmod_cmd="find ${OW_SW_PATH}/packaging -type f \\( -name '*.py' -o -name '*.sh' \\) -exec chmod +x {} \\; -exec echo 'Granted execute permission to: {}' \\;" keep_interactive_shell="exec bash"
     # Build the full bash command
     local bash_cmd="echo 'Granting execute permissions to script files...' && ${chmod_cmd} && ${keep_interactive_shell}"
     # Build and run the docker command
@@ -19,16 +20,23 @@ docker_ow_build() {
 sync_from_tmp_build() {
   echo -e "Available Repositories:\n---------------------"
   repo_list=($(grep -oP 'name="\K[^"]+' "$ow_sw_path/tools/manifests/iesa_manifest_gitlab.xml" | grep -v -w -E "intellian_adc|oneweb_legacy|oneweb_n|prototyping|third_party_apps"))
-  for i in "${!repo_list[@]}"; do
-    echo "$((i+1)). ${repo_list[i]}"
+  local i=1
+  for repo in "${repo_list[@]}"; do
+    echo "$i. $repo"
+    i=$((i + 1))
   done
   echo -e "---------------------\n"
   
-  read -p "Enter repo name OR repo index from list above: " repo_input
+  printf "%s" "Enter repo name OR repo index from list above: "
+  read -r repo_input
   
   # Check if input is a number (index) or name
   if [[ "$repo_input" =~ ^[0-9]+$ ]] && [ "$repo_input" -ge 1 ] && [ "$repo_input" -le "${#repo_list[@]}" ]; then
-    repo_name="${repo_list[$((repo_input-1))]}"
+    if [ -n "${ZSH_VERSION-}" ]; then
+      repo_name="${repo_list[$repo_input]}"
+    else
+      repo_name="${repo_list[$((repo_input - 1))]}"
+    fi
   else
     repo_name="$repo_input"
   fi

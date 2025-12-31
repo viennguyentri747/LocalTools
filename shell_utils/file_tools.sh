@@ -9,9 +9,15 @@ clean_trash() {
         return 1
     fi
 
-    shopt -s nullglob dotglob # Enable nullglob and dotglob to include hidden files
+    if [ -n "${ZSH_VERSION-}" ]; then
+        setopt localoptions nullglob globdots
+    else
+        shopt -s nullglob dotglob # Enable nullglob and dotglob to include hidden files
+    fi
     files=("$trash_dir"*)
-    shopt -u nullglob dotglob # Disable nullglob and dotglob to restore previous behavior
+    if [ -z "${ZSH_VERSION-}" ]; then
+        shopt -u nullglob dotglob # Disable nullglob and dotglob to restore previous behavior
+    fi
     
     if [ ${#files[@]} -eq 0 ]; then
         echo "Trash directory '$trash_dir' is already empty."
@@ -82,7 +88,8 @@ rm() {
 
                 # --- Confirm backup if file/dir size is over 1GB ---
                 if [ "$filesize" -ge $((1024*1024*1024)) ]; then
-                    read -p "File or folder '$file' is over 1GB ($(numfmt --to=iec "$filesize")). Still move to trash regardless? [y/N]: " confirm
+                    printf "%s" "File or folder '$file' is over 1GB ($(numfmt --to=iec "$filesize")). Still move to trash regardless? [y/N]: "
+                    read -r confirm
                     case "$confirm" in
                         [yY][eE][sS]|[yY]) 
                             should_backup=true

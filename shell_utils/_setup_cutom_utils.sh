@@ -5,6 +5,15 @@
 #   *) export PATH="/usr/local/bin:$PATH" && echo "Added /usr/local/bin to PATH" ;;
 # esac
 
+#Pyenv
+export PYENV_ROOT="$HOME/.pyenv"
+[[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"
+
+#NVM
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+
+#Custom utils
 echo "[DEBUG] Current shell: $0, BASH_VERSION: ${BASH_VERSION-}, ZSH_VERSION: ${ZSH_VERSION-}, SHELL env: $SHELL"
 
 # Find the directory where this script itself lives (bash/zsh compatible)

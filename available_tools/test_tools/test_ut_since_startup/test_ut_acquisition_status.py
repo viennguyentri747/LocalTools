@@ -42,7 +42,7 @@ class IterationMetrics:
     iteration: int
     total_time: int
     total_timestamp: str = ""
-    reboot_time: MetricRecord = MetricRecord(seconds=-1, timestamp="")
+    reboot_time: MetricRecord = field(default_factory=lambda: MetricRecord(seconds=-1, timestamp=""))    
     server_up: Optional[MetricRecord] = None
     gps_fix: Optional[MetricRecord] = None
     ping_ready: Optional[MetricRecord] = None

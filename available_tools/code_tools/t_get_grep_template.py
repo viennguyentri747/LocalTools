@@ -108,6 +108,10 @@ def get_patterns_map() -> Dict[str, SearchPattern]:
 def quote(s: str) -> str:
     return shlex.quote(s)
 
+def _get_shell_for_fzf() -> str:
+    shell_name = get_shell_name()
+    return shell_name or "bash"
+
 
 def build_rg_base_command(args: TemplateArgs, file_exts: List[str], is_regex_filter_pattern: bool = True) -> str:
     """Build the reusable portion of the ripgrep command."""
@@ -166,6 +170,8 @@ def _build_fzf_wrapper_command(description: str, prompt: str, bind_command: str,
         f'--no-sort ' # keep rg's output order
     )
 
+    shell_name = _get_shell_for_fzf()
+    shell_path = resolve_executable_path(shell_name)
     # This logic is extracted from the original build_fzf_rgrep_command
     return (
         # Define color variables for the final output.
@@ -173,8 +179,7 @@ def _build_fzf_wrapper_command(description: str, prompt: str, bind_command: str,
         f"NC='\\033[0m'; "
         # Run any prerequisite commands (e.g., defining shell functions)
         f"{prerequisite_commands} "
-        f"export SHELL=/bin/bash; " # Forces fzf (and commands it spawns) to run your bindings and reload commands with Bash semantics
-        # f"export SHELL=/usr/bin/zsh; "
+        f"export SHELL={quote(shell_path)}; "
         # Run the fzf command and capture its output
         f'selection=$({fzf_runner}); '
         f'if [ -n "$selection" ]; then '
@@ -209,7 +214,7 @@ def build_fzf_rgrep_c_command(
     file_exts: List[str],
     initial_query: str = "",
 ) -> str:
-    """Build the fzf command with a search_symbol shell function as a one-liner."""
+    """Build the fzf command with an inline reload command."""
     base_rg_command = build_rg_base_command(template_args, file_exts, is_regex_filter_pattern=True)
     search_dir = str(template_args.search_path)
     search_dir_arg = quote(search_dir)
@@ -235,28 +240,21 @@ def build_fzf_rgrep_c_command(
         command_parts.append(conditional_command)
 
     search_function_body = "; ".join(command_parts)
-    # Define and export the search_symbol function
-    search_function_name = "search_symbol"
-    prerequisite_commands = (
-        f'SEARCH_DIR="{search_dir}"; '
-        f'{search_function_name}() {{ '
-        f'local symbol="$1"; '
-        f'if [ -z "$symbol" ]; then echo "Type a symbol name to search..."; return; fi; '
-        f'local output; '
-        f'{search_function_body} '
-        f'}}; '
-        f'export -f {search_function_name}; '
-        f'export SEARCH_DIR; '
+    search_reload_command = (
+        f'set -f; '
+        f'symbol={{q}}; '
+        f'if [ -z "$symbol" ]; then echo "Type a symbol name to search..."; '
+        f'else {search_function_body}; fi'
     )
 
     # --- Call the Shared Wrapper ---
     return _build_fzf_wrapper_command(
         description=description,
         prompt="Symbol> ",
-        bind_command=f"change:{FZF_RELOAD_KEYWORD}:{search_function_name} {{q}}",
+        bind_command=f"change:{FZF_RELOAD_KEYWORD}:{search_reload_command}",
         initial_query_str=initial_query,
         search_dir=search_dir,
-        prerequisite_commands=prerequisite_commands,
+        prerequisite_commands="",
     )
 
 
@@ -650,8 +648,7 @@ def main() -> None:
         return
 
     LOG(f"{display_name} -> launching interactive search")
-    # list_cmd = get_shell_exec_cmd_as_list() + [full_output]
-    list_cmd = ["bash", "-lc"] + [full_output]
+    list_cmd = get_shell_exec_cmd_as_list() + [full_output]
     run_shell(list_cmd, want_shell=False, show_cmd=True)
 
 

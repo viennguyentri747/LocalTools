@@ -13,6 +13,7 @@ from .gui_utils import *
 from .network_utils import *
 from .docker_utils import *
 from .md_utils import *
+from .shell_utils import *
 #3rd party
 from .gitlab_utils import *
 from .jira_utils import *

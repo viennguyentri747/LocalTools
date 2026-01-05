@@ -5,7 +5,7 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List
-from available_tools.test_tools.test_ut_since_startup.common import *
+from available_tools.test_tools.test_ut_since_startup.t_test_ut_acquisition_status_tools import *
 from dev.dev_common import *
 
 

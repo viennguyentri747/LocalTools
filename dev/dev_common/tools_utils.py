@@ -13,6 +13,8 @@ from dev.dev_common.constants import LINE_SEPARATOR, CMD_EXPLORER, WSL_SELECT_FL
 from dev.dev_common import *
 # from dev.dev_common.core_utils import LOG, convert_win_to_wsl_path, run_shell, convert_wsl_to_win_path
 
+HIDDEN_TOOL_FILENAMES = {"t_test_ut_from_local.py"}
+
 
 class ToolFolderPriority(IntEnum):
     TOP = 0
@@ -20,7 +22,7 @@ class ToolFolderPriority(IntEnum):
     iesa_tool = auto()
     content_tool = auto()
     inertial_sense_tool = auto()
-    remote_tool = auto()
+    test_tool = auto()
     # TODO: Add more priorities
 
     misc_hidden_tools = auto()
@@ -35,7 +37,15 @@ class ToolEntry:
 
     @property
     def full_path(self) -> str:
-        return f"{self.folder}/{self.filename}"
+        return str(Path(self.folder) / self.filename)
+
+    @property
+    def folder_path(self) -> Path:
+        return self.path.parent.resolve()
+
+    @property
+    def module_path(self) -> str:
+        return ".".join(Path(self.folder).parts)
 
     @property
     def stem(self) -> str:
@@ -71,27 +81,35 @@ class ToolFolderMetadata:
         return True
 
 
-def discover_tools(root: Path, folder_pattern: str, prefix: str) -> List[ToolEntry]:
+def discover_tools(root: Path, folder_pattern: str, prefix: str, is_recursive: bool) -> List[ToolEntry]:
     tools: List[ToolEntry] = []
-    for folder in discover_tool_folders(root, folder_pattern):
+    for folder in discover_tool_folders(root, folder_pattern, is_recursive):
         for child in sorted(folder.iterdir()):
             if child.is_file() and is_tool_file(child, prefix):
-                tools.append(ToolEntry(folder=folder.name, filename=child.name, path=child))
+                folder_rel = folder.relative_to(root)
+                tools.append(ToolEntry(folder=str(folder_rel), filename=child.name, path=child))
     return tools
 
 
-def discover_tool_folders(root: Path, folder_pattern: str) -> List[Path]:
+def discover_tool_folders(root: Path, folder_pattern: str, is_recursive: bool = False) -> List[Path]:
     pattern = re.compile(folder_pattern)
     folders: List[Path] = []
-    for p in sorted(root.iterdir()):
-        LOG(f"Discovered tool folder: {p}, pattern: {folder_pattern}")
+    # Choose iterator based on recursion flag
+    iterator = root.rglob("*") if is_recursive else root.iterdir()
+    
+    for p in sorted(iterator):
         if p.is_dir() and pattern.match(p.name):
+            LOG(f"Discovered tool folder: {p}, pattern: {folder_pattern}")
             folders.append(p)
+        # else:
+            # LOG(f"Skipped path: {p}, does not match folder pattern: {folder_pattern}")
     return folders
 
 
 def is_tool_file(path: Path, prefix: str) -> bool:
     name = path.name
+    if name in HIDDEN_TOOL_FILENAMES:
+        return False
     if not name.startswith(prefix):
         return False
     if path.suffix == ".py":

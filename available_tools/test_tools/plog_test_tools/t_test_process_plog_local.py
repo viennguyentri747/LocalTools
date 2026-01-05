@@ -9,11 +9,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
 from dev.dev_common import *
-from unit_tests.acu_log_tests.periodic_log_constants import (
-    LAST_RTK_COMPASS_STATUS_COLUMN,
-    LAST_VELOCITY_COLUMN,
-    TIME_COLUMN,
-)
+from unit_tests.acu_log_tests.periodic_log_constants import *
 from unit_tests.acu_log_tests.periodic_log_helper import (
     PLogData,
     build_time_series,
@@ -25,9 +21,8 @@ from unit_tests.acu_log_tests.periodic_log_helper import (
 use_posix_paths()
 
 DEFAULT_TIME_WINDOW_HOURS = 0.1  # 6 minutes
-DEFAULT_COLUMNS: List[str] = [TIME_COLUMN, LAST_VELOCITY_COLUMN, LAST_RTK_COMPASS_STATUS_COLUMN]
+DEFAULT_COLUMNS: List[str] = [TIME_COLUMN, LAST_TIME_SYNC_COLUMN, LAST_VELOCITY_COLUMN, LAST_RTK_COMPASS_STATUS_COLUMN]
 DEFAULT_OUTPUT_PATH = PERSISTENT_TEMP_PATH / "compact_plog.tsv"
-DEFAULT_CMD_INVOCATION = F"cd {REPO_PATH} && {get_win_python_executable_path()} -m available_tools.test_tools.t_test_ut_from_local"
 ARG_PLOG_DIR_OR_FILE = f"{ARGUMENT_LONG_PREFIX}plog_dir_or_file"
 ARG_COLUMNS = f"{ARGUMENT_LONG_PREFIX}columns"
 ARG_TIME_WINDOW = f"{ARGUMENT_LONG_PREFIX}hours"
@@ -42,6 +37,13 @@ class CompactPlogRow:
     def to_tsv_values(self, order: Sequence[str]) -> List[str]:
         """Return the values ordered for TSV output."""
         return [self.values.get(column, "") for column in order]
+
+
+@dataclass
+class PlogProcessFileData:
+    plog_file: Path
+    file_metadata_line: Optional[str]
+    rows: List[CompactPlogRow]
 
 
 def get_tool_templates() -> List[ToolTemplate]:
@@ -61,7 +63,6 @@ def get_tool_templates() -> List[ToolTemplate]:
             },
             search_root=ACU_LOG_PATH,
             usage_note="Update --plog_dir_or_file to reference the P-log file or folder you want to shrink.",
-            override_cmd_invocation=DEFAULT_CMD_INVOCATION,
         ),
     ]
 
@@ -71,6 +72,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         description="Filter Intellian P-log files down to a compact TSV with selected columns.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
+    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
 
     parser.add_argument(
         ARG_PLOG_DIR_OR_FILE,
@@ -78,24 +80,9 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         type=Path,
         help="Path to a periodic log file (P_*) or a directory that contains them.",
     )
-    parser.add_argument(
-        ARG_COLUMNS,
-        nargs="+",
-        default=None,
-        help="Space-separated list of column names to keep (default: Time/Velocity/RTK Compass).",
-    )
-    parser.add_argument(
-        ARG_TIME_WINDOW,
-        type=float,
-        default=DEFAULT_TIME_WINDOW_HOURS,
-        help=f"Time window in hours to keep from the tail of the log (default: {DEFAULT_TIME_WINDOW_HOURS}).",
-    )
-    parser.add_argument(
-        ARG_OUTPUT_PATH,
-        type=Path,
-        default=Path(DEFAULT_OUTPUT_PATH),
-        help=f"Destination file for the compact log (default: {DEFAULT_OUTPUT_PATH}).",
-    )
+    parser.add_argument( ARG_COLUMNS, nargs="+", default=None, help="Space-separated list of column names to keep (default: Time/Velocity/RTK Compass).", )
+    parser.add_argument( ARG_TIME_WINDOW, type=float, default=DEFAULT_TIME_WINDOW_HOURS, help=f"Time window in hours to keep from the tail of the log (default: {DEFAULT_TIME_WINDOW_HOURS}).", )
+    parser.add_argument( ARG_OUTPUT_PATH, type=Path, default=Path(DEFAULT_OUTPUT_PATH), help=f"Destination file for the compact log (default: {DEFAULT_OUTPUT_PATH}).", )
 
     return parser.parse_args(argv)
 
@@ -194,13 +181,50 @@ def _build_compact_rows(plog_data: PLogData) -> List[CompactPlogRow]:
     return compact_rows
 
 
-def _render_compact_log(metadata_lines: Sequence[str], columns: Sequence[str], rows: Sequence[CompactPlogRow]) -> str:
-    """Build the final TSV content, reusing metadata lines and the filtered rows."""
+def process_plog_files(plog_files: Sequence[Path], target_columns: Sequence[str], time_window: float) -> List[PlogProcessFileData]:
+    processed: List[PlogProcessFileData] = []
+    for plog_file in plog_files:
+        LOG(f"{LOG_PREFIX_MSG_INFO} Reading P-log: {plog_file}")
+        log_text = read_file_content(plog_file, encoding="utf-8", errors="replace")
+        file_metadata_lines = _extract_metadata_lines(log_text)
+        file_metadata_line = "\n".join(file_metadata_lines) if file_metadata_lines else None
+
+        LOG(
+            f"{LOG_PREFIX_MSG_INFO} Parsing last {time_window} hour(s) for {plog_file} with columns: {target_columns}"
+        )
+        plog_data = _parse_plog_text(log_text, list(target_columns), time_window)
+
+        rows = _build_compact_rows(plog_data)
+        if not rows:
+            LOG(
+                f"{LOG_PREFIX_MSG_WARNING} No rows found inside the requested time window for {plog_file}; skipping."
+            )
+        processed.append(
+            PlogProcessFileData(plog_file=plog_file, file_metadata_line=file_metadata_line, rows=rows)
+        )
+    return processed
+
+
+def _get_compact_log_str(processed_data: Sequence[PlogProcessFileData], columns: Sequence[str]) -> str:
+    """Build the final TSV content from processed files and selected columns."""
+    metadata_lines: List[str] = []
+    for file_data in processed_data:
+        if file_data.file_metadata_line:
+            metadata_lines = file_data.file_metadata_line.split("\n")
+            break
+    rows = [row for file_data in processed_data for row in file_data.rows]
     lines: List[str] = []
     lines.extend(line for line in metadata_lines if line is not None)
-    lines.append("\t".join(columns))
-    for row in rows:
-        lines.append("\t".join(row.to_tsv_values(columns)))
+    row_values = [row.to_tsv_values(columns) for row in rows]
+    widths = [len(column) for column in columns]
+    for values in row_values:
+        for idx, value in enumerate(values):
+            if len(value) > widths[idx]:
+                widths[idx] = len(value)
+    separator = "  "
+    lines.append(separator.join(column.ljust(widths[idx]) for idx, column in enumerate(columns)))
+    for values in row_values:
+        lines.append(separator.join(value.ljust(widths[idx]) for idx, value in enumerate(values)))
     lines.append("")  # Ensure the file ends with a newline
     return "\n".join(lines)
 
@@ -230,14 +254,7 @@ def _discover_plog_files(plog_dir_or_file: Path) -> List[Path]:
     return sorted(files)
 
 
-def _write_metadata_file(
-    output_plog_path: Path,
-    input_path: Path,
-    time_window: float,
-    target_columns: Sequence[str],
-    processed_files: Sequence[Path],
-    rows_written: int,
-) -> Path:
+def _write_metadata_file( output_plog_path: Path, input_path: Path, time_window: float, target_columns: Sequence[str], processed_files: Sequence[Path], rows_written: int, ) -> Path:
     """Persist metadata as JSON next to the compact log artifact."""
     now_utc = datetime.now(timezone.utc)
     timestamp = now_utc.strftime("%Y%m%d_%H%M%S")
@@ -272,43 +289,17 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         LOG_EXCEPTION(ValueError(f"No P-log files found under: {input_path}"), exit=True)
     LOG(f"{LOG_PREFIX_MSG_INFO} Found {len(plog_files)} P-log file(s) to analyze under {input_path}")
 
-    compact_rows: List[CompactPlogRow] = []
-    processed_files: List[Path] = []
-    first_metadata_lines: Optional[List[str]] = None
-
-    for plog_file in plog_files:
-        LOG(f"{LOG_PREFIX_MSG_INFO} Reading P-log: {plog_file}")
-        log_text = read_file_content(plog_file, encoding="utf-8", errors="replace")
-        file_metadata_lines = _extract_metadata_lines(log_text)
-
-        LOG(
-            f"{LOG_PREFIX_MSG_INFO} Parsing last {time_window} hour(s) for {plog_file} with columns: {target_columns}"
-        )
-        plog_data = _parse_plog_text(log_text, target_columns, time_window)
-
-        rows = _build_compact_rows(plog_data)
-        if not rows:
-            LOG(
-                f"{LOG_PREFIX_MSG_WARNING} No rows found inside the requested time window for {plog_file}; skipping."
-            )
-            processed_files.append(plog_file)
-            if first_metadata_lines is None:
-                first_metadata_lines = file_metadata_lines
-            continue
-
-        compact_rows.extend(rows)
-        processed_files.append(plog_file)
-        if first_metadata_lines is None:
-            first_metadata_lines = file_metadata_lines
-
-    if not compact_rows:
+    processed_data: List[PlogProcessFileData] = process_plog_files(plog_files, target_columns, time_window)
+    processed_files = [file_data.plog_file for file_data in processed_data]
+    rows_written = sum(len(file_data.rows) for file_data in processed_data)
+    if rows_written == 0:
         LOG(f"{LOG_PREFIX_MSG_WARNING} No rows found across {len(plog_files)} file(s); nothing to write.")
         return
 
     LOG(
-        f"{LOG_PREFIX_MSG_INFO} Writing {len(compact_rows)} row(s) with {len(target_columns)} column(s) to {output_path}"
+        f"{LOG_PREFIX_MSG_INFO} Writing {rows_written} row(s) with {len(target_columns)} column(s) to {output_path}"
     )
-    compact_content = _render_compact_log(first_metadata_lines or [], target_columns, compact_rows)
+    compact_content = _get_compact_log_str(processed_data, target_columns)
     write_to_file(str(output_path), compact_content, mode=WriteMode.OVERWRITE)
     LOG(f"{LOG_PREFIX_MSG_SUCCESS} Compact log created: {output_path}")
 
@@ -318,7 +309,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         time_window=time_window,
         target_columns=target_columns,
         processed_files=processed_files,
-        rows_written=len(compact_rows),
+        rows_written=rows_written,
     )
     LOG(f"{LOG_PREFIX_MSG_INFO} Metadata saved: {metadata_path}")
 

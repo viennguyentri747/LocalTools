@@ -21,14 +21,15 @@ class ToolEntryNode:
     folder_name: Optional[str] = None
 
 
-def discover_and_nest_tools(project_root: Path, folder_pattern: str, tool_prefix: str) -> List[ToolEntryNode]:
+def discover_and_nest_tools(project_root: Path, folder_pattern: str, tool_prefix: str, is_recursive: bool) -> List[ToolEntryNode]:
     """Discovers tools and organizes them into a hierarchical structure."""
-    tools: List[ToolEntry] = discover_tools(project_root, folder_pattern, tool_prefix)
+    tools: List[ToolEntry] = discover_tools(project_root, folder_pattern, tool_prefix, is_recursive)
     root_nodes: dict[str, ToolEntryNode] = {}
 
     for tool in tools:
         if tool.folder not in root_nodes:
-            folder_path = project_root / tool.folder
+            folder_path = tool.folder_path
+            LOG(f"Loading tool folder: {tool.folder}")
             metadata: ToolFolderMetadata = load_tools_metadata(folder_path)
             LOG(f"Loading tool folder: {tool.folder} with metadata: {metadata}")
             root_nodes[tool.folder] = ToolEntryNode(
@@ -203,7 +204,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     tool_nodes: ToolEntryNode = discover_and_nest_tools(
         tools_dir,
         get_arg_value(args, ARG_TOOL_FOLDER_PATTERN),
-        get_arg_value(args, ARG_TOOL_PREFIX)
+        get_arg_value(args, ARG_TOOL_PREFIX),
+        is_recursive=True,
     )
 
     tool = interactive_tool_select(f"Select a tool", tool_nodes)
@@ -217,8 +219,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         if str(tools_dir) not in sys.path:
             sys.path.insert(0, str(tools_dir))
         try:
-            LOG(f"Importing module: {tool.folder}.{tool.stem}")
-            module = importlib.import_module(f"{tool.folder}.{tool.stem}")
+            module_path = f"{tool.module_path}.{tool.stem}"
+            LOG(f"Importing module: {module_path}")
+            module = importlib.import_module(module_path)
             if hasattr(module, 'get_tool_templates'):
                 templates: List[ToolTemplate] = module.get_tool_templates()
                 if templates:

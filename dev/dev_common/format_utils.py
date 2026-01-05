@@ -91,7 +91,7 @@ def quote_arg_value_if_need(arg_value) -> Union[str, List[str]]:
         if (single_value.startswith("'") and single_value.endswith("'")) or (single_value.startswith('"') and single_value.endswith('"')):
             # Already quoted? leave it alone
             return single_value
-        
+
         # Characters that need quoting in shell arguments
         # * ? [ ] { }  - Glob/wildcard expansion characters
         # ( ) < >      - Redirection and subshell characters
@@ -101,12 +101,12 @@ def quote_arg_value_if_need(arg_value) -> Union[str, List[str]]:
         # \s           - Whitespace (spaces, tabs, newlines)
         # " '          - Quote characters themselves
         needs_quoting = bool(re.search(r'[*?\[\]{}()<>|;&$`\\\s"\']', single_value))
-        
+
         if needs_quoting:
             # Use single quotes and escape any single quotes within
             escaped_value = single_value.replace("'", "'\"'\"'")
             return f"'{escaped_value}'"
-        
+
         return single_value
 
     if isinstance(arg_value, list):
@@ -133,3 +133,13 @@ def get_stripped_paragraph(paragraph: str) -> str:
     # Remove leading and trailing newlines
     result = result.strip('\n')
     return result
+
+
+def format_float(value, min_decimals=3, max_decimals=10):
+    formatted = f"{value:.{max_decimals}f}".rstrip('0')  # Remove trailing zeros. Ex: 1.2300 -> 1.23, 1.0000 -> 1.
+    
+    # If no decimal point or too few decimals, enforce minimum
+    if '.' not in formatted or len(formatted.split('.')[1]) < min_decimals:
+        return f"{value:.{min_decimals}f}"
+    
+    return formatted

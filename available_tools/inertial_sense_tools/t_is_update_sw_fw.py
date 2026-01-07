@@ -12,6 +12,18 @@ from available_tools.inertial_sense_tools.update_is_sdk_utils import *
 def get_tool_templates() -> List[ToolTemplate]:
     return [
         ToolTemplate(
+            name="Update BOTH Firmware and SDK",
+            args={
+                ARG_NO_PROMPT: TRUE_STR_VALUE,
+                ARG_UPDATE_FW: TRUE_STR_VALUE,
+                ARG_UPDATE_SDK: TRUE_STR_VALUE,
+                ARG_VERSION_OR_FW_PATH: f"{DOWNLOADS_PATH}/IS-firmware_r2.6.0+2025-09-19-185429{GPX_EXTENSION}",
+                ARG_SDK_PATH: "~/downloads/inertial-sense-sdk-2.6.0.zip",
+                ARG_OW_SW_BASE_BRANCH: BRANCH_MANPACK_MASTER,
+                ARG_INSENSE_CL_BASE_BRANCH: BRANCH_MANPACK_MASTER,
+            },
+        ),
+        ToolTemplate(
             name="Update ONLY Firmware",
             args={
                 ARG_NO_PROMPT: TRUE_STR_VALUE,
@@ -31,18 +43,6 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_INSENSE_CL_BASE_BRANCH: BRANCH_MANPACK_MASTER,
             },
             extra_description="For FW: Get FW (IMX + GPX or just GPX on newer version) from either:\n   1. Engineering build -> Check FW in IS gg chat.\n   2. Release build -> Check in `Assets` secition in releases Github. Ex: https://github.com/inertialsense/inertial-sense-sdk/releases/tag/2.5.1.",
-        ),
-        ToolTemplate(
-            name="Update BOTH Firmware and SDK",
-            args={
-                ARG_NO_PROMPT: TRUE_STR_VALUE,
-                ARG_UPDATE_FW: TRUE_STR_VALUE,
-                ARG_UPDATE_SDK: TRUE_STR_VALUE,
-                ARG_VERSION_OR_FW_PATH: f"{DOWNLOADS_PATH}/IS-firmware_r2.6.0+2025-09-19-185429{GPX_EXTENSION}",
-                ARG_SDK_PATH: "~/downloads/inertial-sense-sdk-2.6.0.zip",
-                ARG_OW_SW_BASE_BRANCH: BRANCH_MANPACK_MASTER,
-                ARG_INSENSE_CL_BASE_BRANCH: BRANCH_MANPACK_MASTER,
-            },
         ),
     ]
 

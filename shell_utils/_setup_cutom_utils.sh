@@ -5,9 +5,17 @@
 #   *) export PATH="/usr/local/bin:$PATH" && echo "Added /usr/local/bin to PATH" ;;
 # esac
 
+#Homebrew:
+eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+
 #Pyenv
 export PYENV_ROOT="$HOME/.pyenv"
+# pyenv executable
 [[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"
+# pyenv shims (THIS is what makes python/python3 work)
+[[ -d $PYENV_ROOT/shims ]] && export PATH="$PYENV_ROOT/shims:$PATH"
+# initialize pyenv
+eval "$(pyenv init - zsh)"
 
 #NVM
 export NVM_DIR="$HOME/.nvm"

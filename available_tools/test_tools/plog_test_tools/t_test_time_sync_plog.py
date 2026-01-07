@@ -14,29 +14,31 @@ from unit_tests.acu_log_tests.periodic_log_constants import LAST_TIME_SYNC_COLUM
 use_posix_paths()
 
 DEFAULT_COLUMNS: List[str] = [TIME_COLUMN, LAST_TIME_SYNC_COLUMN]
-DEFAULT_MAX_DRIFT_SECONDS = 0.999990
+DEFAULT_MAX_SECS_PER_SYNC = 0.999990
 DEFAULT_MAX_REPORT = 20
 DEFAULT_OUTPUT_PATH = PERSISTENT_TEMP_PATH / "time_sync_plog.tsv"
 
 ARG_PLOG_DIR_OR_FILE = t_test_process_plog_local.ARG_PLOG_DIR_OR_FILE
 ARG_TIME_WINDOW = t_test_process_plog_local.ARG_TIME_WINDOW
 ARG_OUTPUT_PATH = t_test_process_plog_local.ARG_OUTPUT_PATH
-ARG_MAX_DRIFT_SECONDS = f"{ARGUMENT_LONG_PREFIX}max_drift_seconds"
+ARG_MAX_SECS_PER_SYNC = f"{ARGUMENT_LONG_PREFIX}max_secs_per_sync"
 ARG_MAX_REPORT = f"{ARGUMENT_LONG_PREFIX}max_report"
 
 
 def get_tool_templates() -> List[ToolTemplate]:
     sample_log_path = ACU_LOG_PATH / "192.168.101.79" / "P_20251121_000000.txt"
+    args = {
+        ARG_PLOG_DIR_OR_FILE: str(sample_log_path),
+        ARG_OUTPUT_PATH: str(DEFAULT_OUTPUT_PATH),
+        ARG_MAX_SECS_PER_SYNC: DEFAULT_MAX_SECS_PER_SYNC,
+        # ARG_TIME_WINDOW: t_test_process_plog_local.DEFAULT_TIME_WINDOW_HOURS,
+    }
+    
     return [
         ToolTemplate(
             name="Check P-log time sync",
             extra_description="Validate LAST_TIME_SYNC increments and export a compact Time/LAST_TIME_SYNC log.",
-            args={
-                ARG_PLOG_DIR_OR_FILE: str(sample_log_path),
-                ARG_OUTPUT_PATH: str(DEFAULT_OUTPUT_PATH),
-                ARG_TIME_WINDOW: t_test_process_plog_local.DEFAULT_TIME_WINDOW_HOURS,
-                ARG_MAX_DRIFT_SECONDS: DEFAULT_MAX_DRIFT_SECONDS,
-            },
+            args=args,
             search_root=ACU_LOG_PATH,
         ),
     ]
@@ -55,12 +57,12 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         type=Path,
         help="Path to a periodic log file (P_*) or a directory that contains them.",
     )
-    parser.add_argument(ARG_TIME_WINDOW, type=float, default=t_test_process_plog_local.DEFAULT_TIME_WINDOW_HOURS,
-                        help=f"Time window in hours to keep from the tail of the log (default: {t_test_process_plog_local.DEFAULT_TIME_WINDOW_HOURS}).", )
+    parser.add_argument(ARG_TIME_WINDOW, type=float, default=None,
+                        help="Time window in hours to keep from the tail of the log (default: all rows).", )
     parser.add_argument(ARG_OUTPUT_PATH, type=Path, default=Path(DEFAULT_OUTPUT_PATH),
                         help=f"Destination file for the compact log (default: {DEFAULT_OUTPUT_PATH}).", )
-    parser.add_argument(ARG_MAX_DRIFT_SECONDS, type=float, default=DEFAULT_MAX_DRIFT_SECONDS,
-                        help=f"Max allowed drift (seconds) between LAST_TIME_SYNC delta and Time delta; also used as max wait before the first LAST_TIME_SYNC tick (default: {DEFAULT_MAX_DRIFT_SECONDS}).", )
+    parser.add_argument(ARG_MAX_SECS_PER_SYNC, type=float, default=DEFAULT_MAX_SECS_PER_SYNC,
+                        help=f"Max allowed drift (seconds) between LAST_TIME_SYNC delta and Time delta; also used as max wait before the first LAST_TIME_SYNC tick (default: {DEFAULT_MAX_SECS_PER_SYNC}).", )
     parser.add_argument(ARG_MAX_REPORT, type=int, default=DEFAULT_MAX_REPORT,
                         help=f"Max number of issue lines to display (default: {DEFAULT_MAX_REPORT}).", )
 
@@ -95,25 +97,27 @@ def _parse_int(value: str) -> Optional[int]:
 def _record_issue(issues: List[str], plog_file: Path, row_index: int, time_value: str, sync_value: str,
                   message: str, drift: Optional[float] = None, drift_time_now: Optional[float] = None,
                   drift_time_start: Optional[float] = None, drift_sync_now: Optional[int] = None,
-                  drift_sync_start: Optional[int] = None) -> None:
-    drift_note = ""
+                  drift_sync_start: Optional[int] = None, drift_time_now_label: Optional[str] = None,
+                  drift_time_start_label: Optional[str] = None) -> None:
     if drift is not None:
-        if None not in (drift_time_now, drift_time_start, drift_sync_now, drift_sync_start):
-            drift_note = (
-                f", drift=({drift_time_now:.3f}-{drift_time_start:.3f})-"
-                f"({drift_sync_now}-{drift_sync_start})={drift:.3f}s"
-            )
+        if drift_time_now_label and drift_time_start_label and drift_sync_now is not None and drift_sync_start is not None:
+            drift_note = (f"DRIFT={drift:.3f}s, curr_time={drift_time_now_label} vs start_time={drift_time_start_label}, "
+                          f"current_sync={drift_sync_now} vs start_sync={drift_sync_start}")
+        elif None not in (drift_time_now, drift_time_start, drift_sync_now, drift_sync_start):
+            drift_note = (f"DRIFT={drift:.3f}s, curr_time={drift_time_now:.3f}s vs start_time={drift_time_start:.3f}s, "
+                          f"current_sync={drift_sync_now} vs start_sync={drift_sync_start}")
         else:
-            drift_note = f", drift={drift:.3f}s"
-    issues.append(
-        f"{plog_file} row {row_index}: time={time_value}, {LAST_TIME_SYNC_COLUMN}={sync_value}{drift_note} ({message})"
-    )
+            drift_note = f"DRIFT={drift:.3f}s"
+        issues.append(f"{drift_note}, Row {row_index} in {plog_file} ({message})")
+        return
+    issues.append(f"{plog_file} row {row_index}: time={time_value}, {LAST_TIME_SYNC_COLUMN}={sync_value} ({message})")
 
 
-def _check_time_sync(file_data: t_test_process_plog_local.PlogProcessFileData, max_drift_seconds: float) -> List[str]:
+def _check_time_sync(file_data: t_test_process_plog_local.PlogData, max_secs_per_sync: float) -> List[str]:
     #  Wait for the first time sync tick, then baseline there and check deltas vs LAST_TIME_SYNC.
     issues: List[str] = []
     start_time_float: Optional[float] = None
+    start_time_label: Optional[str] = None
     start_sync_int: Optional[int] = None
     baseline_ready = False
     baseline_start_time: Optional[float] = None
@@ -149,6 +153,7 @@ def _check_time_sync(file_data: t_test_process_plog_local.PlogProcessFileData, m
                               "LAST_TIME_SYNC decreased")
             if curr_time_sync_int > prev_sync:
                 start_time_float = curr_adj_time_secs_float
+                start_time_label = curr_time_value
                 start_sync_int = curr_time_sync_int
                 baseline_ready = True
                 LOG(
@@ -158,9 +163,9 @@ def _check_time_sync(file_data: t_test_process_plog_local.PlogProcessFileData, m
                 )
             elif not baseline_wait_reported and baseline_start_time is not None:
                 wait_secs = curr_adj_time_secs_float - baseline_start_time
-                if wait_secs > max_drift_seconds:
+                if wait_secs > max_secs_per_sync:
                     _record_issue(issues, file_data.plog_file, idx + 1, curr_time_value, curr_sync_value,
-                                  f"LAST_TIME_SYNC not advanced within {max_drift_seconds:.3f}s")
+                                  f"LAST_TIME_SYNC not advanced within {max_secs_per_sync:.3f}s")
                     baseline_wait_reported = True
             prev_time_of_day = curr_time_secs_float
             prev_sync = curr_time_sync_int
@@ -172,9 +177,12 @@ def _check_time_sync(file_data: t_test_process_plog_local.PlogProcessFileData, m
         real_time_delta_secs_float = curr_adj_time_secs_float - start_time_float
         sync_delta_secs_int = curr_time_sync_int - start_sync_int
         drift = real_time_delta_secs_float - sync_delta_secs_int
-        if abs(drift) > max_drift_seconds:
+        if abs(drift) > max_secs_per_sync:
             _record_issue(issues, file_data.plog_file, idx + 1, curr_time_value, curr_sync_value,
-                          f"drift exceeds {max_drift_seconds:.3f}s", drift=drift, drift_time_now=curr_adj_time_secs_float, drift_time_start=start_time_float, drift_sync_now=curr_time_sync_int, drift_sync_start=start_sync_int)
+                          f"drift exceeds {max_secs_per_sync:.3f}s", drift=drift,
+                          drift_time_now=curr_adj_time_secs_float, drift_time_start=start_time_float,
+                          drift_sync_now=curr_time_sync_int, drift_sync_start=start_sync_int,
+                          drift_time_now_label=curr_time_value, drift_time_start_label=start_time_label)
 
         prev_time_of_day = curr_time_secs_float
         prev_sync = curr_time_sync_int
@@ -182,8 +190,8 @@ def _check_time_sync(file_data: t_test_process_plog_local.PlogProcessFileData, m
     return issues
 
 
-def _write_metadata_file(output_plog_path: Path, input_path: Path, time_window: float, target_columns: Sequence[str],
-                         processed_files: Sequence[Path], rows_written: int, max_drift_seconds: float,
+def _write_metadata_file(output_plog_path: Path, input_path: Path, time_window: Optional[float], target_columns: Sequence[str],
+                         processed_files: Sequence[Path], rows_written: int, max_secs_per_sync: float,
                          max_report: int, issues: Sequence[str]) -> Path:
     """Persist metadata as JSON next to the compact log artifact."""
     now_utc = datetime.now(timezone.utc)
@@ -197,7 +205,7 @@ def _write_metadata_file(output_plog_path: Path, input_path: Path, time_window: 
             "time_window_hours": time_window,
             "columns": list(target_columns),
             "output_plog_path": str(output_plog_path),
-            "max_drift_seconds": max_drift_seconds,
+            "max_secs_per_sync": max_secs_per_sync,
             "max_report": max_report,
         },
         "plog_files": [str(path) for path in processed_files],
@@ -215,8 +223,10 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     args = parse_args(argv)
     input_path = Path(get_arg_value(args, ARG_PLOG_DIR_OR_FILE)).expanduser()
     output_path = Path(get_arg_value(args, ARG_OUTPUT_PATH)).expanduser()
-    time_window = float(get_arg_value(args, ARG_TIME_WINDOW))
-    max_drift_seconds = float(get_arg_value(args, ARG_MAX_DRIFT_SECONDS))
+    time_window: Optional[str] = get_arg_value(args, ARG_TIME_WINDOW)
+    if time_window is not None:
+        time_window = float(time_window)
+    max_secs_per_sync = float(get_arg_value(args, ARG_MAX_SECS_PER_SYNC))
     max_report = int(get_arg_value(args, ARG_MAX_REPORT))
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -239,7 +249,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     issues: List[str] = []
     for file_data in processed_data:
-        issues.extend(_check_time_sync(file_data, max_drift_seconds))
+        issues.extend(_check_time_sync(file_data, max_secs_per_sync))
 
     metadata_path = _write_metadata_file(
         output_plog_path=output_path,
@@ -248,7 +258,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         target_columns=DEFAULT_COLUMNS,
         processed_files=processed_files,
         rows_written=rows_written,
-        max_drift_seconds=max_drift_seconds,
+        max_secs_per_sync=max_secs_per_sync,
         max_report=max_report,
         issues=issues,
     )
@@ -265,7 +275,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         raise SystemExit(1)
 
     LOG(
-        f"{LOG_PREFIX_MSG_SUCCESS} LAST_TIME_SYNC increments match Time within {format_float(max_drift_seconds)}s "
+        f"{LOG_PREFIX_MSG_SUCCESS} LAST_TIME_SYNC increments match Time within {format_float(max_secs_per_sync)}s "
         f"across {len(processed_data)} file(s)."
     )
 

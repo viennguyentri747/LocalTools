@@ -20,7 +20,7 @@ from unit_tests.acu_log_tests.periodic_log_helper import (
 
 use_posix_paths()
 
-DEFAULT_TIME_WINDOW_HOURS = 0.1  # 6 minutes
+DEFAULT_TIME_WINDOW_HOURS: float = 0.1  # 0.1 = 6 minutes
 DEFAULT_COLUMNS: List[str] = [TIME_COLUMN, LAST_TIME_SYNC_COLUMN, LAST_VELOCITY_COLUMN, LAST_RTK_COMPASS_STATUS_COLUMN]
 DEFAULT_OUTPUT_PATH = PERSISTENT_TEMP_PATH / "compact_plog.tsv"
 ARG_PLOG_DIR_OR_FILE = f"{ARGUMENT_LONG_PREFIX}plog_dir_or_file"
@@ -40,7 +40,7 @@ class CompactPlogRow:
 
 
 @dataclass
-class PlogProcessFileData:
+class PlogData:
     plog_file: Path
     file_metadata_line: Optional[str]
     rows: List[CompactPlogRow]
@@ -51,16 +51,18 @@ def get_tool_templates() -> List[ToolTemplate]:
     Provide a single template pointing to the local ACU log folder so users can edit paths quickly.
     """
     sample_log_path = ACU_LOG_PATH / "192.168.101.79" / "P_20251121_000000.txt"
+    args = {
+        ARG_PLOG_DIR_OR_FILE: str(sample_log_path),
+        ARG_OUTPUT_PATH: str(DEFAULT_OUTPUT_PATH),
+        ARG_COLUMNS: DEFAULT_COLUMNS,
+        ARG_TIME_WINDOW: DEFAULT_TIME_WINDOW_HOURS,
+    }
+   
     return [
         ToolTemplate(
             name="Compact P-log (Time/Velocity/RTK)",
             extra_description="Keeps Time/Velocity/RTK Compass columns and saves TSV under temp/.",
-            args={
-                ARG_PLOG_DIR_OR_FILE: str(sample_log_path),
-                ARG_OUTPUT_PATH: str(DEFAULT_OUTPUT_PATH),
-                ARG_COLUMNS: DEFAULT_COLUMNS,
-                ARG_TIME_WINDOW: DEFAULT_TIME_WINDOW_HOURS,
-            },
+            args=args,
             search_root=ACU_LOG_PATH,
             usage_note="Update --plog_dir_or_file to reference the P-log file or folder you want to shrink.",
         ),
@@ -81,7 +83,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="Path to a periodic log file (P_*) or a directory that contains them.",
     )
     parser.add_argument( ARG_COLUMNS, nargs="+", default=None, help="Space-separated list of column names to keep (default: Time/Velocity/RTK Compass).", )
-    parser.add_argument( ARG_TIME_WINDOW, type=float, default=DEFAULT_TIME_WINDOW_HOURS, help=f"Time window in hours to keep from the tail of the log (default: {DEFAULT_TIME_WINDOW_HOURS}).", )
+    parser.add_argument( ARG_TIME_WINDOW, type=float, default=DEFAULT_TIME_WINDOW_HOURS, help="Time window in hours to keep from the tail of the log (default: all rows).", )
     parser.add_argument( ARG_OUTPUT_PATH, type=Path, default=Path(DEFAULT_OUTPUT_PATH), help=f"Destination file for the compact log (default: {DEFAULT_OUTPUT_PATH}).", )
 
     return parser.parse_args(argv)
@@ -107,8 +109,10 @@ def _normalize_columns(columns: Sequence[str]) -> List[str]:
     return cleaned
 
 
-def _parse_plog_text(log_text: str, target_columns: List[str], max_time_capture: float) -> PLogData:
+def _parse_plog_text(log_text: str, target_columns: List[str], max_time_capture: Optional[float] = None) -> PLogData:
     """Replicates parse_periodic_log but works with already-loaded text so we only read once."""
+    LOG(f"{LOG_PREFIX_MSG_INFO} Parsing plog with columns: {target_columns}{f' (max time capture: {max_time_capture} hours)' if max_time_capture is not None else ''}")
+   
     header, all_rows = find_header_and_rows(log_text)
     if not header or TIME_COLUMN not in header:
         raise ValueError("Log file does not contain a valid header starting with the Time column.")
@@ -130,18 +134,23 @@ def _parse_plog_text(log_text: str, target_columns: List[str], max_time_capture:
         valid_rows.append(row)
         valid_times.append(timestamp)
 
-    start, end = compute_time_bounds(valid_times, max_time_capture)
     filtered_rows: List[List[str]] = []
     filtered_times: List[datetime] = []
-    if start is not None and end is not None:
-        for row, timestamp in zip(valid_rows, valid_times):
-            if start <= timestamp <= end:
-                filtered_rows.append(row)
-                filtered_times.append(timestamp)
-    else:
+    if max_time_capture is None:
         filtered_rows = valid_rows
         filtered_times = valid_times
+    else:
+        start, end = compute_time_bounds(valid_times, max_time_capture)
+        if start is not None and end is not None:
+            for row, timestamp in zip(valid_rows, valid_times):
+                if start <= timestamp <= end:
+                    filtered_rows.append(row)
+                    filtered_times.append(timestamp)
+        else:
+            filtered_rows = valid_rows
+            filtered_times = valid_times
 
+    LOG(f"Finished parsing P-log, filtered {len(filtered_rows)} rows.")
     return PLogData(
         header=header,
         rows=filtered_rows,
@@ -181,31 +190,28 @@ def _build_compact_rows(plog_data: PLogData) -> List[CompactPlogRow]:
     return compact_rows
 
 
-def process_plog_files(plog_files: Sequence[Path], target_columns: Sequence[str], time_window: float) -> List[PlogProcessFileData]:
-    processed: List[PlogProcessFileData] = []
+def process_plog_files(plog_files: Sequence[Path], target_columns: Sequence[str], time_window: Optional[float]) -> List[PlogData]:
+    processed: List[PlogData] = []
     for plog_file in plog_files:
         LOG(f"{LOG_PREFIX_MSG_INFO} Reading P-log: {plog_file}")
         log_text = read_file_content(plog_file, encoding="utf-8", errors="replace")
         file_metadata_lines = _extract_metadata_lines(log_text)
         file_metadata_line = "\n".join(file_metadata_lines) if file_metadata_lines else None
-
-        LOG(
-            f"{LOG_PREFIX_MSG_INFO} Parsing last {time_window} hour(s) for {plog_file} with columns: {target_columns}"
-        )
         plog_data = _parse_plog_text(log_text, list(target_columns), time_window)
 
         rows = _build_compact_rows(plog_data)
         if not rows:
-            LOG(
-                f"{LOG_PREFIX_MSG_WARNING} No rows found inside the requested time window for {plog_file}; skipping."
-            )
+            if time_window is None:
+                LOG(f"{LOG_PREFIX_MSG_WARNING} No rows found in {plog_file}; skipping.")
+            else:
+                LOG(f"{LOG_PREFIX_MSG_WARNING} No rows found inside the requested time window for {plog_file}; skipping.")
         processed.append(
-            PlogProcessFileData(plog_file=plog_file, file_metadata_line=file_metadata_line, rows=rows)
+            PlogData(plog_file=plog_file, file_metadata_line=file_metadata_line, rows=rows)
         )
     return processed
 
 
-def _get_compact_log_str(processed_data: Sequence[PlogProcessFileData], columns: Sequence[str]) -> str:
+def _get_compact_log_str(processed_data: Sequence[PlogData], columns: Sequence[str]) -> str:
     """Build the final TSV content from processed files and selected columns."""
     metadata_lines: List[str] = []
     for file_data in processed_data:
@@ -254,7 +260,7 @@ def _discover_plog_files(plog_dir_or_file: Path) -> List[Path]:
     return sorted(files)
 
 
-def _write_metadata_file( output_plog_path: Path, input_path: Path, time_window: float, target_columns: Sequence[str], processed_files: Sequence[Path], rows_written: int, ) -> Path:
+def _write_metadata_file( output_plog_path: Path, input_path: Path, time_window: Optional[float], target_columns: Sequence[str], processed_files: Sequence[Path], rows_written: int, ) -> Path:
     """Persist metadata as JSON next to the compact log artifact."""
     now_utc = datetime.now(timezone.utc)
     timestamp = now_utc.strftime("%Y%m%d_%H%M%S")
@@ -279,7 +285,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     args = parse_args(argv)
     input_path = Path(get_arg_value(args, ARG_PLOG_DIR_OR_FILE)).expanduser()
     output_path = Path(get_arg_value(args, ARG_OUTPUT_PATH)).expanduser()
-    time_window = float(get_arg_value(args, ARG_TIME_WINDOW))
+    time_window = get_arg_value(args, ARG_TIME_WINDOW)
+    if time_window is not None:
+        time_window = float(time_window)
     requested_columns = get_arg_value(args, ARG_COLUMNS) or list(DEFAULT_COLUMNS)
     target_columns = _normalize_columns(requested_columns)
 
@@ -289,7 +297,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         LOG_EXCEPTION(ValueError(f"No P-log files found under: {input_path}"), exit=True)
     LOG(f"{LOG_PREFIX_MSG_INFO} Found {len(plog_files)} P-log file(s) to analyze under {input_path}")
 
-    processed_data: List[PlogProcessFileData] = process_plog_files(plog_files, target_columns, time_window)
+    processed_data: List[PlogData] = process_plog_files(plog_files, target_columns, time_window)
     processed_files = [file_data.plog_file for file_data in processed_data]
     rows_written = sum(len(file_data.rows) for file_data in processed_data)
     if rows_written == 0:

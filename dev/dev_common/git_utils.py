@@ -291,6 +291,11 @@ def git_stage_and_commit( repo_path: Path, message: str, *, show_diff: bool = Fa
         LOG(f"❌ ERROR: The path '{repo_path}' is not a valid git repository.")
         return False
 
+    staged_files = git_get_staged_files(repo_path)
+    if staged_files:
+        LOG_EXCEPTION(Exception("Staging area already contains files."), msg=f"Staged before add: {', '.join(staged_files)}")
+        return False
+
     if not auto_confirm:
         confirm_msg = prompt or f"Do you want to commit '{message}' to Git?"
         if not prompt_confirmation(confirm_msg):
@@ -350,8 +355,8 @@ def git_get_porcelain_status_lines(repo_path: Path, exclude_pattern: str | None 
     return status_lines
 
 
-def git_has_staged_changes(repo_path: Path | str) -> bool:
-    """Returns True when the git index contains staged changes."""
+def git_get_staged_files(repo_path: Path | str) -> List[str]:
+    """Returns list of staged file paths."""
     result = run_shell(
         [CMD_GIT, "diff", "--cached", "--name-only"],
         cwd=repo_path,
@@ -362,5 +367,10 @@ def git_has_staged_changes(repo_path: Path | str) -> bool:
     if result.returncode != 0:
         LOG(f"WARNING: git diff --cached failed in '{repo_path}' with code {result.returncode}.",
             file=sys.stderr)
-        return False
-    return bool(result.stdout.strip())
+        return []
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def git_has_staged_changes(repo_path: Path | str) -> bool:
+    """Returns True when the git index contains staged changes."""
+    return bool(git_get_staged_files(repo_path))

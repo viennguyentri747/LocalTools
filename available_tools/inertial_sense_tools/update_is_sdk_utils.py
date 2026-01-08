@@ -9,7 +9,7 @@ import zipfile
 from pathlib import Path
 from typing import Optional
 from dev.dev_common import *
-from dev.dev_common.git_utils import BranchExistRequirement, checkout_branch, git_is_local_branch_existing
+from dev.dev_common.git_utils import BranchExistRequirement, checkout_branch, git_is_local_branch_existing, git_clone_shallow
 
 # --- Configuration ---
 INSENSE_SDK_UNPACK_DIR = INSENSE_SDK_REPO_PATH / "InsenseSDK"
@@ -39,6 +39,24 @@ def extract_version_from_zip(zip_path: Path) -> Optional[str]:
         return version
     LOG(f"❌ FATAL: Could not extract version from filename: {zip_path.name}")
     return None
+
+
+def extract_version_from_branch(branch_name: str) -> Optional[str]:
+    match = re.search(r"(v?\d+(?:\.\d+)+[^/\\s]*)", branch_name)
+    if match:
+        version = match.group(1)
+        if version.startswith("v") and len(version) > 1 and version[1].isdigit():
+            version = version[1:]
+        LOG(f"✅ Found SDK version from branch: {version}")
+        return version
+    LOG(f"⚠️ WARNING: Could not extract version from branch '{branch_name}', falling back to branch name.")
+    return branch_name.strip() or None
+
+
+def _normalize_branch_name(branch_name: str) -> str:
+    safe_branch = sanitize_str_to_file_name(branch_name).replace("/", "-").replace("\\", "-").replace(" ", "-")
+    safe_branch = re.sub(r"-{2,}", "-", safe_branch).strip("-")
+    return safe_branch or str_to_slug(branch_name) or "sdk-branch"
 
 
 def unzip_to_dest(zip_path: Path, dest_dir: Path) -> bool:
@@ -297,7 +315,8 @@ def apply_signal_handler(stash_ref: str, new_sdk_path: Optional[Path] = None) ->
 # ─────────────────────────── Public entry point ─────────────────────── #
 
 
-def run_sdk_update(sdk_zip_path: Path, *, no_prompt: bool = False, base_branch: Optional[str] = None) -> None:
+
+def run_sdk_update_with_zip(sdk_zip_path: Path, *, no_prompt: bool = False, base_branch: Optional[str] = None) -> None:
     global NO_PROMPT
     sdk_zip_path = sdk_zip_path.expanduser()
     NO_PROMPT = no_prompt
@@ -328,12 +347,70 @@ def run_sdk_update(sdk_zip_path: Path, *, no_prompt: bool = False, base_branch: 
         LOG("❌ FATAL: Could not switch/create branch -> Aborting update.")
         return
 
+    INSENSE_SDK_UNPACK_DIR.mkdir(parents=True, exist_ok=True)
     if not unzip_to_dest(sdk_zip_path, INSENSE_SDK_UNPACK_DIR):
         return
 
     new_sdk_dir_name = f"inertial-sense-sdk-{version}"
     new_sdk_path = INSENSE_SDK_UNPACK_DIR / new_sdk_dir_name
     git_stage_and_commit(repo_path, f"Unzip new SDK {version}", suppress_output=True)
+
+    integrate_libusb(new_sdk_path)
+    modify_sdk_cmake_files(version, new_sdk_path)
+    cleanup_old_sdks(INSENSE_SDK_UNPACK_DIR, new_sdk_dir_name)
+
+    LOG("\n🎉 SDK update process finished successfully!")
+    signal_handler_stash_ref = "bca3b5c"
+    apply_signal_handler(signal_handler_stash_ref, new_sdk_path)
+
+
+def run_sdk_update_with_branch(branch_name: str, *, no_prompt: bool = False, base_branch: Optional[str] = None,
+                               repo_url: str = "https://github.com/inertialsense/inertial-sense-sdk.git", ) -> None:
+    global NO_PROMPT
+    NO_PROMPT = no_prompt
+    normalized_branch = (branch_name or "").strip()
+    if not normalized_branch:
+        LOG("❌ FATAL: Branch name is empty.")
+        return
+
+    version = extract_version_from_branch(normalized_branch)
+    if not version:
+        return
+    LOG(f"   -> Extracted version: {version}")
+
+    repo_path = INSENSE_SDK_REPO_PATH
+    if not checkout_branch(repo_path, base_branch, branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_EXIST, allow_empty=True, ):
+        LOG(f"❌ FATAL: Failed to checkout base branch '{base_branch}'")
+        return
+
+    branch_prefix = f"update-sdk-{str_to_slug(version)}"
+    target_branch_name = f"{branch_prefix}-{str_to_slug(get_short_date_now())}"
+
+    if git_is_local_branch_existing(repo_path, target_branch_name):
+        LOG(
+            f"❌ FATAL: Already having target branch {target_branch_name} -> Aborting update, check again and delete the branch if you want to retry!!")
+        return
+
+    if not checkout_branch(repo_path, target_branch_name, branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_NOT_EXIST, ):
+        LOG("❌ FATAL: Could not switch/create branch -> Aborting update.")
+        return
+
+    INSENSE_SDK_UNPACK_DIR.mkdir(parents=True, exist_ok=True)
+    new_sdk_dir_name = f"inertial-sense-sdk-{_normalize_branch_name(normalized_branch)}"
+    new_sdk_path = INSENSE_SDK_UNPACK_DIR / new_sdk_dir_name
+    if new_sdk_path.exists():
+        LOG(f"❌ FATAL: Target SDK path already exists at '{new_sdk_path}'.")
+        return
+
+    if not git_clone_shallow(repo_url, new_sdk_path, branch_name=normalized_branch, depth=1):
+        return
+
+    #Remove .git directory from the cloned SDK to avoid nest repos
+    git_dir = new_sdk_path / DOT_GIT
+    if git_dir.exists():
+        LOG(f"Removing {DOT_GIT} directory from {new_sdk_path}")
+        shutil.rmtree(git_dir)
+    git_stage_and_commit(repo_path, f"Clone new SDK {normalized_branch}", suppress_output=True)
 
     integrate_libusb(new_sdk_path)
     modify_sdk_cmake_files(version, new_sdk_path)

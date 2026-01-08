@@ -159,15 +159,13 @@ def update_firmware(fw_set: KimFwSet) -> None:
             LOG(f"  - {f.name}")
 
         try:
-            # Always prompt for extra cleanup
-            is_ok = prompt_confirmation("Do you want to remove these old firmware files?")
-            if is_ok:
-                for f in redundant_paths:
-                    try:
-                        f.unlink()
-                        LOG(f"Removed: {f.name}")
-                    except Exception as exc:
-                        LOG(f"Failed to remove {f.name}: {exc}")
+            # Cleanup old FW files
+            for f in redundant_paths:
+                try:
+                    f.unlink()
+                    LOG(f"Removed: {f.name}")
+                except Exception as exc:
+                    LOG(f"Failed to remove {f.name}: {exc}")
         except Exception as exc:
             LOG(f"Error during extra cleanup: {exc}")
     else:
@@ -231,14 +229,9 @@ def run_fw_update(fpkg_fw_path: str, *, no_prompt: bool = False, base_branch: Op
     if not version:
         LOG(f"❌ FATAL: Could not extract version from firmware pair: {pair} -> Aborting update.")
         return
-    
+
     repo_path = OW_SW_PATH
-    if not checkout_branch(
-            repo_path,
-            base_branch,
-            branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_EXIST,
-            allow_empty=True,
-    ):
+    if not checkout_branch(repo_path, base_branch, branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_EXIST, allow_empty=True, ):
         LOG(f"❌ FATAL: Failed to checkout base branch '{base_branch}'")
         return
 

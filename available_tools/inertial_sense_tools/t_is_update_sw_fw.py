@@ -17,10 +17,11 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_NO_PROMPT: TRUE_STR_VALUE,
                 ARG_UPDATE_FW: TRUE_STR_VALUE,
                 ARG_UPDATE_SDK: TRUE_STR_VALUE,
-                ARG_VERSION_OR_FW_PATH: f"{DOWNLOADS_PATH}/IS-firmware_r2.6.0+2025-09-19-185429{GPX_EXTENSION}",
-                ARG_SDK_PATH: "~/downloads/inertial-sense-sdk-2.6.0.zip",
+                # ARG_SDK_PATH: "~/downloads/inertial-sense-sdk-2.6.0.zip",
                 ARG_OW_SW_BASE_BRANCH: BRANCH_MANPACK_MASTER,
                 ARG_INSENSE_CL_BASE_BRANCH: BRANCH_MANPACK_MASTER,
+                ARG_VERSION_OR_FW_PATH: f"{DOWNLOADS_PATH}/IS-firmware_r2.6.0+2025-09-19-185429{GPX_EXTENSION}",
+                ARG_SDK_BRANCH: "2.7.0-rc",
             },
         ),
         ToolTemplate(
@@ -31,18 +32,18 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_VERSION_OR_FW_PATH: f"{DOWNLOADS_PATH}/IS-firmware_r2.6.0+2025-09-19-185429{GPX_EXTENSION}",
                 ARG_OW_SW_BASE_BRANCH: BRANCH_MANPACK_MASTER,
             },
-            extra_description="For SDK: Go to branch on https://github.com/inertialsense/inertial-sense-sdk/branches -> Download inertial-sense-sdk-2.7.0-rc.zip via `< > Code` button -> Local Tab -> Download ZIP.",
+            extra_description="For FW: Get FW (IMX + GPX or just GPX on newer version) from either:\n   1. Engineering build -> Check FW in IS gg chat.\n   2. Release build -> Check in `Assets` secition in releases Github. Ex: https://github.com/inertialsense/inertial-sense-sdk/releases/tag/2.5.1.",
             no_need_live_edit=True,
         ),
         ToolTemplate(
-            name="Update ONLY SDK",
+            name="Update ONLY SDK via branch",
             args={
                 ARG_NO_PROMPT: TRUE_STR_VALUE,
                 ARG_UPDATE_SDK: TRUE_STR_VALUE,
-                ARG_SDK_PATH: "~/downloads/inertial-sense-sdk-2.6.0.zip",
                 ARG_INSENSE_CL_BASE_BRANCH: BRANCH_MANPACK_MASTER,
+                ARG_SDK_BRANCH: "2.7.0-rc",
             },
-            extra_description="For FW: Get FW (IMX + GPX or just GPX on newer version) from either:\n   1. Engineering build -> Check FW in IS gg chat.\n   2. Release build -> Check in `Assets` secition in releases Github. Ex: https://github.com/inertialsense/inertial-sense-sdk/releases/tag/2.5.1.",
+            extra_description="SDK branch-based update. Use --sdk_path if you prefer a zip. For SDK zip: Go to branch on https://github.com/inertialsense/inertial-sense-sdk/branches -> Download inertial-sense-sdk-2.7.0-rc.zip via `< > Code` button -> Local Tab -> Download ZIP.",
         ),
     ]
 
@@ -60,7 +61,9 @@ def main() -> None:
     parser.add_argument("-v", ARG_VERSION_OR_FW_PATH, type=str, default=None,
                         help="Firmware .fpkg file path (e.g., ~/downloads/IS-firmware_r2.6.0+YYYY-MM-DD-HHMMSS.fpkg).", )
     parser.add_argument(ARG_SDK_PATH, ARG_PATH_SHORT, type=Path, default=None,
-                        help="Path to the new SDK zip file (e.g., ~/downloads/inertial-sense-sdk-2.6.0.zip).", )
+                        help="SDK zip path (optional; if omitted, --sdk_branch is used). Ex: ~/downloads/inertial-sense-sdk-2.6.0.zip.", )
+    parser.add_argument(ARG_SDK_BRANCH, type=str, default=None,
+                        help="SDK branch name to clone (optional; preferred if provided). Ex: 2.7.0-rc.", )
     parser.add_argument(ARG_NO_PROMPT, type=lambda x: x.lower() == TRUE_STR_VALUE, default=False,
                         help="If true, run SDK workflow without confirmation prompts.", )
     parser.add_argument(ARG_OW_SW_BASE_BRANCH, type=str, default=None,
@@ -83,9 +86,15 @@ def main() -> None:
         run_fw_update(str(fw_path), no_prompt=args.no_prompt, base_branch=args.ow_sw_base_branch)
 
     if args.update_sdk:
-        if args.sdk_path is None:
-            parser.error("--sdk_path is required when --update_sdk is true.")
-        run_sdk_update(args.sdk_path, no_prompt=args.no_prompt, base_branch=args.insense_cl_base_branch)
+        sdk_branch = get_arg_value(args, ARG_SDK_BRANCH)
+        if sdk_branch:
+            run_sdk_update_with_branch(sdk_branch, no_prompt=args.no_prompt, base_branch=args.insense_cl_base_branch)
+            return
+        if args.sdk_path is not None:
+            run_sdk_update_with_zip(args.sdk_path, no_prompt=args.no_prompt, base_branch=args.insense_cl_base_branch)
+            return
+        LOG_EXCEPTION(ValueError("Missing SDK branch/path"), msg="--sdk_branch or --sdk_path must be provided when --update_sdk is true.", exit=False)
+        return
 
 
 if __name__ == "__main__":

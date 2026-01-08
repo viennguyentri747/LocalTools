@@ -130,6 +130,29 @@ def checkout_branch(
     return True
 
 
+def git_clone_shallow(repo_url: str, dest_path: Path, *, branch_name: Optional[str] = None, depth: int = 1) -> bool:
+    """Clone a repo with minimal history into dest_path."""
+    if dest_path.exists():
+        if dest_path.is_dir() and any(dest_path.iterdir()):
+            LOG(f"❌ ERROR: Destination '{dest_path}' already exists and is not empty.")
+            return False
+        if dest_path.is_file():
+            LOG(f"❌ ERROR: Destination '{dest_path}' is a file; cannot clone.")
+            return False
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    clone_cmd = [CMD_GIT, "clone", "--depth", str(depth), "--single-branch"]
+    if branch_name:
+        clone_cmd += ["--branch", branch_name]
+    clone_cmd += [repo_url, str(dest_path)]
+    try:
+        LOG(f"Cloning '{repo_url}' into '{dest_path}' (branch={branch_name or 'default'}, depth={depth})...")
+        run_shell(clone_cmd, check_throw_exception_on_exit_code=True, cwd=dest_path.parent)
+        return True
+    except Exception as exc:
+        LOG(f"❌ ERROR: git clone failed: {exc}")
+        return False
+
+
 def git_fetch(repo_path: Path) -> bool:
     """
     Runs 'git fetch --all --prune' in the specified repository.
@@ -319,6 +342,11 @@ def git_stage_and_commit( repo_path: Path, message: str, *, show_diff: bool = Fa
                 cwd=repo_path,
                 capture_output=suppress_output,
             )
+
+        staged_after_add = git_get_staged_files(repo_path)
+        if not staged_after_add:
+            LOG(f"No changes to commit for message '{message}'. Skipping git commit.")
+            return False
 
         if show_diff:
             run_shell(

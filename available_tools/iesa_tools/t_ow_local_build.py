@@ -383,15 +383,15 @@ def run_build(build_type: str, interactive: bool, make_clean: bool = True, is_de
     else:
         LOG_EXCEPTION_STR(f"Unknown build type: {build_type}, expected {BUILD_TYPE_BINARY} or {BUILD_TYPE_IESA}")
 
-    # docker_image: str = get_docker_image_from_gitlab_ci(GITLAB_CI_YML_PATH)
-    docker_image: str = "oneweb_test:v1"
+    docker_image: str = get_docker_image_from_gitlab_ci(GITLAB_CI_YML_PATH)
+    # docker_image: str = "oneweb_test:v1"
     LOG(f"Using Docker image: {docker_image}")
     docker_cmd_base = ( f"docker run -it --rm -v {OW_SW_PATH}:{OW_SW_PATH} -w {OW_SW_PATH} {docker_image}" )
 
     # Command to find and convert script files to Unix format
     dos2unix_cmd = (
         f"apt-get install -y dos2unix && "
-        f"find {OW_SW_PATH.absolute()}/packaging \\( -name tmp_build -o -name .git -o -name __pycache__ \\) "
+        f"find {OW_SW_PATH.absolute()}/ \\( -name tmp_build -o -name .git -o -name __pycache__ \\) "
         "-prune -o -type f \\( -name '*.py' -o -name '*.sh' \\) -exec dos2unix {} +"
     )
 
@@ -408,7 +408,7 @@ def run_build(build_type: str, interactive: bool, make_clean: bool = True, is_de
         # Build the command sequence based on make_clean flag
         keep_interactive_shell = "exec bash"  # Keep container alive with an interactive shell after setup
         if make_clean:
-            bash_cmd = f"""{bash_cmd_prefix} "echo 'Cleaning build' && {make_clean_cmd} && echo 'Running dos2unix on script files...' && {dos2unix_cmd} && echo 'Granting execute permissions to script files...' && {chmod_cmd} && echo -e '\\nTo start the {build_type} build, run the command below:\\n\\nmake {make_target}{debug_suffix}\\n\\nType exit or press Ctrl+D to leave interactive mode.' && {keep_interactive_shell}" """
+            bash_cmd = f"""{bash_cmd_prefix} "echo 'Running dos2unix on script files...' && {dos2unix_cmd} && echo 'Granting execute permissions to script files...' && {chmod_cmd} && echo 'Cleaning build' && {make_clean_cmd} && echo -e '\\nTo start the {build_type} build, run the command below:\\n\\nmake {make_target}{debug_suffix}\\n\\nType exit or press Ctrl+D to leave interactive mode.' && {keep_interactive_shell}" """
         else:
             bash_cmd = f"""{bash_cmd_prefix} "echo 'Running dos2unix on script files...' && {dos2unix_cmd} && echo 'Granting execute permissions to script files...' && {chmod_cmd} && echo -e '\\nTo start the {build_type} build, run the command below:\\n\\nmake {make_target}{debug_suffix}\\n\\nType exit or press Ctrl+D to leave interactive mode.' && {keep_interactive_shell}" """
 
@@ -419,7 +419,7 @@ def run_build(build_type: str, interactive: bool, make_clean: bool = True, is_de
 
         # Build the command sequence based on make_clean flag
         if make_clean:
-            bash_cmd = f"{bash_cmd_prefix} '{make_clean_cmd} && {dos2unix_cmd} && {chmod_cmd} && make {make_target}{debug_suffix}'"
+            bash_cmd = f"{bash_cmd_prefix} '{dos2unix_cmd} && {chmod_cmd} && {make_clean_cmd} && make {make_target}{debug_suffix}'"
         else:
             bash_cmd = f"{bash_cmd_prefix} '{dos2unix_cmd} && {chmod_cmd} && make {make_target}{debug_suffix}'"
 

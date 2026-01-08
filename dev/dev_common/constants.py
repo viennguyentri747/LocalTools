@@ -119,7 +119,8 @@ BUILD_TYPE_BINARY = "binary"
 # File extensions and suffixes
 FILE_PREFIX = "file_"
 FOLDER_PREFIX = "folder_"
-GIT_SUFFIX = ".git"
+DOT_GIT = ".git"
+GIT_SUFFIX = DOT_GIT
 TXT_EXTENSION = ".txt"
 
 # Argument name constants
@@ -164,7 +165,7 @@ ARG_NO_PROMPT = f"{ARGUMENT_LONG_PREFIX}no_prompt"
 ARG_SDK_PATH = f"{ARGUMENT_LONG_PREFIX}sdk_path"
 ARG_OW_SW_BASE_BRANCH = f"{ARGUMENT_LONG_PREFIX}ow_sw_base_branch"
 ARG_INSENSE_CL_BASE_BRANCH = f"{ARGUMENT_LONG_PREFIX}insense_cl_base_branch"
-
+ARG_SDK_BRANCH = f"{ARGUMENT_LONG_PREFIX}sdk_branch"
 # Emojis
 SUCCESS_EMOJI = "✅"
 FAILURE_EMOJI = "❌"

@@ -1,3 +1,8 @@
+# codex(){
+#     # Run codex without asking for approval + 
+#     command codex --ask-for-approval never --sandbox workspace-write "$@"
+# }
+
 tool(){
 	~/local_tools/main_tools.py "$@"
 }
@@ -55,5 +60,5 @@ ffile() {
 ftext() {
     local initial_query=()
     [ $# -gt 0 ] && initial_query=(--initial-query "$*")
-    "${_DT_GREP_TOOL[@]}" --display-name "Search for Text (grep)" --search-mode fzf-text --case-sensitive False --file-exts "${_DT_C_EXTS[@]}" "${initial_query[@]}"
+    "${_DT_GREP_TOOL[@]}" --display-name "Search for Text (grep)" --search-mode fzf-text --case-sensitive False "${initial_query[@]}"
 }

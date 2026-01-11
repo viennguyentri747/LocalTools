@@ -23,7 +23,7 @@ def get_paths_tool_templates():
                 ARG_EXTRACT_MODE: EXTRACT_MODE_PATHS,
                 ARG_INCLUDE_PATHS_PATTERN: ["*"],
                 ARG_EXCLUDE_PATHS_PATTERN: [".git", ".vscode", "__pycache__", "MyVenvFolder"],
-                ARG_PATHS_LONG: ["path1", "path2"],
+                ARG_PATHS_LONG: ["~/path1", "~/path2"],
             }
         )
     ]

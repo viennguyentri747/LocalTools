@@ -1,4 +1,5 @@
 import os
+import shlex
 import shutil
 from pathlib import Path
 from typing import List, Union
@@ -14,6 +15,10 @@ def resolve_executable_path(cmd: Union[str, Path]) -> str:
         return expanded if Path(expanded).exists() else cmd_str
     resolved = shutil.which(expanded)
     return resolved or cmd_str
+
+
+def wrap_cmd_for_bash(cmd: str) -> str:
+    return cmd if cmd.strip().startswith("bash -lic ") else f"bash -lic {shlex.quote(cmd)}"
 
 
 def _proc_name(pid: int) -> str:

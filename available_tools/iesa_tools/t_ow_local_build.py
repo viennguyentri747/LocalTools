@@ -208,6 +208,7 @@ def main() -> None:
         f'}}'
     )
 
+    command_to_display = wrap_cmd_for_bash(command_to_display)
     display_content_to_copy(command_to_display, purpose="Copy BINARY to target IP",
                             is_copy_to_clipboard=(build_type == BUILD_TYPE_BINARY))
 

@@ -209,46 +209,39 @@ def update_firmware(fw_set: KimFwSet) -> None:
         rel_fw_dir = str(OW_SW_KIM_FTM_FW_PATH)
         rel_rcvr_file = str(OW_SW_KIM_RCVR_VERSION_FILE_PATH)
 
-    git_stage_and_commit(
-        OW_SW_PATH,
-        f"Update firmware to version {fw_set.version}",
-        stage_paths=[rel_fw_dir, rel_rcvr_file],
-        auto_confirm=NO_PROMPT,
-    )
+    git_stage_and_commit(OW_SW_PATH, f"Update firmware to version {fw_set.version}", stage_paths=[
+                         rel_fw_dir, rel_rcvr_file], auto_confirm=NO_PROMPT, )
 
 
 def run_fw_update(fpkg_fw_path: str, *, no_prompt: bool = False, base_branch: Optional[str] = None) -> None:
     global NO_PROMPT
     NO_PROMPT = no_prompt
+
+    repo_path = OW_SW_PATH
+    staged_files = git_get_staged_files(repo_path)
+    if staged_files:
+        LOG_EXCEPTION_STR(f"Staging area already contains files. Staged before add: {', '.join(staged_files)}")
+
+    if not checkout_branch(repo_path, base_branch, branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_EXIST, allow_empty=True, ):
+        LOG_EXCEPTION_STR(f"❌ FATAL: Failed to checkout base branch '{base_branch}'")
+
     pair: Optional[KimFwSet] = get_fw_pair(fpkg_fw_path)
     if not pair or pair.imx_full_path is None:
-        LOG("❌ FATAL: No firmware pair available (no IMX) -> Aborting update.")
-        return
+        LOG_EXCEPTION_STR("❌ FATAL: No firmware pair available (no IMX) -> Aborting update.")
 
     version = pair.version or extract_version_from_fw_filename(pair.gpx_full_path.name)
     if not version:
-        LOG(f"❌ FATAL: Could not extract version from firmware pair: {pair} -> Aborting update.")
-        return
-
-    repo_path = OW_SW_PATH
-    if not checkout_branch(repo_path, base_branch, branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_EXIST, allow_empty=True, ):
-        LOG(f"❌ FATAL: Failed to checkout base branch '{base_branch}'")
-        return
+        LOG_EXCEPTION_STR(f"❌ FATAL: Could not extract version from firmware pair: {pair} -> Aborting update.")
 
     branch_prefix = f"update-fw-{str_to_slug(version)}"
     target_branch_name = f"{branch_prefix}-{str_to_slug(get_short_date_now())}"
-
     if git_is_local_branch_existing(repo_path, target_branch_name):
         LOG(
             f"❌ FATAL: Already having target branch {target_branch_name} -> Aborting update, check again and delete the branch if you want to retry!!")
         return
 
     LOG(f"🔀 Creating and switching to branch {target_branch_name}...")
-    if not checkout_branch(
-            repo_path,
-            target_branch_name,
-            branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_NOT_EXIST,
-    ):
+    if not checkout_branch( repo_path, target_branch_name, branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_NOT_EXIST, ):
         LOG("❌ FATAL: Could not switch/create branch -> Aborting update.")
         return
 

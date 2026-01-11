@@ -33,4 +33,5 @@ command = (
     f'}}'
 )
 
+command = wrap_cmd_for_bash(command)
 display_content_to_copy(command, purpose="Copy BINARY to target IP", is_copy_to_clipboard=True)

@@ -349,16 +349,16 @@ ping_acu() {
 scp() {
     # Use 'command' to bypass this function and call the real scp binary
     command scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$@"
-    local status=$?
+    local scp_status=$?
     local message=""
-    if [ $status -eq 0 ]; then
+    if [ $scp_status -eq 0 ]; then
         message="SCP completed successfully."
     else
-        message="SCP failed with status $status."
+        message="SCP failed with status $scp_status."
     fi
     echo "$message"
     noti "SCP Command" "$message"
-    return $status
+    return $scp_status
 }
 
 # Function to perform SCP

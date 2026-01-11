@@ -6,7 +6,8 @@ from dev.dev_common.noti_utils import show_noti
 
 def main() -> int:
     if len(sys.argv) != 2:
-        print("Usage: codex_noti.py <NOTIFICATION_JSON>")
+        print("Usage: codex_noti.py <NOTIFICATION_JSON>. Ex:")
+        print("  codex_noti.py '{\"type\":\"agent-turn-complete\",\"last-assistant-message\":\"All set!\",\"input_messages\":[\"summarize the report\",\"focus on section 2\"]}'")
         return 1
 
     try:

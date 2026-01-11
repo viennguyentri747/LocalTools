@@ -315,7 +315,6 @@ def apply_signal_handler(stash_ref: str, new_sdk_path: Optional[Path] = None) ->
 # ─────────────────────────── Public entry point ─────────────────────── #
 
 
-
 def run_sdk_update_with_zip(sdk_zip_path: Path, *, no_prompt: bool = False, base_branch: Optional[str] = None) -> None:
     global NO_PROMPT
     sdk_zip_path = sdk_zip_path.expanduser()
@@ -379,13 +378,21 @@ def run_sdk_update_with_branch(branch_name: str, *, no_prompt: bool = False, bas
     LOG(f"   -> Extracted version: {version}")
 
     repo_path = INSENSE_SDK_REPO_PATH
+    # Checkout base branch
     if not checkout_branch(repo_path, base_branch, branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_EXIST, allow_empty=True, ):
         LOG(f"❌ FATAL: Failed to checkout base branch '{base_branch}'")
         return
 
-    branch_prefix = f"update-sdk-{str_to_slug(version)}"
-    target_branch_name = f"{branch_prefix}-{str_to_slug(get_short_date_now())}"
+    # Check if the SDK already exists
+    INSENSE_SDK_UNPACK_DIR.mkdir(parents=True, exist_ok=True)
+    new_sdk_dir_name = f"inertial-sense-sdk-{_normalize_branch_name(normalized_branch)}"
+    new_sdk_path = INSENSE_SDK_UNPACK_DIR / new_sdk_dir_name
+    if new_sdk_path.exists():
+        LOG(f"❌ FATAL: Target SDK path already exists at '{new_sdk_path}'. Check and delete it with command 'rm -rf {new_sdk_path}'.")
+        return
 
+    target_branch_prefix = f"update-sdk-{str_to_slug(version)}"
+    target_branch_name = f"{target_branch_prefix}-{str_to_slug(get_short_date_now())}"
     if git_is_local_branch_existing(repo_path, target_branch_name):
         LOG(
             f"❌ FATAL: Already having target branch {target_branch_name} -> Aborting update, check again and delete the branch if you want to retry!!")
@@ -395,17 +402,10 @@ def run_sdk_update_with_branch(branch_name: str, *, no_prompt: bool = False, bas
         LOG("❌ FATAL: Could not switch/create branch -> Aborting update.")
         return
 
-    INSENSE_SDK_UNPACK_DIR.mkdir(parents=True, exist_ok=True)
-    new_sdk_dir_name = f"inertial-sense-sdk-{_normalize_branch_name(normalized_branch)}"
-    new_sdk_path = INSENSE_SDK_UNPACK_DIR / new_sdk_dir_name
-    if new_sdk_path.exists():
-        LOG(f"❌ FATAL: Target SDK path already exists at '{new_sdk_path}'.")
-        return
-
     if not git_clone_shallow(repo_url, new_sdk_path, branch_name=normalized_branch, depth=1):
         return
 
-    #Remove .git directory from the cloned SDK to avoid nest repos
+    # Remove .git directory from the cloned SDK to avoid nest repos
     git_dir = new_sdk_path / DOT_GIT
     if git_dir.exists():
         LOG(f"Removing {DOT_GIT} directory from {new_sdk_path}")

@@ -354,6 +354,7 @@ def main() -> None:
         LOG(f"{LOG_PREFIX_MSG_ERROR} Input error: {exc}")
         raise SystemExit(1) from exc
 
+    command = wrap_cmd_for_bash(command)
     display_content_to_copy(
         command,
         purpose="reboot UT and confirm status endpoints",

@@ -40,7 +40,8 @@ PREFIX_OW_BUILD_ARTIFACT = f"iesa_test_"
 TEMP_OW_BUILD_OUTPUT_PATH = PERSISTENT_TEMP_PATH / "ow_build_output/"
 MANIFEST_OUT_ARTIFACT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}manifest.xml"
 IESA_OUT_ARTIFACT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}build.iesa"
-
+LOG_OUT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}log.txt"
+IESA_EXEC_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}iesa_exec.sh"
 
 def get_tool_templates() -> List[ToolTemplate]:
     return [
@@ -143,8 +144,10 @@ def main() -> None:
     is_debug_build: bool = get_arg_value(args, ARG_IS_DEBUG_BUILD)
     # Update overwrite repos no git suffix
     overwrite_repos = [get_path_no_suffix(r, GIT_SUFFIX) for r in overwrite_repos]
-    ensure_temp_build_output_dir()
+    init_ow_build_log()
 
+    append_build_log(f"Build type: {build_type}")
+    append_build_log(f"Manifest source: {manifest_source}")
     tisdk_ref_from_ci_yml: Optional[str] = None
     if build_type == BUILD_TYPE_IESA:
         tisdk_ref_from_ci_yml = get_tisdk_ref_from_ci_yml(GITLAB_CI_YML_PATH)
@@ -158,6 +161,7 @@ def main() -> None:
             LOG(f"No explicit TISDK ref provided. Using '{tisdk_ref}' from '{GITLAB_CI_YML_PATH}'.")
 
     LOG(f"Parsed args: {args}")
+    append_build_log(f"Parsed args: {args}")
 
     current_branch = git_get_current_branch(OW_SW_PATH)
 
@@ -175,6 +179,9 @@ def main() -> None:
             LOG(f"ERROR: {ARG_DEFAULT_OW_MANIFEST_BRANCH} is required when not using {ARG_USE_CURRENT_LOCAL_OW_BRANCH}.", file=sys.stderr)
             sys.exit(1)
 
+    append_build_log(f"Manifest branch: {manifest_branch}")
+    if tisdk_ref:
+        append_build_log(f"TISDK ref: {tisdk_ref}")
     prebuild_check(build_type, manifest_source, manifest_branch, tisdk_ref,
                    overwrite_repos, use_current_local_ow_branch, current_branch, tisdk_ref_from_ci_yml)
 
@@ -187,6 +194,8 @@ def main() -> None:
     LOG(f"{MAIN_STEP_LOG_PREFIX} Binary build finished.")
     LOG(f"Find output binary files in '{OW_SW_BUILD_BINARY_OUTPUT_PATH}'")
     LOG(f"{LINE_SEPARATOR}")
+    append_build_log("Binary build finished.")
+    append_build_log(f"Binary output directory: {OW_SW_BUILD_BINARY_OUTPUT_PATH}")
     command_to_display = (
         f'sudo chmod -R 755 {OW_SW_BUILD_BINARY_OUTPUT_PATH} && '
         f'while true; do '
@@ -211,6 +220,8 @@ def main() -> None:
     command_to_display = wrap_cmd_for_bash(command_to_display)
     display_content_to_copy(command_to_display, purpose="Copy BINARY to target IP",
                             is_copy_to_clipboard=(build_type == BUILD_TYPE_BINARY))
+    append_build_log("Copy BINARY command:")
+    append_build_log(command_to_display)
 
     # TODO: improve handling on interactive mode (check it actually success before print copy commands)
     iesa_artifact_path: Optional[Path] = None
@@ -229,19 +240,23 @@ def main() -> None:
             new_iesa_output_abs_path = new_iesa_path.resolve()
             LOG(f"Renamed '{OW_SW_OUTPUT_IESA_PATH.name}' to '{new_iesa_path.name}'")
             LOG(f"Find output IESA here (WSL path): {new_iesa_output_abs_path}")
+            append_build_log(f"IESA output path: {new_iesa_output_abs_path}")
             iesa_artifact_path = new_iesa_output_abs_path
             # run_shell(f"sudo chmod 644 {new_iesa_output_abs_path}")
-            # original_md5 = md5sum(new_iesa_output_abs_path) #Will require PERMISSION
             # iesa_original_md5 = original_md5
 
             command_to_display = create_scp_ut_and_run_cmd(
                 local_path=new_iesa_output_abs_path,
+                exec_output_path=IESA_EXEC_PATH,
                 remote_host="root@192.168.100.254",
                 remote_dir="/home/root/download/",
                 run_cmd_on_remote=f"iesa_umcmd install pkg {new_iesa_path.name} && tail -F /var/log/upgrade_log",
                 is_prompt_before_execute=True
             )
             display_content_to_copy(command_to_display, purpose="Copy IESA to target IP", is_copy_to_clipboard=True)
+            append_build_log("Copy IESA command:")
+            append_build_log(command_to_display)
+            append_build_log(f"IESA exec command path: {IESA_EXEC_PATH}")
         else:
             LOG(
                 f"ERROR: Expected IESA artifact not found at '{OW_SW_OUTPUT_IESA_PATH}' or it's not a file.", file=sys.stderr)
@@ -262,6 +277,7 @@ def main() -> None:
             "binary_directory": str(OW_SW_BUILD_BINARY_OUTPUT_PATH),
             "iesa_artifact_path": str(iesa_artifact_path) if iesa_artifact_path else None,
             "manifest_path": str(MANIFEST_OUT_ARTIFACT_PATH),
+            "log_path": str(LOG_OUT_PATH),
         },
     }
 
@@ -642,6 +658,19 @@ def export_repo_diff_artifact(repo_name: str, repo_path: Path) -> Optional[Path]
 
 def ensure_temp_build_output_dir() -> None:
     TEMP_OW_BUILD_OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
+
+
+def append_build_log(*values: object) -> None:
+    ensure_temp_build_output_dir()
+    with open(LOG_OUT_PATH, "a", encoding="utf-8") as log_file:
+        LOG(*values, file=log_file, show_time=True, highlight=False)
+
+
+def init_ow_build_log() -> None:
+    ensure_temp_build_output_dir()
+    write_to_file(str(LOG_OUT_PATH), "", mode=WriteMode.OVERWRITE) # overwrite with empty
+    append_build_log("Build log started.")
+    append_build_log(f"Log path: {LOG_OUT_PATH}")
 
 
 def copy_manifest_for_metadata(manifest_source_path: Path) -> Path:

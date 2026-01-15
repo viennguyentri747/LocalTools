@@ -166,7 +166,7 @@ def git_fetch(repo_path: Path) -> bool:
     command = [CMD_GIT, 'fetch', '--all', '--prune']
     try:
         LOG(f"Fetching latest changes from all remotes in '{repo_path.name}'...")
-        run_shell(command, cwd=repo_path, capture_output_n_suppress_stdout=True, text=True,
+        run_shell(command, cwd=repo_path, capture_output=True, text=True,
                   encoding='utf-8', check_throw_exception_on_exit_code=True)
         LOG("Fetch completed successfully.")
         return True

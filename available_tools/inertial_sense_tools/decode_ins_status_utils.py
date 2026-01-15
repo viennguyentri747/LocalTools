@@ -222,7 +222,7 @@ def decode_ins_status(ins_status: Union[int, str]) -> InsStatus:
         kinematic_calibration_good=is_set(ins_status, INS_STATUS_KINEMATIC_CAL_GOOD),
     )
 
-    LOG(f"Decoded INS status: {ins_status_data}", highlight=True)
+    #LOG(f"Decoded INS status: {ins_status_data}", highlight=True)
     return ins_status_data
 
 
@@ -279,4 +279,4 @@ def _format_section_lines(values: Dict[str, object], indent: int = 4) -> list:
 def print_decoded_status(decoded_status: Union[InsStatus, int, str]) -> None:
     """Print a human readable summary of the INS status."""
     status_obj = decoded_status if isinstance(decoded_status, InsStatus) else decode_ins_status(decoded_status)
-    print(str(status_obj))
+    LOG(str(status_obj), highlight=True)

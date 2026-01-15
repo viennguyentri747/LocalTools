@@ -56,16 +56,19 @@ def _extract_rcvr_version_from_entries(entries: List[str]) -> Optional[str]:
     return None
 
 
-def _extract_fpkg_metadata(fpkg_path: Path) -> Tuple[Optional[Path], Optional[str]]:
+def _extract_fpkg_data(fpkg_path: Path, *, extract_imx: bool = True) -> Tuple[Optional[Path], Optional[str]]:
     """Extract IMX .hex (if present) and receiver version from a .fpkg."""
-    LOG(f"🔎 Checking for IMX .hex inside: {fpkg_path}")
+    if extract_imx:
+        LOG(f"🔎 Checking for IMX .hex inside: {fpkg_path}")
     try:
         with zipfile.ZipFile(fpkg_path, "r") as zip_ref:
             entries = zip_ref.namelist()
             rcvr_version = _extract_rcvr_version_from_entries(entries)
+            if not extract_imx:
+                return None, rcvr_version
             hex_entries = [name for name in entries if name.lower().endswith(IMX_EXTENSION)]
             if not hex_entries:
-                LOG("ℹ️ No IMX .hex found inside fpkg.")
+                LOG("⚠️ WARNING: No IMX .hex found inside fpkg.")
                 return None, rcvr_version
 
             imx_entries = [name for name in hex_entries if Path(name).name.startswith(IMX_PREFIX)]
@@ -84,7 +87,32 @@ def _extract_fpkg_metadata(fpkg_path: Path) -> Tuple[Optional[Path], Optional[st
     return None, None
 
 
-def get_fw_pair(fpkg_fw_path: str) -> Optional[KimFwSet]:
+def find_fpkg_entry_name(fpkg_path: Path, pattern: str) -> Optional[str]:
+    """Return the first entry name in an fpkg that matches the pattern."""
+    try:
+        with zipfile.ZipFile(fpkg_path, "r") as zip_ref:
+            for entry in zip_ref.namelist():
+                if re.search(pattern, entry):
+                    return entry
+    except Exception as exc:
+        LOG(f"⚠️ WARNING: Failed to read fpkg entries from {fpkg_path}: {exc}")
+    return None
+
+
+def extract_version_from_filename(filename: str) -> Optional[str]:
+    match = re.search(r"(\d+\.\d+\.\d+[^+]*)", filename)
+    return match.group(1) if match else None
+
+
+def extract_version_from_fpkg(fpkg_path: Path) -> Optional[str]:
+    """Extract firmware version from fpkg entries (prefer GPX)."""
+    entry = find_fpkg_entry_name(fpkg_path, r"IS_GPX-.*\.encrypted\.bin$")
+    if not entry:
+        entry = find_fpkg_entry_name(fpkg_path, r"IS_GPX-.*\.bin$")
+    return extract_version_from_filename(entry) if entry else None
+
+
+def get_fw_pair(fpkg_fw_path: str, *, fpkg_only: bool = False) -> Optional[KimFwSet]:
     """Locate a firmware pair based on an explicit fpkg path."""
     input_path = Path(fpkg_fw_path).expanduser()
     if input_path.suffix != GPX_EXTENSION or not input_path.is_file():
@@ -92,12 +120,17 @@ def get_fw_pair(fpkg_fw_path: str) -> Optional[KimFwSet]:
         return None
 
     gpx_path = input_path
-    gpx_version = extract_version_from_fw_filename(gpx_path.name)
+    gpx_version = extract_version_from_fpkg(gpx_path)
     if not gpx_version:
-        LOG(f"❌ FATAL: Could not determine version from fpkg filename: {gpx_path} -> Returning None.")
+        fallback_version = extract_version_from_filename(gpx_path.name)
+        if fallback_version:
+            LOG(f"⚠️ WARNING: Falling back to version from fpkg filename: {fallback_version}")
+            gpx_version = fallback_version
+    if not gpx_version:
+        LOG(f"❌ FATAL: Could not determine version from fpkg: {gpx_path} -> Returning None.")
         return None
 
-    imx_from_fpkg, rcvr_version = _extract_fpkg_metadata(gpx_path)
+    imx_from_fpkg, rcvr_version = _extract_fpkg_data(gpx_path, extract_imx=not fpkg_only)
     return KimFwSet(
         imx_full_path=imx_from_fpkg,
         gpx_full_path=gpx_path,
@@ -106,21 +139,16 @@ def get_fw_pair(fpkg_fw_path: str) -> Optional[KimFwSet]:
     )
 
 
-def extract_version_from_fw_filename(filename: str) -> Optional[str]:
-    match = re.search(r"(\d+\.\d+\.\d+[^+]*)", filename)
-    return match.group(1) if match else None
-
-
 def extract_timestamp_from_fw_filename(filename: str) -> Optional[str]:
     match = re.search(r"\+([\d-]+)", filename)
     return match.group(1) if match else None
 
 
-def update_firmware(fw_set: KimFwSet) -> None:
+def update_firmwares(fw_set: KimFwSet) -> None:
     LOG(f"\n🚀 Starting firmware update process in: {OW_SW_KIM_FTM_FW_PATH}")
     os.chdir(OW_SW_KIM_FTM_FW_PATH)
 
-    def copy_firmware(src_path: Path, symlink: str) -> str:
+    def copy_firmware(src_path: Optional[Path], symlink: str) -> str:
         if not src_path:
             return ""
         new_path = Path(src_path.name)
@@ -213,7 +241,7 @@ def update_firmware(fw_set: KimFwSet) -> None:
                          rel_fw_dir, rel_rcvr_file], auto_confirm=NO_PROMPT, )
 
 
-def run_fw_update(fpkg_fw_path: str, *, no_prompt: bool = False, base_branch: Optional[str] = None) -> None:
+def run_fw_update(fpkg_fw_path: str, *, no_prompt: bool = False, base_branch: Optional[str] = None, fpkg_only: bool = False) -> None:
     global NO_PROMPT
     NO_PROMPT = no_prompt
 
@@ -225,24 +253,27 @@ def run_fw_update(fpkg_fw_path: str, *, no_prompt: bool = False, base_branch: Op
     if not checkout_branch(repo_path, base_branch, branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_EXIST, allow_empty=True, ):
         LOG_EXCEPTION_STR(f"❌ FATAL: Failed to checkout base branch '{base_branch}'")
 
-    pair: Optional[KimFwSet] = get_fw_pair(fpkg_fw_path)
-    if not pair or pair.imx_full_path is None:
+    pair = get_fw_pair(fpkg_fw_path, fpkg_only=fpkg_only)
+    if not pair:
+        LOG_EXCEPTION_STR("❌ FATAL: Failed to build firmware set -> Aborting update.")
+    if not fpkg_only and pair.imx_full_path is None:
         LOG_EXCEPTION_STR("❌ FATAL: No firmware pair available (no IMX) -> Aborting update.")
 
-    version = pair.version or extract_version_from_fw_filename(pair.gpx_full_path.name)
+    version = pair.version or extract_version_from_fpkg(pair.gpx_full_path)
     if not version:
-        LOG_EXCEPTION_STR(f"❌ FATAL: Could not extract version from firmware pair: {pair} -> Aborting update.")
+        LOG_EXCEPTION_STR(f"❌ FATAL: Could not extract version from firmware set: {pair} -> Aborting update.")
+    if version != pair.version:
+        pair = pair._replace(version=version)
 
     branch_prefix = f"update-fw-{str_to_slug(version)}"
     target_branch_name = f"{branch_prefix}-{str_to_slug(get_short_date_now())}"
     if git_is_local_branch_existing(repo_path, target_branch_name):
-        LOG(
+        LOG_EXCEPTION_STR(
             f"❌ FATAL: Already having target branch {target_branch_name} -> Aborting update, check again and delete the branch if you want to retry!!")
-        return
 
     LOG(f"🔀 Creating and switching to branch {target_branch_name}...")
-    if not checkout_branch( repo_path, target_branch_name, branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_NOT_EXIST, ):
+    if not checkout_branch(repo_path, target_branch_name, branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_NOT_EXIST, ):
         LOG("❌ FATAL: Could not switch/create branch -> Aborting update.")
         return
 
-    update_firmware(pair)
+    update_firmwares(pair)

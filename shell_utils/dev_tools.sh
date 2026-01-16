@@ -21,14 +21,14 @@ all_tools(){
 }
 
 extract_context() {
-	~/local_tools/tool_invoker_cli.py '/home/vien/local_tools/available_tools/code_tools/t_extract_code_context.py'
+	~/local_tools/tool_invoker_cli.py '~/local_tools/available_tools/code_tools/t_extract_code_context.py'
 }
 
 get_acu_logs() {
-    ~/local_tools/tool_invoker_cli.py '/home/vien/local_tools/available_tools/misc_hidden_tools/t_get_acu_logs.py' "$@"
+    ~/local_tools/tool_invoker_cli.py '~/local_tools/available_tools/misc_hidden_tools/t_get_acu_logs.py' "$@"
 }
 
-_DT_GREP_TOOL=(/home/vien/local_tools/MyVenvFolder/bin/python /home/vien/workspace/other_projects/custom_tools/LocalTools/available_tools/code_tools/t_get_grep_template.py)
+_DT_GREP_TOOL=(~/local_tools/MyVenvFolder/bin/python ~/local_tools/available_tools/code_tools/t_get_grep_template.py)
 _DT_CORE_REPOS_PATH="~/core_repos/"
 _DT_C_EXTS=(c cpp cc cxx h hpp hxx)
 # NOTE: The pattern-key order below controls the labeled category order in the fzf results.

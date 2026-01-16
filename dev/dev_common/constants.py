@@ -72,7 +72,7 @@ LIST_FD_IPS = [F"{SSM_IP_PREFIX}.101.79", F"{SSM_IP_PREFIX}.101.126"]
 LIST_HD_IPS = [F"{SSM_IP_PREFIX}.101.65", F"{SSM_IP_PREFIX}.100.70",F"{SSM_IP_PREFIX}.100.85", F"{SSM_IP_PREFIX}.101.97", F"{SSM_IP_PREFIX}.100.107"]
 # PATHS
 DOWNLOAD_FOLDER_PATH = HOME_PATH / "downloads"
-REPO_PATH = HOME_PATH / "workspace/other_projects/custom_tools/LocalTools/"
+REPO_PATH = HOME_PATH / "local_tools/"
 AVAILABLE_TOOLS_PATH = REPO_PATH / "available_tools"
 CREDENTIALS_FILE_PATH = REPO_PATH / ".my_credentials.env"
 CORE_REPOS_PATH = HOME_PATH / "workspace" / "intellian_core_repos/"

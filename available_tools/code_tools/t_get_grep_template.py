@@ -283,25 +283,11 @@ def build_fzf_rg_text_command(description: str, template_args: TemplateArgs, fil
 def build_fzf_fd_command(search_dir: str, initial_query: str = "") -> str:
     """Builds an fzf command that uses fd for file searching."""
     return (
-        f'fd --type f . "{search_dir}" | fzf '
+        f'fdfind --type f . "{search_dir}" | fzf ' #Use fdfind to make sure it resolved correctly (fd sometimes fails)
         f'--header "Find files by name. Press Enter to open in editor." '
         f'--prompt "File> " '
         f'--query "{initial_query}"'
     )
-
-
-def build_fd_command(pattern: str, args: TemplateArgs) -> str:
-    """Build fd command for file search."""
-    parts = ["fd"]
-
-    if args.ignore_case:
-        parts.append("-i")
-
-    if args.max_depth is not None:
-        parts.extend(["-d", str(args.max_depth)])
-
-    parts.extend(["-t", "f", quote(pattern), quote(str(args.search_path))])
-    return " ".join(parts)
 
 
 def _regex_not_c_keyword_prefix() -> str:

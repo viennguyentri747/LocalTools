@@ -9,6 +9,8 @@ from typing import List, Optional
 
 from dev.dev_common.core_utils import *
 from dev.dev_common.input_utils import prompt_confirmation
+from subprocess import DEVNULL
+
 
 # --- Constants ---
 CMD_GIT = 'git'
@@ -54,21 +56,51 @@ def git_is_ancestor(ancestor_ref: str, descentdant_ref: str, cwd: Union[str, Pat
     Returns:
         True if the ancestry condition is met, False otherwise.
     """
+    if not git_check_ref(cwd, ancestor_ref, ref_name="ancestor") or not git_check_ref(cwd, descentdant_ref, ref_name="descendant"):
+        return False
     cmd = f"git merge-base --is-ancestor {ancestor_ref} {descentdant_ref}"
     result = run_shell(cmd, cwd=cwd, check_throw_exception_on_exit_code=False)
     return result.returncode == 0
 
 
-def git_is_ref_or_branch_existing(repo_path: Path, branch_name: str) -> bool:
-    """Checks if a branch exists in the given repo."""
-    result = run_shell(
-        f"git rev-parse --verify {branch_name}",
-        cwd=repo_path,
-        capture_output=True,
-        text=True,
-        check_throw_exception_on_exit_code=False
-    )
-    return result.returncode == 0
+def git_get_ref_type(repo_path: Path, git_ref: str) -> Optional[str]:
+    """Returns ref type: branch, tag, commit, tree, blob, or None if not found."""
+    ref = git_ref.strip()
+    
+    # Check branch
+    if run_shell(["git", "show-ref", "--verify", "--quiet", f"refs/heads/{ref}"],
+           cwd=repo_path, stdout=DEVNULL, stderr=DEVNULL, check_throw_exception_on_exit_code=False).returncode == 0:
+        return "branch"
+    
+    # Check tag
+    if run_shell(["git", "show-ref", "--verify", "--quiet", f"refs/tags/{ref}"],
+           cwd=repo_path, stdout=DEVNULL, stderr=DEVNULL, check_throw_exception_on_exit_code=False).returncode == 0:
+        return "tag"
+    
+    # Check object type (commit/tree/blob)
+    result = run_shell(["git", "cat-file", "-t", ref],
+                 cwd=repo_path, capture_output=True, text=True, check_throw_exception_on_exit_code=False)
+    return result.stdout.strip() if result.returncode == 0 else None
+
+def git_is_ref_or_branch_existing(repo_path: Path, git_ref: str) -> bool:
+    return git_get_ref_type(repo_path, git_ref) is not None
+
+def git_check_ref(
+    repo_path: Path | str,
+    ref: str,
+    ref_name: Optional[str] = None,
+    log_exception_on_failure: bool = True,
+) -> bool:
+    ref_type = git_get_ref_type(Path(repo_path), ref.strip())
+    label = f"{ref_name} " if ref_name else ""
+    
+    if not ref_type:
+        msg = f"Git ref {label}'{ref.strip()}' does not exist in '{repo_path}'."
+        (LOG_EXCEPTION_STR if log_exception_on_failure else LOG)(msg)
+        return False
+    
+    LOG(f"Git ref {label}'{ref.strip()}' exists in '{repo_path}' (type: {ref_type}).")
+    return True
 
 
 def git_is_local_branch_existing(repo_path: Path, branch_name: str) -> bool:
@@ -253,6 +285,8 @@ def extract_git_diff(repo_local_path: Path, base_ref: str, target_ref: str) -> O
     if not repo_local_path.is_dir() or not (repo_local_path / '.git').exists():
         LOG(f"The path '{repo_local_path}' is not a valid git repository.")
         return None
+    if not git_check_ref(repo_local_path, base_ref, ref_name="base") or not git_check_ref(repo_local_path, target_ref, ref_name="target"):
+        return None
 
     command = [CMD_GIT, 'diff', '--patch-with-stat', f"{base_ref}..{target_ref}"]
 
@@ -269,6 +303,8 @@ def git_diff_on_file(repo_path: Path | str, base_ref: str, rel_path: str) -> str
     """
     Returns the diff output of the specified path against a given ref.
     """
+    if not git_check_ref(repo_path, base_ref, ref_name="base"):
+        return ""
     result = run_shell(f"{CMD_GIT} diff {base_ref} -- {rel_path}", cwd=repo_path,
                        capture_output=True, text=True)
     return result.stdout
@@ -281,20 +317,14 @@ def git_diff_worktree(repo_path: Path | str, extra_args: Optional[List[str]] = N
     cmd: List[str] = [CMD_GIT, "diff"]
     if extra_args:
         cmd.extend(extra_args)
-    result = run_shell(
-        cmd,
-        cwd=repo_path,
-        capture_output=True,
-        text=True,
-        check_throw_exception_on_exit_code=False,
-    )
+    result = run_shell(cmd, cwd=repo_path, capture_output=True, text=True, check_throw_exception_on_exit_code=False, )
     if result.returncode != 0:
         LOG(f"WARNING: git diff failed in '{repo_path}' with code {result.returncode}.", file=sys.stderr)
         return ""
     return result.stdout
 
 
-def git_stage_and_commit( repo_path: Path, message: str, *, show_diff: bool = False, stage_paths: Optional[List[str]] = None, auto_confirm: bool = True, prompt: Optional[str] = None, suppress_output: bool = False, ) -> bool:
+def git_stage_and_commit(repo_path: Path, message: str, *, show_diff: bool = False, stage_paths: Optional[List[str]] = None, auto_confirm: bool = True, prompt: Optional[str] = None, suppress_output: bool = False, ) -> bool:
     """
     Stage changes (optionally limited to specific paths) and create a commit in the given repo.
 
@@ -316,7 +346,8 @@ def git_stage_and_commit( repo_path: Path, message: str, *, show_diff: bool = Fa
 
     staged_files = git_get_staged_files(repo_path)
     if staged_files:
-        LOG_EXCEPTION(Exception("Staging area already contains files."), msg=f"Staged before add: {', '.join(staged_files)}")
+        LOG_EXCEPTION(Exception("Staging area already contains files."),
+                      msg=f"Staged before add: {', '.join(staged_files)}")
         return False
 
     if not auto_confirm:
@@ -329,19 +360,11 @@ def git_stage_and_commit( repo_path: Path, message: str, *, show_diff: bool = Fa
         if stage_paths and len(stage_paths) > 0:
             # Convert paths to strings (git accepts absolute or relative)
             paths = [str(p) for p in stage_paths]
-            run_shell(
-                [CMD_GIT, 'add', *paths],
-                check_throw_exception_on_exit_code=True,
-                cwd=repo_path,
-                capture_output=suppress_output,
-            )
+            run_shell([CMD_GIT, 'add', *paths], check_throw_exception_on_exit_code=True,
+                      cwd=repo_path, capture_output=suppress_output, )
         else:
-            run_shell(
-                [CMD_GIT, 'add', '-A'],
-                check_throw_exception_on_exit_code=True,
-                cwd=repo_path,
-                capture_output=suppress_output,
-            )
+            run_shell([CMD_GIT, 'add', '-A'], check_throw_exception_on_exit_code=True,
+                      cwd=repo_path, capture_output=suppress_output, )
 
         staged_after_add = git_get_staged_files(repo_path)
         if not staged_after_add:
@@ -385,13 +408,8 @@ def git_get_porcelain_status_lines(repo_path: Path, exclude_pattern: str | None 
 
 def git_get_staged_files(repo_path: Path | str) -> List[str]:
     """Returns list of staged file paths."""
-    result = run_shell(
-        [CMD_GIT, "diff", "--cached", "--name-only"],
-        cwd=repo_path,
-        capture_output=True,
-        text=True,
-        check_throw_exception_on_exit_code=False,
-    )
+    result = run_shell([CMD_GIT, "diff", "--cached", "--name-only"], cwd=repo_path,
+                       capture_output=True, text=True, check_throw_exception_on_exit_code=False, )
     if result.returncode != 0:
         LOG(f"WARNING: git diff --cached failed in '{repo_path}' with code {result.returncode}.",
             file=sys.stderr)

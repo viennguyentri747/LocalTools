@@ -1,4 +1,4 @@
-#!/home/vien/local_tools/MyVenvFolder/bin/python
+#!/home/vien/core_repos/local_tools/MyVenvFolder/bin/python
 """
 Calculate the NMEA ASCE checksum for a provided sentence.
 

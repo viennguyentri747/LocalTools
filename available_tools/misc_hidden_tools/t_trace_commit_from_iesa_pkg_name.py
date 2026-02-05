@@ -1,10 +1,10 @@
-#!/home/vien/local_tools/MyVenvFolder/bin/python
+#!/home/vien/core_repos/local_tools/MyVenvFolder/bin/python
 """
 trace_commit_from_iesa_pkg_name.py – Locate a record in /version/history by its `version_string`.
 
 Examples:
-    ~/local_tools/misc_tools/trace_commit_from_iesa_pkg_name.py --version 29.9.1.6
-    ~/local_tools/misc_tools/t_trace_commit_from_iesa_pkg_name.py --version 29.9.1.6 --base-url http://10.1.26.170:8765 --page-size 100
+    ~/core_repos/local_tools/misc_tools/trace_commit_from_iesa_pkg_name.py --version 29.9.1.6
+    ~/core_repos/local_tools/misc_tools/t_trace_commit_from_iesa_pkg_name.py --version 29.9.1.6 --base-url http://10.1.26.170:8765 --page-size 100
 """
 
 from __future__ import annotations

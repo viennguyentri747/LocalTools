@@ -1,4 +1,4 @@
-#!/home/vien/local_tools/MyVenvFolder/bin/python
+#!/home/vien/core_repos/local_tools/MyVenvFolder/bin/python
 from __future__ import annotations
 import argparse
 import re

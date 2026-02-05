@@ -1,4 +1,4 @@
-#!/home/vien/local_tools/MyVenvFolder/bin/python
+#!/home/vien/core_repos/local_tools/MyVenvFolder/bin/python
 from __future__ import annotations
 
 import argparse
@@ -109,7 +109,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     LOG(f"{LOG_PREFIX_MSG_INFO} Finished parsing {success_count} log(s) in {time.time() - start_time:.2f} seconds.")
     return 0
 
-# ~/local_tools/unit_tests/acu_log_tests/test_KIM_with_plog_data.py --paths '/home/vien/local_tools/temp/PLLOG_126_20251012.txt'
-# ~/local_tools/unit_tests/acu_log_tests/test_KIM_with_plog_data.py --paths ~/downloads/Var\ Log\ P11FM25060057\ Snow\ Camelia/Viasat\ -var-log-\ dump/complete_logs/master/backup/P_20251011_000000.txt
+# ~/core_repos/local_tools/unit_tests/acu_log_tests/test_KIM_with_plog_data.py --paths '/home/vien/core_repos/local_tools/temp/PLLOG_126_20251012.txt'
+# ~/core_repos/local_tools/unit_tests/acu_log_tests/test_KIM_with_plog_data.py --paths ~/downloads/Var\ Log\ P11FM25060057\ Snow\ Camelia/Viasat\ -var-log-\ dump/complete_logs/master/backup/P_20251011_000000.txt
 if __name__ == "__main__":
     sys.exit(main())

@@ -1,4 +1,4 @@
-#!/home/vien/local_tools/MyVenvFolder/bin/python
+#!/home/vien/core_repos/local_tools/MyVenvFolder/bin/python
 
 from datetime import datetime, timedelta
 import argparse # Import the argparse module for named command-line arguments

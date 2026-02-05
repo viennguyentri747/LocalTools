@@ -1,4 +1,4 @@
-#!/home/vien/local_tools/MyVenvFolder/bin/python
+#!/home/vien/core_repos/local_tools/MyVenvFolder/bin/python
 from __future__ import annotations
 
 import argparse
@@ -156,7 +156,7 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     p.add_argument(
         ARG_TOOLS_DIR,
         default=str(AVAILABLE_TOOLS_PATH),
-        help="Root folder that contains tool subdirectories (default: ~/local_tools/available_tools)"
+        help="Root folder that contains tool subdirectories (default: ~/core_repos/local_tools/available_tools)"
     )
 
     return p.parse_args(argv)

@@ -2,5 +2,5 @@
 
 _ Add this to ~/.bashrc
 ```Bash
-source ~/local_tools/_add_custom_utils.sh
+source ~/core_repos/local_tools/_add_custom_utils.sh
 ```

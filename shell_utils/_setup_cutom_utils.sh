@@ -61,8 +61,4 @@ fi
 echo "Running startup scripts..."
 load_ssh_keys
 mount_h
-monitor_stock not_restart_if_running run_in_background
-
-# # Configure bash completion behavior
-# bind 'set show-all-if-ambiguous on'
-# bind 'TAB:menu-complete'
+#monitor_stock not_restart_if_running run_in_background

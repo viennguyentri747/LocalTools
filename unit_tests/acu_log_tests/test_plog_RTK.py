@@ -1,4 +1,4 @@
-#!/home/vien/local_tools/MyVenvFolder/bin/python
+#!/home/vien/core_repos/local_tools/MyVenvFolder/bin/python
 from dev.dev_common import *
 from misc_tools.t_get_acu_logs import AcuLogInfo
 from unit_tests.acu_log_tests.periodic_log_helper import *
@@ -23,7 +23,7 @@ def main():
         valid_fetch_infos: AcuLogInfo = [
             AcuLogInfo(
                 ip=ut_ip1,
-                log_paths=[f"/home/vien/local_tools/temp/acu_plogs/192.168.101.79/P_20250929_000000.txt"],
+                log_paths=[f"/home/vien/core_repos/local_tools/temp/acu_plogs/192.168.101.79/P_20250929_000000.txt"],
                 is_valid=True
             )
         ]

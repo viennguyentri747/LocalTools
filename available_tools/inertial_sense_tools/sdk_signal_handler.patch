@@ -1,5 +1,5 @@
 diff --git a/InsenseSDK/inertial-sense-sdk-2.7.0-rc/cltool/src/cltool_main.cpp b/InsenseSDK/inertial-sense-sdk-2.7.0-rc/cltool/src/cltool_main.cpp
-index 1f427c7..c3d07b2 100644
+index 1743188..9fddb8c 100644
 --- a/InsenseSDK/inertial-sense-sdk-2.7.0-rc/cltool/src/cltool_main.cpp
 +++ b/InsenseSDK/inertial-sense-sdk-2.7.0-rc/cltool/src/cltool_main.cpp
 @@ -33,6 +33,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
@@ -10,9 +10,9 @@ index 1f427c7..c3d07b2 100644
  
  // Contains command line parsing and utility functions.  Include this in your project to use these utility functions.
  #include "cltool.h"
-@@ -51,6 +52,21 @@ int g_devicesUpdating = 0;
- InertialSense *g_inertialSenseInterface = NULL;
- CorrectionService *g_roverConnection = NULL;
+@@ -60,6 +61,21 @@ InertialSense *g_inertialSenseInterface = NULL;
+ shared_ptr<CorrectionService> g_correctionInput = NULL;
+ shared_ptr<Rtcm3CorrectionServer> g_correctionOutput = NULL;
  
 +static serial_port_t port;
 +
@@ -31,8 +31,8 @@ index 1f427c7..c3d07b2 100644
 +
  static void sendNmea(serial_port_t &port, string nmeaMsg);
  
- static void display_server_client_status(InertialSense* i, bool server=false, bool showMessageSummary=false, bool refreshDisplay=false)
-@@ -912,6 +928,24 @@ static int cltool_dataStreaming()
+ static void display_server_client_status(bool showMessageSummary=false, bool refreshDisplay=false)
+@@ -963,6 +979,24 @@ static int cltool_dataStreaming()
      inertialSenseInterface.setErrorHandler(cltool_errorCallback);
      inertialSenseInterface.EnableDeviceValidation(!g_commandLineOptions.disableDeviceValidation);
  
@@ -57,7 +57,7 @@ index 1f427c7..c3d07b2 100644
      // [C++ COMM INSTRUCTION] STEP 2: Open serial port
      if (!inertialSenseInterface.Open(g_commandLineOptions.comPort.c_str(), g_commandLineOptions.baudRate, g_commandLineOptions.disableBroadcastsOnClose))
      {
-@@ -1105,6 +1139,7 @@ static void sendNmea(port_handle_t port, string nmeaMsg)
+@@ -1159,6 +1193,7 @@ static void sendNmea(port_handle_t port, string nmeaMsg)
  
  static int inertialSenseMain()
  {

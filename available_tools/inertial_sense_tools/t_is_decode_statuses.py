@@ -1,4 +1,4 @@
-#!/home/vien/local_tools/MyVenvFolder/bin/python
+#!/home/vien/core_repos/local_tools/MyVenvFolder/bin/python
 
 import argparse
 from pathlib import Path
@@ -53,7 +53,7 @@ def get_tool_templates() -> List[ToolTemplate]:
         ),
         ToolTemplate(
             name="Decode SYSTEM HDW Status Integer",
-            extra_description="Decode SYSTEM hardware status integer, `hdwStatus` in `tail -F /var/log/ins_monitor_log | grep -i INS1Msg` or via DID_SYS_PARAMS",
+            extra_description="Decode SYSTEM hardware status integer, `hdwStatus` in `tail -F /var/log/ins_monitor_log | grep -i INS1Msg` or via DID_SYS_PARAMS.hdwStatus",
             args={
                 "--type": "system_hdw",
                 "--status": "0x2088010",

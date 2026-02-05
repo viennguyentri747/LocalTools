@@ -1,4 +1,4 @@
-#!/home/vien/local_tools/MyVenvFolder/bin/python
+#!/home/vien/core_repos/local_tools/MyVenvFolder/bin/python
 
 import subprocess
 import re
@@ -270,7 +270,93 @@ def git_get_git_remotes(repo_path: Path) -> List[str]:
         return []
 
 
-def extract_git_diff(repo_local_path: Path, base_ref: str, target_ref: str) -> Optional[str]:
+def _normalize_binary_extensions(binary_extensions: Optional[List[str]]) -> List[str]:
+    if not binary_extensions:
+        return []
+    cleaned: List[str] = []
+    for ext in binary_extensions:
+        if not ext:
+            continue
+        ext = ext.strip().lower()
+        if not ext:
+            continue
+        if not ext.startswith("."):
+            ext = "." + ext
+        if ext != ".":
+            cleaned.append(ext)
+    return cleaned
+
+
+def _path_has_binary_extension(path: str, binary_extensions: List[str]) -> bool:
+    if not path or not binary_extensions:
+        return False
+    if path.startswith("a/") or path.startswith("b/"):
+        path = path[2:]
+    path = path.lower()
+    return any(path.endswith(ext) for ext in binary_extensions)
+
+
+def _diff_block_as_binary(block_lines: List[str]) -> List[str]:
+    if not block_lines:
+        return block_lines
+    diff_line = block_lines[0]
+    parts = diff_line.split()
+    a_path = parts[2] if len(parts) > 2 else "a/UNKNOWN"
+    b_path = parts[3] if len(parts) > 3 else "b/UNKNOWN"
+    header: List[str] = []
+    saw_patch_marker = False
+    for line in block_lines[1:]:
+        if line.startswith("Binary files ") or line.startswith("GIT binary patch"):
+            return block_lines
+        if line.startswith(("--- ", "+++ ", "@@ ")):
+            saw_patch_marker = True
+            break
+        header.append(line)
+    if not saw_patch_marker:
+        return block_lines
+    return [diff_line, *header, f"Binary files {a_path} and {b_path} differ"]
+
+
+def _apply_binary_extension_filter(diff_text: str, binary_extensions: List[str]) -> str:
+    if not diff_text or not binary_extensions:
+        return diff_text
+    lines = diff_text.splitlines()
+    out: List[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if not line.startswith("diff --git "):
+            out.append(line)
+            i += 1
+            continue
+        j = i + 1
+        while j < len(lines) and not lines[j].startswith("diff --git "):
+            j += 1
+        block = lines[i:j]
+        parts = block[0].split()
+        b_path = parts[3] if len(parts) > 3 else ""
+        if _path_has_binary_extension(b_path, binary_extensions):
+            out.extend(_diff_block_as_binary(block))
+        else:
+            out.extend(block)
+        i = j
+    result = "\n".join(out)
+    return result + ("\n" if diff_text.endswith("\n") else "")
+
+
+def _combine_patch_and_stat(patch_text: str, stat_text: str) -> str:
+    if not stat_text:
+        return patch_text
+    if not patch_text:
+        return stat_text
+    if not patch_text.endswith("\n"):
+        patch_text += "\n"
+    if not patch_text.endswith("\n\n"):
+        patch_text += "\n"
+    return patch_text + stat_text
+
+
+def extract_git_diff(repo_local_path: Path, base_ref: str, target_ref: str, binary_extensions: Optional[List[str]] = None) -> Optional[str]:
     """
     Extracts a git diff between two references using --patch-with-stat.
 
@@ -278,6 +364,7 @@ def extract_git_diff(repo_local_path: Path, base_ref: str, target_ref: str) -> O
         repo_path: The local path to the git repository.
         base_ref: The base ref for the diff.
         target_ref: The target ref for the diff.
+        binary_extensions: File extensions to treat as binary (e.g., ['.png', 'bin']).
 
     Returns:
         The diff content as a string, or None on failure.
@@ -288,13 +375,24 @@ def extract_git_diff(repo_local_path: Path, base_ref: str, target_ref: str) -> O
     if not git_check_ref(repo_local_path, base_ref, ref_name="base") or not git_check_ref(repo_local_path, target_ref, ref_name="target"):
         return None
 
-    command = [CMD_GIT, 'diff', '--patch-with-stat', f"{base_ref}..{target_ref}"]
-
     try:
-        LOG(f"Running git diff in '{repo_local_path}'... Command:\n{' '.join(command)}")
-        process = run_shell(command, cwd=repo_local_path, check_throw_exception_on_exit_code=True,
-                            capture_output=True, text=True, encoding='utf-8')
-        return process.stdout
+        cleaned_binary_exts = _normalize_binary_extensions(binary_extensions)
+        if not cleaned_binary_exts:
+            command = [CMD_GIT, 'diff', '--patch-with-stat', f"{base_ref}..{target_ref}"]
+            LOG(f"Running git diff in '{repo_local_path}'... Command:\n{' '.join(command)}")
+            process = run_shell(command, cwd=repo_local_path, check_throw_exception_on_exit_code=True,
+                                capture_output=True, text=True, encoding='utf-8')
+            return process.stdout
+        patch_cmd = [CMD_GIT, 'diff', '--patch', f"{base_ref}..{target_ref}"]
+        stat_cmd = [CMD_GIT, 'diff', '--stat', f"{base_ref}..{target_ref}"]
+        LOG(f"Running git diff in '{repo_local_path}'... Command:\n{' '.join(patch_cmd)}")
+        patch_process = run_shell(patch_cmd, cwd=repo_local_path, check_throw_exception_on_exit_code=True,
+                                  capture_output=True, text=True, encoding='utf-8')
+        filtered_patch = _apply_binary_extension_filter(patch_process.stdout, cleaned_binary_exts)
+        LOG(f"Running git diff in '{repo_local_path}'... Command:\n{' '.join(stat_cmd)}")
+        stat_process = run_shell(stat_cmd, cwd=repo_local_path, check_throw_exception_on_exit_code=True,
+                                 capture_output=True, text=True, encoding='utf-8')
+        return _combine_patch_and_stat(filtered_patch, stat_process.stdout)
     except Exception as e:
         LOG_EXCEPTION(e)
 

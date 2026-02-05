@@ -1,4 +1,4 @@
-#!/home/vien/local_tools/MyVenvFolder/bin/python
+#!/home/vien/core_repos/local_tools/MyVenvFolder/bin/python
 """
 OneWeb SW-Tools interactive local build helper (top-down, manifest-aware).
 """
@@ -29,8 +29,6 @@ ARG_MANIFEST_SOURCE = f"{ARGUMENT_LONG_PREFIX}manifest_source"
 ARG_TISDK_REF = f"{ARGUMENT_LONG_PREFIX}tisdk_ref"
 ARG_OVERWRITE_REPOS = f"{ARGUMENT_LONG_PREFIX}overwrite_repos"
 ARG_INTERACTIVE_SHORT = f"{ARGUMENT_SHORT_PREFIX}i"
-ARG_FORCE_REMOVE_TMP_BUILD = f"{ARGUMENT_LONG_PREFIX}force_remove_tmp_build"
-ARG_REPO_SYNC = f"{ARGUMENT_LONG_PREFIX}repo_sync"
 ARG_USE_CURRENT_LOCAL_OW_BRANCH = f"{ARGUMENT_LONG_PREFIX}use_current_local_ow_branch"
 ARG_MAKE_CLEAN = f"{ARGUMENT_LONG_PREFIX}make_clean"
 ARG_IS_DEBUG_BUILD = f"{ARGUMENT_LONG_PREFIX}is_debug_build"
@@ -49,13 +47,12 @@ def get_tool_templates() -> List[ToolTemplate]:
             name="Build IESA (.iesa) using current branch in local manifest",
             extra_description=f"{NOTE_AVAILABLE_LOCAL_COMPONENT_REPO_NAMES}",
             args={
+                ARG_INTERACTIVE: False,
                 ARG_OW_BUILD_TYPE: BUILD_TYPE_IESA,
                 ARG_MANIFEST_SOURCE: MANIFEST_SOURCE_LOCAL,
                 ARG_USE_CURRENT_LOCAL_OW_BRANCH: True,
-                # ARG_TISDK_REF: BRANCH_MANPACK_MASTER,
-                ARG_INTERACTIVE: False,
+                ARG_TISDK_REF: BRANCH_MANPACK_MASTER,
                 ARG_MAKE_CLEAN: True,
-                ARG_FORCE_REMOVE_TMP_BUILD: True,
                 ARG_IS_DEBUG_BUILD: True,
                 ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME],
             },
@@ -65,14 +62,13 @@ def get_tool_templates() -> List[ToolTemplate]:
             name="Build BINARY using current branch in local manifest",
             extra_description=f"{NOTE_AVAILABLE_LOCAL_COMPONENT_REPO_NAMES}",
             args={
+                ARG_INTERACTIVE: False,
                 ARG_OW_BUILD_TYPE: BUILD_TYPE_BINARY,
                 ARG_MANIFEST_SOURCE: MANIFEST_SOURCE_LOCAL,
                 ARG_USE_CURRENT_LOCAL_OW_BRANCH: True,
-                ARG_INTERACTIVE: False,
-                ARG_FORCE_REMOVE_TMP_BUILD: False,
                 ARG_MAKE_CLEAN: True,
                 ARG_IS_DEBUG_BUILD: True,
-                ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME, IESA_ADC_LIB_REPO_NAME],
+                ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME],
             },
             # override_cmd_invocation=DEFAULT_CMD_INVOCATION,
         ),
@@ -80,13 +76,12 @@ def get_tool_templates() -> List[ToolTemplate]:
             name="Build IESA using specified branch in remote manifest",
             extra_description=f"{NOTE_AVAILABLE_LOCAL_COMPONENT_REPO_NAMES}",
             args={
+                ARG_INTERACTIVE: False,
                 ARG_OW_BUILD_TYPE: BUILD_TYPE_IESA,
                 ARG_MANIFEST_SOURCE: MANIFEST_SOURCE_REMOTE,
                 ARG_DEFAULT_OW_MANIFEST_BRANCH: BRANCH_MANPACK_MASTER,
-                # ARG_TISDK_REF: BRANCH_MANPACK_MASTER,
-                ARG_INTERACTIVE: False,
+                ARG_TISDK_REF: BRANCH_MANPACK_MASTER,
                 ARG_MAKE_CLEAN: True,
-                ARG_FORCE_REMOVE_TMP_BUILD: True,
                 ARG_IS_DEBUG_BUILD: True,
                 ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME],
             },
@@ -113,10 +108,6 @@ def main() -> None:
                         help="List of repository names to overwrite from local")
     parser.add_argument(ARG_INTERACTIVE_SHORT, ARG_INTERACTIVE, type=lambda x: x.lower() == TRUE_STR_VALUE, default=False,
                         help="Run in interactive mode (true or false). Defaults to false.")
-    parser.add_argument(ARG_FORCE_REMOVE_TMP_BUILD, type=lambda x: x.lower() == TRUE_STR_VALUE, default=False,
-                        help="Force clearing tmp_build folder before sync (true or false). Defaults to false.")
-    parser.add_argument(ARG_REPO_SYNC, type=lambda x: x.lower() == TRUE_STR_VALUE, default=True,
-                        help="If true, perform tmp_build reset (true or false) and repo sync. Defaults to true.")
     parser.add_argument(ARG_USE_CURRENT_LOCAL_OW_BRANCH, type=lambda x: x.lower() == TRUE_STR_VALUE, default=False,
                         help="Use the current branch of ow_sw_tools repo (true or false). Defaults to false.")
     parser.add_argument(ARG_MAKE_CLEAN, type=lambda x: x.lower() == TRUE_STR_VALUE, default=True,
@@ -137,8 +128,6 @@ def main() -> None:
     manifest_source: str = get_arg_value(args, ARG_MANIFEST_SOURCE)
     tisdk_ref: Optional[str] = get_arg_value(args, ARG_TISDK_REF)
     overwrite_repos: List[str] = get_arg_value(args, ARG_OVERWRITE_REPOS)
-    force_remove_tmp_build: bool = get_arg_value(args, ARG_FORCE_REMOVE_TMP_BUILD)
-    repo_sync: bool = get_arg_value(args, ARG_REPO_SYNC)
     use_current_local_ow_branch: bool = get_arg_value(args, ARG_USE_CURRENT_LOCAL_OW_BRANCH)
     make_clean: bool = get_arg_value(args, ARG_MAKE_CLEAN)
     is_debug_build: bool = get_arg_value(args, ARG_IS_DEBUG_BUILD)
@@ -182,11 +171,9 @@ def main() -> None:
     append_build_log(f"Manifest branch: {manifest_branch}")
     if tisdk_ref:
         append_build_log(f"TISDK ref: {tisdk_ref}")
-    prebuild_check(build_type, manifest_source, manifest_branch, tisdk_ref,
-                   overwrite_repos, use_current_local_ow_branch, current_branch, tisdk_ref_from_ci_yml)
-
-    actual_manifest, overridden_repo_changes = pre_build_setup(
-        build_type, manifest_source, manifest_branch, tisdk_ref, overwrite_repos, force_remove_tmp_build, repo_sync, use_current_ow_branch=use_current_local_ow_branch)
+    actual_manifest, overridden_repo_changes = setup_prebuild(
+        build_type, manifest_source, manifest_branch, tisdk_ref, overwrite_repos,
+        use_current_local_ow_branch, current_branch, tisdk_ref_from_ci_yml)
 
     run_build(build_type, get_arg_value(args, ARG_INTERACTIVE), make_clean, is_debug_build)
 
@@ -286,8 +273,11 @@ def main() -> None:
 # ───────────────────────────  helpers / actions  ─────────────────────── #
 
 
-def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: str, input_tisdk_ref: str, overwrite_repos: List[str], use_current_ow_branch: bool, current_local_branch: str, tisdk_ref_from_ci_yml: Optional[str] = None):
+def setup_prebuild(build_type: str, manifest_source: str, ow_manifest_branch: str, input_tisdk_ref: Optional[str], overwrite_repos: List[str], use_current_ow_branch: bool, current_local_branch: str, tisdk_ref_from_ci_yml: Optional[str] = None) -> Tuple[IesaManifest, List[Dict[str, Any]]]:
+    remove_tmp_build()
+    
     ow_sw_path_str = str(OW_SW_PATH)
+    # PRE-BUILD CHECK
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build check...")
     LOG(f"Check OW branch matches with manifest branch. This is because we use some OW folders from the build like ./external/, ... ")
     if not use_current_ow_branch:
@@ -344,18 +334,11 @@ def prebuild_check(build_type: str, manifest_source: str, ow_manifest_branch: st
                     f"ERROR: Invalid overwrite repo name: {repo_name}\nAvailable repo names in manifest: {manifest.get_all_repo_names()}")
                 sys.exit(1)
 
-
-def pre_build_setup(build_type: str, manifest_source: str, ow_manifest_branch: str, tisdk_ref: str, overwrite_repos: List[str], force_remove_tmp_build: bool, repo_sync: bool, use_current_ow_branch: bool) -> Tuple[IesaManifest, List[Dict[str, Any]]]:
+    # PRE-BUILD SETUP
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build setup...")
-    manifest_snapshot_path: Path = IESA_MANIFEST_FILE_PATH_LOCAL
-    if repo_sync:
-        reset_or_create_tmp_build(force_remove_tmp_build)
-        # Sync other repos from manifest of REMOTE OW_SW
-        manifest_sync_from_remote_path = init_and_sync_from_remote(ow_manifest_branch, manifest_source=manifest_source,
-                                                                   use_current_ow_branch=use_current_ow_branch)
-        manifest_snapshot_path = manifest_sync_from_remote_path
-    else:
-        LOG("Skipping tmp_build reset and repo sync due to --sync false flag.")
+    # Sync other repos from manifest of REMOTE OW_SW
+    manifest_snapshot_path = init_and_sync_from_remote(ow_manifest_branch, manifest_source=manifest_source,
+                                                       use_current_ow_branch=use_current_ow_branch)
 
     # {repo → relative path from build folder}, use local as they should be the same
     actual_manifest: IesaManifest = parse_local_gl_iesa_manifest(manifest_snapshot_path)
@@ -387,7 +370,7 @@ def pre_build_setup(build_type: str, manifest_source: str, ow_manifest_branch: s
         overridden_repo_change_details = [snapshot for snapshot in change_snapshots if snapshot.get("has_changes")]
 
     if build_type == BUILD_TYPE_IESA:
-        prepare_iesa_bsp(tisdk_ref)
+        prepare_iesa_bsp(input_tisdk_ref)
 
     return actual_manifest, overridden_repo_change_details
 
@@ -408,8 +391,8 @@ def run_build(build_type: str, interactive: bool, make_clean: bool = True, is_de
     # Command to find and convert script files to Unix format
     dos2unix_cmd = (
         f"apt-get install -y dos2unix && "
-        f"find {OW_SW_PATH.absolute()}/ \\( -name tmp_build -o -name .git -o -name __pycache__ \\) "
-        "-prune -o -type f \\( -name '*.py' -o -name '*.sh' \\) -exec dos2unix {} +"
+        f"find {OW_SW_PATH.absolute()}/ \\( -name .git -o -name __pycache__ \\) " # -o -name tmp_build
+        "-prune -o -type f \\( -name '*.py' -o -name '*.sh' -o -name '*.json' \\) -exec dos2unix {} +"
     )
 
     chmod_cmd = f"chmod -R +x {OW_SW_PATH.absolute()}/"
@@ -446,36 +429,18 @@ def run_build(build_type: str, interactive: bool, make_clean: bool = True, is_de
         show_noti(title="Build finished", message=f"Build finished in {elapsed_time} seconds")
 
 
-def reset_or_create_tmp_build(force_remove_tmp_build: bool) -> None:
-    repo_dir = OW_SW_BUILD_FOLDER_PATH / '.repo'
-    manifest_file = repo_dir / 'manifest.xml'
-    manifests_git_head = repo_dir / 'manifests' / '.git' / 'HEAD'
-
+def remove_tmp_build() -> None:
     if OW_SW_BUILD_FOLDER_PATH.exists():
-        should_remove: bool = False
-        is_reset_instead_clearing: bool = not force_remove_tmp_build and repo_dir.is_dir(
-        ) and manifest_file.is_file() and manifests_git_head.is_file()
-        if (is_reset_instead_clearing):
-            LOG(f"Resetting existing repo in {OW_SW_BUILD_FOLDER_PATH}...")
-            try:
-                run_shell("repo forall -c 'git reset --hard' && repo forall -c 'git clean -fdx'",
-                          cwd=OW_SW_BUILD_FOLDER_PATH)
-            except subprocess.CalledProcessError:
-                LOG(f"Warning: 'repo forall' failed in {OW_SW_BUILD_FOLDER_PATH}. Assuming broken repo and clearing...")
-                should_remove = True
+        LOG(f"Force removing tmp_build folder at {OW_SW_BUILD_FOLDER_PATH}...")
+        # Move back to parent directory before removing tmp_build
+        original_cwd = Path.cwd()
+        if is_current_relative_to(Path.cwd(), OW_SW_BUILD_FOLDER_PATH):
+            LOG(f"{LOG_PREFIX_MSG_WARNING} Current directory is inside tmp_build, changing to {OW_SW_PATH}...")
+            os.chdir(OW_SW_PATH)
         else:
-            LOG(f"Force removing tmp_build folder at {OW_SW_BUILD_FOLDER_PATH}...")
-            should_remove = True
-        if should_remove:
-            # Move back to parent directory before removing tmp_build
-            original_cwd = Path.cwd()
-            if is_current_relative_to(Path.cwd(), OW_SW_BUILD_FOLDER_PATH):
-                LOG(f"{LOG_PREFIX_MSG_WARNING} Current directory is inside tmp_build, changing to {OW_SW_PATH}...")
-                os.chdir(OW_SW_PATH)
-            else:
-                LOG(f"Current directory {original_cwd} is outside tmp_build, no need to change directory.")
-            clear_directory(OW_SW_BUILD_FOLDER_PATH, remove_dir_itself=True)
-            OW_SW_BUILD_FOLDER_PATH.mkdir(parents=True)
+            LOG(f"Current directory {original_cwd} is outside tmp_build, no need to change directory.")
+        clear_directory(OW_SW_BUILD_FOLDER_PATH, remove_dir_itself=True)
+        OW_SW_BUILD_FOLDER_PATH.mkdir(parents=True)
     else:
         OW_SW_BUILD_FOLDER_PATH.mkdir(parents=True)
 
@@ -511,14 +476,20 @@ def get_tisdk_ref_from_ci_yml(file_path: str) -> Optional[str]:
     return tisdk_ref
 
 
-def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, use_current_ow_branch: bool) -> Path:
+def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, use_current_ow_branch: bool, skip_repo_update=False) -> Path:
     LOG(f"{MAIN_STEP_LOG_PREFIX} Init and Sync repo at {OW_SW_BUILD_FOLDER_PATH}...")
     repo_root_for_manifest = str(OW_SW_PATH)
     if is_platform_windows():
         repo_root_for_manifest = convert_win_to_wsl_path(repo_root_for_manifest)
     manifest_repo_url = get_manifest_repo_url(manifest_source, repo_root_for_manifest)
-    run_shell(f"repo init {manifest_repo_url} -b {manifest_repo_branch} -m {IESA_MANIFEST_RELATIVE_PATH}",
-              cwd=OW_SW_BUILD_FOLDER_PATH)
+    
+    os.environ['REPO_SKIP_UPDATE'] = '1' # Skip repo update
+    #if not skip_repo_update:
+    #    _update_repo_if_needed()
+    
+    use_local_git_repo = True
+    extra_repo_args = f" --repo-url={GIT_REPO_PATH} --repo-rev=v2.61" if use_local_git_repo else ""
+    run_shell(f"repo init {manifest_repo_url} -b {manifest_repo_branch} -m {IESA_MANIFEST_RELATIVE_PATH}{extra_repo_args}", cwd=OW_SW_BUILD_FOLDER_PATH)
 
     # Construct the full path to the manifest file
     manifest_full_path = Path(OW_SW_BUILD_FOLDER_PATH / ".repo" / "manifests" / IESA_MANIFEST_RELATIVE_PATH)
@@ -556,7 +527,6 @@ def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, u
     run_shell("repo sync", cwd=OW_SW_BUILD_FOLDER_PATH)
     return manifest_full_path
 
-
 def sync_local_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
     local_repo_info: Optional[IesaLocalRepoInfo] = LOCAL_REPO_MAPPING.get_by_name(repo_name)
     if not local_repo_info:
@@ -578,9 +548,7 @@ def sync_local_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
     if src_overwrite_commit == dest_orig_commit:
         LOG("Source and destination are at the same commit. No history check needed.")
     elif not git_is_ancestor(dest_orig_commit, src_overwrite_commit, cwd=local_repo_info.repo_local_path):
-        LOG(f"ERROR: Source (override) commit ({str(local_repo_info.repo_local_path)}: {src_overwrite_commit}) is not a descendant of destination ({str(dest_root_path)}: {dest_orig_commit}).\nMake sure check out correct branch + force push local branch to remote (as it fetched dest remotely via repo sync)!", file=sys.stderr)
-        LOG_EXCEPTION_STR(
-            f"Source commit {src_overwrite_commit} is not a descendant of destination (to be overwritten) commit {dest_orig_commit}.")
+        LOG_EXCEPTION_STR(f"Source (override) commit ({str(local_repo_info.repo_local_path)}: {src_overwrite_commit}) is not a descendant of destination ({str(dest_root_path)}: {dest_orig_commit}).\nMake sure check out correct branch + force push local branch to remote (as it fetched dest remotely via repo sync)!")
     else:
         LOG(f"Common ancestor for '{repo_name}' found. Proceeding with sync.")
 

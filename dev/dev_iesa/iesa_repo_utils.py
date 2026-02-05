@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Dict, Iterable, Tuple
 
 from dev.dev_common.constants import INSENSE_SDK_REPO_PATH
-from dev.dev_common.core_independent_utils import LOG
+from dev.dev_common.core_independent_utils import LOG, ELogType
 
 _DEFAULT_HEADER_PATTERN = INSENSE_SDK_REPO_PATH / "InsenseSDK" / "inertial-sense*" / "src" / "data_sets.h"
 
@@ -69,7 +69,7 @@ def get_enum_declaration_from_path(enum_name: str, header_path: Path | None = No
         except Exception as exc:
             raise ValueError(f"Failed to evaluate expression '{expr}' for {name} in {enum_name}") from exc
         values[name] = value
-        LOG(f"[IESA] Finish evaluating expression '{expr}' for {name} in {enum_name} -> Result: {value}")
+        LOG(f"[IESA] Finish evaluating expression '{expr}' for {name} in {enum_name} -> Result: {value}", log_type=ELogType.DEBUG)
     LOG(f"[IESA] Parsed enum {enum_name} ({len(values)} entries): { {k: hex(v) if v > 9 else v for k, v in values.items()} }")
     return values
 

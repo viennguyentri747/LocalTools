@@ -372,7 +372,9 @@ def regex_c_function_definition(symbol: str, literal: bool) -> str:
     Matches a likely C/C++ function definition header (line should not end with ';').
     """
     signature = _regex_c_function_signature(symbol, literal)
-    return rf"{signature}(?![^;]*;)"
+    # Allow inline definitions with `{ ...; ... }` on the same line.
+    # Match when there's a `{` before any `;`, or when the line contains no `;` at all.
+    return rf"{signature}(?:(?=[^;{{]*\{{)|(?=[^;]*$))"
 
 
 def regex_c_function_declaration(symbol: str, literal: bool) -> str:
@@ -380,7 +382,8 @@ def regex_c_function_declaration(symbol: str, literal: bool) -> str:
     Matches a likely C/C++ function declaration/prototype (requires trailing `;`).
     """
     signature = _regex_c_function_signature(symbol, literal)
-    return rf"{signature}(?=[^;]*;)"
+    # Require a `;` before any `{` on the same line to avoid inline definitions.
+    return rf"{signature}(?=[^;{{]*;)"
 
 
 def regex_c_variable_definition(symbol: str, literal: bool) -> str:

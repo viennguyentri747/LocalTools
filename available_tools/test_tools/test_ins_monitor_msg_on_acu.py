@@ -1,4 +1,4 @@
-#!/home/vien/core_repos/local_tools/MyVenvFolder/bin/python
+#!/home/vien/workspace/intellian_core_repos/local_tools/MyVenvFolder/bin/python
 """
 Remote tool: Generate SCP + run command to copy and execute test_ins_monitor_messages.py on a target device.
 - Builds a one-liner to SCP to /home/root/download/ on the target via jump host

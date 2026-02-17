@@ -1,4 +1,4 @@
-#!/home/vien/core_repos/local_tools/MyVenvFolder/bin/python
+#!/home/vien/workspace/intellian_core_repos/local_tools/MyVenvFolder/bin/python
 """
 Remote helper: Generate a ready-to-run `tail -F` command that follows ACU periodic logs
 and prints only the selected column set (defaults to INS-focused columns).

@@ -1,4 +1,4 @@
-#!/home/vien/core_repos/local_tools/MyVenvFolder/bin/python
+#!/home/vien/workspace/intellian_core_repos/local_tools/MyVenvFolder/bin/python
 """
 Obsidian integration for Jira using the Obsidian Advanced URI plugin.
 This script creates a new note in Obsidian by populating a local template

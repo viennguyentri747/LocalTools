@@ -250,27 +250,25 @@ def run_fw_update(fpkg_fw_path: str, *, no_prompt: bool = False, base_branch: Op
     if staged_files:
         LOG_EXCEPTION_STR(f"Staging area already contains files. Staged before add: {', '.join(staged_files)}")
 
-    if not checkout_branch(repo_path, base_branch, branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_EXIST, allow_empty=True, ):
-        LOG_EXCEPTION_STR(f"❌ FATAL: Failed to checkout base branch '{base_branch}'")
-
     pair = get_fw_pair(fpkg_fw_path, fpkg_only=fpkg_only)
     if not pair:
         LOG_EXCEPTION_STR("❌ FATAL: Failed to build firmware set -> Aborting update.")
     if not fpkg_only and pair.imx_full_path is None:
         LOG_EXCEPTION_STR("❌ FATAL: No firmware pair available (no IMX) -> Aborting update.")
 
-    version = pair.version or extract_version_from_fpkg(pair.gpx_full_path)
-    if not version:
-        LOG_EXCEPTION_STR(f"❌ FATAL: Could not extract version from firmware set: {pair} -> Aborting update.")
-    if version != pair.version:
-        pair = pair._replace(version=version)
-
+    version = pair.version or extract_version_from_fpkg(fpkg_fw_path)
     branch_prefix = f"update-fw-{str_to_slug(version)}"
     target_branch_name = f"{branch_prefix}-{str_to_slug(get_short_date_now())}"
     if git_is_local_branch_existing(repo_path, target_branch_name):
         LOG_EXCEPTION_STR(
             f"❌ FATAL: Already having target branch {target_branch_name} -> Aborting update, check again and delete the branch if you want to retry!!")
 
+    if not checkout_branch(repo_path, base_branch, branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_EXIST, allow_empty=True, ):
+        LOG_EXCEPTION_STR(f"❌ FATAL: Failed to checkout base branch '{base_branch}'")
+   
+    if not version:
+        LOG_EXCEPTION_STR(f"❌ FATAL: Could not extract FW version -> Aborting update.")
+  
     LOG(f"🔀 Creating and switching to branch {target_branch_name}...")
     if not checkout_branch(repo_path, target_branch_name, branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_NOT_EXIST, ):
         LOG("❌ FATAL: Could not switch/create branch -> Aborting update.")

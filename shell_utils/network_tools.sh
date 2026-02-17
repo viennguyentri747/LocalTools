@@ -245,7 +245,7 @@ ping_ssm_ip() {
     fi
 
     echo "Pinging $ip..."
-    while ! ping -c2 -W1 "$ip" >/dev/null 2>&1; do
+    while ! ping -c3 -W1 "$ip" >/dev/null 2>&1; do
         echo -ne "\r[$SECONDS s] Waiting for $ip to be reachable..."
         sleep 1
     done
@@ -308,7 +308,7 @@ ping_acu_ip() {
 ping_ssm() {
     if ! resolve_area_and_octet "$@"; then
         echo "Usage: ping_ssm [area] <last-octet> [--mute]"
-        echo "Ex: ping_ssm 70 --mute   or   ping_ssm lab 70 --mute"
+        echo "Ex: ping_ssm 70 --mute OR ping_ssm lab 70 --mute"
         return 1
     fi
     local area="$RESOLVED_AREA"

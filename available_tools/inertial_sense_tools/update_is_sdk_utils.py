@@ -167,6 +167,33 @@ def cleanup_old_sdks(install_dir: Path, new_sdk_dir_name: str) -> None:
     git_stage_and_commit(INSENSE_SDK_REPO_PATH, "Cleanup old SDKs", suppress_output=True)
 
 
+def _path_contains_any_files(path: Path) -> bool:
+    if not path.exists() or not path.is_dir():
+        return False
+    for item in path.rglob("*"):
+        if item.is_file() or item.is_symlink():
+            return True
+    return False
+
+
+def _remove_empty_dirs(path: Path) -> bool:
+    if not path.exists():
+        return True
+    if not path.is_dir():
+        return False
+    dirs = sorted((item for item in path.rglob("*") if item.is_dir()), key=lambda p: len(p.parts), reverse=True)
+    for dir_path in dirs:
+        try:
+            dir_path.rmdir()
+        except OSError:
+            return False
+    try:
+        path.rmdir()
+    except OSError:
+        return False
+    return True
+
+
 def get_current_git_branch() -> Optional[str]:
     try:
         result = subprocess.run(
@@ -330,16 +357,16 @@ def run_sdk_update_with_zip(sdk_zip_path: Path, *, no_prompt: bool = False, base
     LOG(f"   -> Extracted version: {version}")
 
     repo_path = INSENSE_SDK_REPO_PATH
-    if not checkout_branch(repo_path, base_branch, branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_EXIST, allow_empty=True, ):
-        LOG(f"❌ FATAL: Failed to checkout base branch '{base_branch}'")
-        return
-
     branch_prefix = f"update-sdk-{str_to_slug(version)}"
     target_branch_name = f"{branch_prefix}-{str_to_slug(get_short_date_now())}"
 
     if git_is_local_branch_existing(repo_path, target_branch_name):
         LOG(
             f"❌ FATAL: Already having target branch {target_branch_name} -> Aborting update, check again and delete the branch if you want to retry!!")
+        return
+
+    if not checkout_branch(repo_path, base_branch, branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_EXIST, allow_empty=True, ):
+        LOG(f"❌ FATAL: Failed to checkout base branch '{base_branch}'")
         return
 
     if not checkout_branch(repo_path, target_branch_name, branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_NOT_EXIST, ):
@@ -383,13 +410,25 @@ def run_sdk_update_with_branch(branch_name: str, *, no_prompt: bool = False, bas
         LOG(f"❌ FATAL: Failed to checkout base branch '{base_branch}'")
         return
 
-    # Check if the SDK already exists
+    # Check if the SDK dir already exists
     INSENSE_SDK_UNPACK_DIR.mkdir(parents=True, exist_ok=True)
     new_sdk_dir_name = f"inertial-sense-sdk-{_normalize_branch_name(normalized_branch)}"
     new_sdk_path = INSENSE_SDK_UNPACK_DIR / new_sdk_dir_name
     if new_sdk_path.exists():
-        LOG(f"❌ FATAL: Target SDK path already exists at '{new_sdk_path}'. Check and delete it with command 'rm -rf {new_sdk_path}'.")
-        return
+        if not new_sdk_path.is_dir() or _path_contains_any_files(new_sdk_path):
+            LOG(
+                f"❌ FATAL: Target SDK path already exists at '{new_sdk_path}' and contains files. "
+                f"Check and delete it with command 'rm -rf {new_sdk_path}'."
+            )
+            return
+        LOG(f"⚠️ WARNING: Target SDK path already exists at '{new_sdk_path}' but contains only empty directories. Cleaning it up...")
+        if not _remove_empty_dirs(new_sdk_path):
+            LOG(
+                f"❌ FATAL: Could not remove empty directories under '{new_sdk_path}'. "
+                f"Check and delete it with command 'rm -rf {new_sdk_path}'."
+            )
+            return
+        LOG(f"   -> Removed empty SDK path: '{new_sdk_path}'")
 
     target_branch_prefix = f"update-sdk-{str_to_slug(version)}"
     target_branch_name = f"{target_branch_prefix}-{str_to_slug(get_short_date_now())}"

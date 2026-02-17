@@ -1,4 +1,4 @@
-#!/home/vien/core_repos/local_tools/MyVenvFolder/bin/python
+#!/home/vien/workspace/intellian_core_repos/local_tools/MyVenvFolder/bin/python
 from __future__ import annotations
 import argparse
 from pathlib import Path
@@ -12,7 +12,7 @@ DEFAULT_LOG_TYPE_PREFIXES = [P_LOG_PREFIX, T_LOG_PREFIX, E_LOG_PREFIX]
 DEFAULT_LOG_OUTPUT_PATH = ACU_LOG_PATH
 DEFAULT_PATTERNS = ["MOTION DETECT", "INS-READY"]
 
-ARG_LOG_TYPES = f"{ARGUMENT_LONG_PREFIX}type"
+ARG_LOG_TYPES = f"{ARGUMENT_LONG_PREFIX}log_types"
 ARG_DATE_FILTERS = f"{ARGUMENT_LONG_PREFIX}date"
 ARG_PATTERNS = f"{ARGUMENT_LONG_PREFIX}patterns"
 ARG_MAX_THREAD_COUNT = f"{ARGUMENT_LONG_PREFIX}max_threads"
@@ -114,7 +114,7 @@ def _build_grep_command(patterns: List[str], files: List[Path]) -> str:
 
     combined_pattern = "|".join(sanitized_patterns)
     file_arguments = " ".join(quote(str(path)) for path in files)
-    return f"grep -aE --color=always {quote(combined_pattern)} {file_arguments}; ec=$?; if [ $ec -eq 1 ]; then echo 'No matches found!'; elif [ $ec -eq 2 ]; then echo 'Error: File not found or cannot be read!'; fi"
+    return f"grep -aE --color=always {quote(combined_pattern)} {file_arguments}; ec=$?; if [ $ec -eq 1 ]; then printf '\\nNo matches found!\\n'; elif [ $ec -eq 2 ]; then printf '\\nError: File not found or cannot be read!\\n'; fi"
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
     args = parse_args(argv)

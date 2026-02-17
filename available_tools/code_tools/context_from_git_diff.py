@@ -14,7 +14,7 @@ def get_diff_tool_templates() -> List[ToolTemplate]:
             name="[git_diff] Context from Git Diff between 2 refs (commits, branchs, tags ...)",
             args={
                 ARG_EXTRACT_MODE: EXTRACT_MODE_GIT_DIFF,
-                ARG_PATH_LONG: "~/core_repos/intellian_pkg",
+                ARG_PATH_LONG: f"{CORE_REPOS_PATH}/intellian_pkg",
                 ARG_BASE_REF_LONG: "origin/manpack_master",
                 ARG_TARGET_REF_LONG: "origin/feat_branch",
             }

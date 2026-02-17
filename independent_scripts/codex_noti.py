@@ -1,4 +1,4 @@
-#!/home/vien/core_repos/local_tools/MyVenvFolder/bin/python
+#!/home/vien/workspace/intellian_core_repos/local_tools/MyVenvFolder/bin/python
 import sys
 import json
 from dev.dev_common.noti_utils import show_noti

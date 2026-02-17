@@ -1,4 +1,4 @@
-#!/home/vien/core_repos/local_tools/MyVenvFolder/bin/python
+#!/home/vien/workspace/intellian_core_repos/local_tools/MyVenvFolder/bin/python
 from __future__ import annotations
 
 import argparse
@@ -23,7 +23,7 @@ use_posix_paths()
 DEFAULT_TIME_WINDOW_HOURS: float = 0.1  # 0.1 = 6 minutes
 DEFAULT_COLUMNS: List[str] = [TIME_COLUMN, LAST_TIME_SYNC_COLUMN, LAST_VELOCITY_COLUMN, LAST_RTK_COMPASS_STATUS_COLUMN]
 DEFAULT_OUTPUT_PATH = PERSISTENT_TEMP_PATH / "compact_plog.tsv"
-ARG_PLOG_DIR_OR_FILE = f"{ARGUMENT_LONG_PREFIX}plog_dir_or_file"
+ARG_PLOG_PATHS = f"{ARGUMENT_LONG_PREFIX}plog_paths"
 ARG_COLUMNS = f"{ARGUMENT_LONG_PREFIX}columns"
 ARG_TIME_WINDOW = f"{ARGUMENT_LONG_PREFIX}hours"
 ARG_OUTPUT_PATH = f"{ARGUMENT_LONG_PREFIX}output"
@@ -48,11 +48,12 @@ class PlogData:
 
 def get_tool_templates() -> List[ToolTemplate]:
     """
-    Provide a single template pointing to the local ACU log folder so users can edit paths quickly.
+    Provide a single template pointing to sample local ACU log files.
     """
-    sample_log_path = ACU_LOG_PATH / "192.168.101.79" / "P_20251121_000000.txt"
+    sample_log_path_1 = ACU_LOG_PATH / "192.168.100.79" / "P_20251121_000000.txt"
+    sample_log_path_2 = ACU_LOG_PATH / "192.168.100.80" / "P_20251121_000000.txt"
     args = {
-        ARG_PLOG_DIR_OR_FILE: str(sample_log_path),
+        ARG_PLOG_PATHS: [str(sample_log_path_1), str(sample_log_path_2)],
         ARG_OUTPUT_PATH: str(DEFAULT_OUTPUT_PATH),
         ARG_COLUMNS: DEFAULT_COLUMNS,
         ARG_TIME_WINDOW: DEFAULT_TIME_WINDOW_HOURS,
@@ -64,7 +65,7 @@ def get_tool_templates() -> List[ToolTemplate]:
             extra_description="Keeps Time/Velocity/RTK Compass columns and saves TSV under temp/.",
             args=args,
             search_root=ACU_LOG_PATH,
-            usage_note="Update --plog_dir_or_file to reference the P-log file or folder you want to shrink.",
+            usage_note="Update --plog_paths with one or more P-log file paths you want to shrink.",
         ),
     ]
 
@@ -76,12 +77,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
 
-    parser.add_argument(
-        ARG_PLOG_DIR_OR_FILE,
-        required=True,
-        type=Path,
-        help="Path to a periodic log file (P_*) or a directory that contains them.",
-    )
+    parser.add_argument(ARG_PLOG_PATHS, required=True, nargs="+", type=Path, help="One or more periodic log file paths (P_*.txt/P_*.log).")
     parser.add_argument( ARG_COLUMNS, nargs="+", default=None, help="Space-separated list of column names to keep (default: Time/Velocity/RTK Compass).", )
     parser.add_argument( ARG_TIME_WINDOW, type=float, default=DEFAULT_TIME_WINDOW_HOURS, help="Time window in hours to keep from the tail of the log (default: all rows).", )
     parser.add_argument( ARG_OUTPUT_PATH, type=Path, default=Path(DEFAULT_OUTPUT_PATH), help=f"Destination file for the compact log (default: {DEFAULT_OUTPUT_PATH}).", )
@@ -244,23 +240,18 @@ def _is_plog_file(candidate: Path) -> bool:
     return candidate.suffix.lower() in {".txt", ".log"}
 
 
-def _discover_plog_files(plog_dir_or_file: Path) -> List[Path]:
-    """Return a sorted list of candidate P-log files to analyze."""
-    if not plog_dir_or_file.exists():
-        LOG_EXCEPTION(ValueError(f"P-log path not found: {plog_dir_or_file}"), exit=True)
-
-    if plog_dir_or_file.is_file():
-        return [plog_dir_or_file]
-
-    files: List[Path] = []
-    for candidate in plog_dir_or_file.rglob("P_*"):
-        if _is_plog_file(candidate):
-            files.append(candidate)
-
-    return sorted(files)
+def _validate_plog_file(plog_path: Path) -> Path:
+    """Validate that input path is an existing P-log file path."""
+    if not plog_path.exists():
+        LOG_EXCEPTION(ValueError(f"P-log path not found: {plog_path}"), exit=True)
+    if not plog_path.is_file():
+        LOG_EXCEPTION(ValueError(f"P-log path must be a file, not a directory: {plog_path}"), exit=True)
+    if not _is_plog_file(plog_path):
+        LOG_EXCEPTION(ValueError(f"Invalid P-log file name/type: {plog_path}. Expected P_*.txt or P_*.log"), exit=True)
+    return plog_path
 
 
-def _write_metadata_file( output_plog_path: Path, input_path: Path, time_window: Optional[float], target_columns: Sequence[str], processed_files: Sequence[Path], rows_written: int, ) -> Path:
+def _write_metadata_file(output_plog_path: Path, input_paths: Sequence[Path], time_window: Optional[float], target_columns: Sequence[str], processed_files: Sequence[Path], rows_written: int) -> Path:
     """Persist metadata as JSON next to the compact log artifact."""
     now_utc = datetime.now(timezone.utc)
     timestamp = now_utc.strftime("%Y%m%d_%H%M%S")
@@ -268,7 +259,7 @@ def _write_metadata_file( output_plog_path: Path, input_path: Path, time_window:
     metadata = {
         "generated_at_utc": now_utc.isoformat(),
         "arguments": {
-            "input_path": str(input_path),
+            "input_paths": [str(path) for path in input_paths],
             "time_window_hours": time_window,
             "columns": list(target_columns),
             "output_plog_path": str(output_plog_path),
@@ -283,7 +274,8 @@ def _write_metadata_file( output_plog_path: Path, input_path: Path, time_window:
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
     args = parse_args(argv)
-    input_path = Path(get_arg_value(args, ARG_PLOG_DIR_OR_FILE)).expanduser()
+    input_paths_raw = get_arg_value(args, ARG_PLOG_PATHS) or []
+    input_paths = [Path(path).expanduser() for path in input_paths_raw]
     output_path = Path(get_arg_value(args, ARG_OUTPUT_PATH)).expanduser()
     time_window = get_arg_value(args, ARG_TIME_WINDOW)
     if time_window is not None:
@@ -292,10 +284,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     target_columns = _normalize_columns(requested_columns)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    plog_files = _discover_plog_files(input_path)
-    if not plog_files:
-        LOG_EXCEPTION(ValueError(f"No P-log files found under: {input_path}"), exit=True)
-    LOG(f"{LOG_PREFIX_MSG_INFO} Found {len(plog_files)} P-log file(s) to analyze under {input_path}")
+    plog_files = sorted({_validate_plog_file(input_path) for input_path in input_paths})
+    LOG(f"{LOG_PREFIX_MSG_INFO} Found {len(plog_files)} unique P-log file(s) to analyze from {len(input_paths)} input path(s).")
 
     processed_data: List[PlogData] = process_plog_files(plog_files, target_columns, time_window)
     processed_files = [file_data.plog_file for file_data in processed_data]
@@ -313,7 +303,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     metadata_path = _write_metadata_file(
         output_plog_path=output_path,
-        input_path=input_path,
+        input_paths=input_paths,
         time_window=time_window,
         target_columns=target_columns,
         processed_files=processed_files,

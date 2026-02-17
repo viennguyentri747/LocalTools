@@ -1,4 +1,4 @@
-#!/home/vien/core_repos/local_tools/MyVenvFolder/bin/python
+#!/home/vien/workspace/intellian_core_repos/local_tools/MyVenvFolder/bin/python
 from __future__ import annotations
 
 import argparse
@@ -18,7 +18,7 @@ DEFAULT_MAX_SECS_PER_SYNC = 0.999990
 DEFAULT_MAX_REPORT = 20
 DEFAULT_OUTPUT_PATH = PERSISTENT_TEMP_PATH / "time_sync_plog.tsv"
 
-ARG_PLOG_DIR_OR_FILE = t_test_process_plog_local.ARG_PLOG_DIR_OR_FILE
+ARG_PLOG_PATHS = t_test_process_plog_local.ARG_PLOG_PATHS
 ARG_TIME_WINDOW = t_test_process_plog_local.ARG_TIME_WINDOW
 ARG_OUTPUT_PATH = t_test_process_plog_local.ARG_OUTPUT_PATH
 ARG_MAX_SECS_PER_SYNC = f"{ARGUMENT_LONG_PREFIX}max_secs_per_sync"
@@ -26,9 +26,9 @@ ARG_MAX_REPORT = f"{ARGUMENT_LONG_PREFIX}max_report"
 
 
 def get_tool_templates() -> List[ToolTemplate]:
-    sample_log_path = ACU_LOG_PATH / "192.168.101.79" / "P_20251121_000000.txt"
+    sample_log_path = ACU_LOG_PATH / "192.168.100.79" / "P_20251121_000000.txt"
     args = {
-        ARG_PLOG_DIR_OR_FILE: str(sample_log_path),
+        ARG_PLOG_PATHS: str(sample_log_path),
         ARG_OUTPUT_PATH: str(DEFAULT_OUTPUT_PATH),
         ARG_MAX_SECS_PER_SYNC: DEFAULT_MAX_SECS_PER_SYNC,
         # ARG_TIME_WINDOW: t_test_process_plog_local.DEFAULT_TIME_WINDOW_HOURS,
@@ -52,7 +52,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
 
     parser.add_argument(
-        ARG_PLOG_DIR_OR_FILE,
+        ARG_PLOG_PATHS,
         required=True,
         type=Path,
         help="Path to a periodic log file (P_*) or a directory that contains them.",
@@ -179,7 +179,7 @@ def _check_time_sync(file_data: t_test_process_plog_local.PlogData, max_secs_per
         drift = real_time_delta_secs_float - sync_delta_secs_int
         if abs(drift) > max_secs_per_sync:
             _record_issue(issues, file_data.plog_file, idx + 1, curr_time_value, curr_sync_value,
-                          f"drift exceeds {max_secs_per_sync:.3f}s", drift=drift,
+                          f"drift = {drift:.3f}s > {max_secs_per_sync:.3f}s", drift=drift,
                           drift_time_now=curr_adj_time_secs_float, drift_time_start=start_time_float,
                           drift_sync_now=curr_time_sync_int, drift_sync_start=start_sync_int,
                           drift_time_now_label=curr_time_value, drift_time_start_label=start_time_label)
@@ -221,7 +221,7 @@ def _write_metadata_file(output_plog_path: Path, input_path: Path, time_window: 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
     args = parse_args(argv)
-    input_path = Path(get_arg_value(args, ARG_PLOG_DIR_OR_FILE)).expanduser()
+    input_paths = Path(get_arg_value(args, ARG_PLOG_PATHS)).expanduser()
     output_path = Path(get_arg_value(args, ARG_OUTPUT_PATH)).expanduser()
     time_window: Optional[str] = get_arg_value(args, ARG_TIME_WINDOW)
     if time_window is not None:
@@ -230,10 +230,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     max_report = int(get_arg_value(args, ARG_MAX_REPORT))
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    plog_files = t_test_process_plog_local._discover_plog_files(input_path)
-    if not plog_files:
-        LOG_EXCEPTION(ValueError(f"No P-log files found under: {input_path}"), exit=True)
-    LOG(f"{LOG_PREFIX_MSG_INFO} Found {len(plog_files)} P-log file(s) to analyze under {input_path}")
+    plog_files = sorted({t_test_process_plog_local._validate_plog_file(input_path) for input_path in input_paths})
+    LOG(f"{LOG_PREFIX_MSG_INFO} Found {len(plog_files)} unique P-log file(s) to analyze from {len(input_paths)} input path(s).")
+    LOG(f"{LOG_PREFIX_MSG_INFO} Found {len(plog_files)} P-log file(s) to analyze under {input_paths}")
 
     processed_data = t_test_process_plog_local.process_plog_files(plog_files, DEFAULT_COLUMNS, time_window)
     processed_files = [file_data.plog_file for file_data in processed_data]
@@ -253,7 +252,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     metadata_path = _write_metadata_file(
         output_plog_path=output_path,
-        input_path=input_path,
+        input_path=input_paths,
         time_window=time_window,
         target_columns=DEFAULT_COLUMNS,
         processed_files=processed_files,

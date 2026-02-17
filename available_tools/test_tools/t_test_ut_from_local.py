@@ -1,10 +1,10 @@
-#!/home/vien/core_repos/local_tools/MyVenvFolder/bin/python
+#!/home/vien/workspace/intellian_core_repos/local_tools/MyVenvFolder/bin/python
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
 import sys
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, List, Tuple
 
 from available_tools.test_tools import test_pattern_in_acu_logs_local as pattern_tool
 from available_tools.test_tools.test_ut_since_startup import t_test_ut_acquisition_status_via_bash_tools as bash_status_tool

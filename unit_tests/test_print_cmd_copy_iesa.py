@@ -1,4 +1,4 @@
-#!/home/vien/core_repos/local_tools/MyVenvFolder/bin/python
+#!/home/vien/workspace/intellian_core_repos/local_tools/MyVenvFolder/bin/python
 import shutil
 from available_tools.iesa_tools.t_ow_local_build import IESA_EXEC_PATH, IESA_OUT_ARTIFACT_PATH, append_build_log, ensure_temp_build_output_dir, init_ow_build_log
 from dev.dev_common import *

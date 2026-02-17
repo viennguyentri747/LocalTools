@@ -13,7 +13,7 @@ from dev.dev_common.constants import LINE_SEPARATOR, CMD_EXPLORER, WSL_SELECT_FL
 from dev.dev_common import *
 # from dev.dev_common.core_utils import LOG, convert_win_to_wsl_path, run_shell, convert_wsl_to_win_path
 
-HIDDEN_TOOL_FILENAMES = {"t_test_ut_from_local.py"}
+HIDDEN_TOOL_FILENAMES = {} #Can put thing like: "t_test_ut_from_local.py"
 
 
 class ToolFolderPriority(IntEnum):

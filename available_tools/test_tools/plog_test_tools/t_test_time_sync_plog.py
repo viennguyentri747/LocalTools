@@ -10,6 +10,8 @@ from typing import List, Optional, Sequence
 from available_tools.test_tools.plog_test_tools import t_test_process_plog_local
 from dev.dev_common import *
 from unit_tests.acu_log_tests.periodic_log_constants import LAST_TIME_SYNC_COLUMN, TIME_COLUMN
+from available_tools.test_tools.plog_test_tools.t_test_process_plog_local import process_plog_files, _validate_plog_file, _get_compact_log_str, ARG_PLOG_PATHS, ARG_TIME_WINDOW, ARG_OUTPUT_PATH, PLogFileInfo
+
 
 use_posix_paths()
 
@@ -18,20 +20,22 @@ DEFAULT_MAX_SECS_PER_SYNC = 0.999990
 DEFAULT_MAX_REPORT = 20
 DEFAULT_OUTPUT_PATH = PERSISTENT_TEMP_PATH / "time_sync_plog.tsv"
 
-ARG_PLOG_PATHS = t_test_process_plog_local.ARG_PLOG_PATHS
-ARG_TIME_WINDOW = t_test_process_plog_local.ARG_TIME_WINDOW
-ARG_OUTPUT_PATH = t_test_process_plog_local.ARG_OUTPUT_PATH
+ARG_PLOG_PATHS = ARG_PLOG_PATHS
+ARG_TIME_WINDOW = ARG_TIME_WINDOW
+ARG_OUTPUT_PATH = ARG_OUTPUT_PATH
 ARG_MAX_SECS_PER_SYNC = f"{ARGUMENT_LONG_PREFIX}max_secs_per_sync"
 ARG_MAX_REPORT = f"{ARGUMENT_LONG_PREFIX}max_report"
-
+#Note: need to make win python's pip to install local_tools package first by: cd ~/local_tools && <win_python_wsl_path> -m pip install -e .; otherwise the win_cmd_invocation won't work as it can't find the module to run.
+WIN_CMD_INVOCATION = F"{get_win_python_executable_path()} -m available_tools.test_tools.plog_test_tools.t_test_time_sync_plog"
 
 def get_tool_templates() -> List[ToolTemplate]:
-    sample_log_path = ACU_LOG_PATH / "192.168.100.79" / "P_20251121_000000.txt"
+    sample_log_path_1 = ACU_LOG_PATH / "192.168.100.61" / "P_20260216_000000.txt"
+    sample_log_path_2 = ACU_LOG_PATH / "192.168.100.61" / "P_20260217_000000.txt"
     args = {
-        ARG_PLOG_PATHS: str(sample_log_path),
+        ARG_PLOG_PATHS: [str(sample_log_path_1), str(sample_log_path_2)],
         ARG_OUTPUT_PATH: str(DEFAULT_OUTPUT_PATH),
         ARG_MAX_SECS_PER_SYNC: DEFAULT_MAX_SECS_PER_SYNC,
-        # ARG_TIME_WINDOW: t_test_process_plog_local.DEFAULT_TIME_WINDOW_HOURS,
+        # ARG_TIME_WINDOW: DEFAULT_TIME_WINDOW_HOURS,
     }
     
     return [
@@ -40,6 +44,7 @@ def get_tool_templates() -> List[ToolTemplate]:
             extra_description="Validate LAST_TIME_SYNC increments and export a compact Time/LAST_TIME_SYNC log.",
             args=args,
             search_root=ACU_LOG_PATH,
+            override_cmd_invocation=WIN_CMD_INVOCATION,
         ),
     ]
 
@@ -54,8 +59,9 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         ARG_PLOG_PATHS,
         required=True,
+        nargs="+",
         type=Path,
-        help="Path to a periodic log file (P_*) or a directory that contains them.",
+        help="One or more periodic log file paths (P_*.txt/P_*.log).",
     )
     parser.add_argument(ARG_TIME_WINDOW, type=float, default=None,
                         help="Time window in hours to keep from the tail of the log (default: all rows).", )
@@ -113,7 +119,7 @@ def _record_issue(issues: List[str], plog_file: Path, row_index: int, time_value
     issues.append(f"{plog_file} row {row_index}: time={time_value}, {LAST_TIME_SYNC_COLUMN}={sync_value} ({message})")
 
 
-def _check_time_sync(file_data: t_test_process_plog_local.PlogData, max_secs_per_sync: float) -> List[str]:
+def _check_time_sync(file_data: PLogFileInfo, max_secs_per_sync: float) -> List[str]:
     #  Wait for the first time sync tick, then baseline there and check deltas vs LAST_TIME_SYNC.
     issues: List[str] = []
     start_time_float: Optional[float] = None
@@ -190,7 +196,7 @@ def _check_time_sync(file_data: t_test_process_plog_local.PlogData, max_secs_per
     return issues
 
 
-def _write_metadata_file(output_plog_path: Path, input_path: Path, time_window: Optional[float], target_columns: Sequence[str],
+def _write_metadata_file(output_plog_path: Path, input_paths: Sequence[Path], time_window: Optional[float], target_columns: Sequence[str],
                          processed_files: Sequence[Path], rows_written: int, max_secs_per_sync: float,
                          max_report: int, issues: Sequence[str]) -> Path:
     """Persist metadata as JSON next to the compact log artifact."""
@@ -201,7 +207,7 @@ def _write_metadata_file(output_plog_path: Path, input_path: Path, time_window: 
     metadata = {
         "generated_at_utc": now_utc.isoformat(),
         "arguments": {
-            "input_path": str(input_path),
+            "input_paths": [str(path) for path in input_paths],
             "time_window_hours": time_window,
             "columns": list(target_columns),
             "output_plog_path": str(output_plog_path),
@@ -221,7 +227,8 @@ def _write_metadata_file(output_plog_path: Path, input_path: Path, time_window: 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
     args = parse_args(argv)
-    input_paths = Path(get_arg_value(args, ARG_PLOG_PATHS)).expanduser()
+    input_paths_raw = get_arg_value(args, ARG_PLOG_PATHS) or []
+    input_paths = [Path(path).expanduser() for path in input_paths_raw]
     output_path = Path(get_arg_value(args, ARG_OUTPUT_PATH)).expanduser()
     time_window: Optional[str] = get_arg_value(args, ARG_TIME_WINDOW)
     if time_window is not None:
@@ -230,11 +237,10 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     max_report = int(get_arg_value(args, ARG_MAX_REPORT))
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    plog_files = sorted({t_test_process_plog_local._validate_plog_file(input_path) for input_path in input_paths})
+    plog_files = sorted({_validate_plog_file(input_path) for input_path in input_paths})
     LOG(f"{LOG_PREFIX_MSG_INFO} Found {len(plog_files)} unique P-log file(s) to analyze from {len(input_paths)} input path(s).")
-    LOG(f"{LOG_PREFIX_MSG_INFO} Found {len(plog_files)} P-log file(s) to analyze under {input_paths}")
 
-    processed_data = t_test_process_plog_local.process_plog_files(plog_files, DEFAULT_COLUMNS, time_window)
+    processed_data = process_plog_files(plog_files, DEFAULT_COLUMNS, time_window)
     processed_files = [file_data.plog_file for file_data in processed_data]
     rows_written = sum(len(file_data.rows) for file_data in processed_data)
     if rows_written == 0:
@@ -242,7 +248,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         return
 
     LOG(f"{LOG_PREFIX_MSG_INFO} Writing {rows_written} row(s) with {len(DEFAULT_COLUMNS)} column(s) to {output_path}")
-    compact_content = t_test_process_plog_local._get_compact_log_str(processed_data, DEFAULT_COLUMNS)
+    compact_content = _get_compact_log_str(processed_data, DEFAULT_COLUMNS)
     write_to_file(str(output_path), compact_content, mode=WriteMode.OVERWRITE)
     LOG(f"{LOG_PREFIX_MSG_SUCCESS} Time sync compact log created: {output_path}")
 
@@ -252,7 +258,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     metadata_path = _write_metadata_file(
         output_plog_path=output_path,
-        input_path=input_paths,
+        input_paths=input_paths,
         time_window=time_window,
         target_columns=DEFAULT_COLUMNS,
         processed_files=processed_files,

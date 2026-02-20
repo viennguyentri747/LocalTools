@@ -53,6 +53,7 @@ TEST_SSM_UP = "ssm_up"
 TEST_GPS_FIX = "gps_fix"
 TEST_PING = "ping"
 TEST_AIM_READY = "aim_ready"
+TEST_PPS = "pps"
 TEST_CONNECTED = "connected"
 
 DEFAULT_TESTS: tuple[str, ...] = (
@@ -60,6 +61,7 @@ DEFAULT_TESTS: tuple[str, ...] = (
     TEST_GPS_FIX,
     TEST_PING,
     TEST_AIM_READY,
+    TEST_PPS,
     TEST_CONNECTED,
 )
 
@@ -116,6 +118,7 @@ class IterationMetrics:
     gps_fix: Optional[MetricRecord] = None
     ping_ready: Optional[MetricRecord] = None
     aim_ready: Optional[MetricRecord] = None
+    pps_ready: Optional[MetricRecord] = None
     connected: Optional[MetricRecord] = None
 
 
@@ -505,34 +508,42 @@ def wait_for_system_up(client: SsmHttpClient, config: TestSequenceConfig,
             time.sleep(config.request_interval)
 
 
-def wait_for_parallel_statuses(
-    custom_client: SsmHttpClient,
-    config: TestSequenceConfig,
-    ssm_ip: str,
-    reboot_start: float,
-    ssm_up_time: float,
-) -> tuple[Optional[MetricRecord], Optional[MetricRecord], Optional[MetricRecord]]:
+def wait_for_parallel_statuses( custom_client: SsmHttpClient, config: TestSequenceConfig, ssm_ip: str, reboot_start: float, ssm_up_time: float, ) -> tuple[Optional[MetricRecord], Optional[MetricRecord], Optional[MetricRecord], Optional[MetricRecord]]:
     run_gps = should_run_test(config, TEST_GPS_FIX)
     run_ping = should_run_test(config, TEST_PING)
     run_aim = should_run_test(config, TEST_AIM_READY)
-    if not any((run_gps, run_ping, run_aim)):
-        return None, None, None
+    run_pps = should_run_test(config, TEST_PPS)
+    if not any((run_gps, run_ping, run_aim, run_pps)):
+        return None, None, None, None
 
     gps_record: Optional[MetricRecord] = None
     ping_record: Optional[MetricRecord] = None
     aim_record: Optional[MetricRecord] = None
+    pps_record: Optional[MetricRecord] = None
     deadline_components: List[int] = []
     if run_gps:
         deadline_components.append(config.gpx_fix_timeout)
     if run_aim:
         deadline_components.append(config.aim_status_timeout)
+    if run_pps:
+        deadline_components.append(config.aim_status_timeout)
     parallel_deadline: Optional[float] = None
     if deadline_components:
         parallel_deadline = ssm_up_time + max(deadline_components)
 
-    while (run_gps and not gps_record) or (run_ping and not ping_record) or (run_aim and not aim_record):
+    while (run_gps and not gps_record) or (run_ping and not ping_record) or (run_aim and not aim_record) or (run_pps and not pps_record):
         if parallel_deadline and time.time() > parallel_deadline:
             raise TimeoutError("Timed out waiting for requested parallel statuses.")
+        # --- Check PPS ---
+        if run_pps and not pps_record:
+            try:
+                pps = custom_client.request("/api/gnss/ppsstats", response_type=SystemState)
+                if pps and pps.statecode.strip() == "0.0.0":
+                    ts = time.time()
+                    pps_record = MetricRecord(seconds=int(ts - reboot_start), timestamp=timestamp_str(ts))
+                    LOG(f"{LOG_PREFIX_MSG_INFO} PPS statecode 0.0.0 after {pps_record.seconds} sec", highlight=True)
+            except requests.RequestException:
+                pass
 
         # --- Check GNSS ---
         if run_gps and not gps_record:
@@ -568,7 +579,7 @@ def wait_for_parallel_statuses(
 
         time.sleep(config.request_interval)
 
-    return gps_record, ping_record, aim_record
+    return gps_record, ping_record, aim_record, pps_record
 
 
 def wait_for_connected(client: SsmHttpClient, config: TestSequenceConfig, reboot_start: float) -> MetricRecord:
@@ -610,6 +621,8 @@ def log_iteration_summaries(ssm_ip: str, metrics: List[IterationMetrics], tests_
             LOG(f"{prefix}{entry.ping_ready.seconds} sec" if entry.ping_ready else f"{prefix}skipped")
         if TEST_AIM_READY in tests:
             LOG(f"  AIM ready: {entry.aim_ready.seconds} sec" if entry.aim_ready else "  AIM ready: skipped")
+        if TEST_PPS in tests:
+            LOG(f"  PPS ready: {entry.pps_ready.seconds} sec" if entry.pps_ready else "  PPS ready: skipped")
         if TEST_CONNECTED in tests:
             LOG(f"  Connected: {entry.connected.seconds} sec" if entry.connected else "  Connected: skipped")
         LOG("--------------------------------------")
@@ -646,6 +659,8 @@ def log_overall_summary(ssm_ip: str, metrics: List[IterationMetrics], total_iter
         summarize(f"{PING_DISPLAY_NAME} Time", "ping_ready")
     if TEST_AIM_READY in tests:
         summarize("AIM Ready Time", "aim_ready")
+    if TEST_PPS in tests:
+        summarize("PPS Ready Time", "pps_ready")
     if TEST_CONNECTED in tests:
         summarize("Connected Time", "connected")
 
@@ -689,8 +704,9 @@ def run_single_iteration(iteration: int, config: TestSequenceConfig, ssm_ip: str
     gps_fix: Optional[MetricRecord] = None
     ping_ready: Optional[MetricRecord] = None
     aim_ready: Optional[MetricRecord] = None
-    if any(should_run_test(config, name) for name in (TEST_GPS_FIX, TEST_PING, TEST_AIM_READY)):
-        gps_fix, ping_ready, aim_ready = wait_for_parallel_statuses(
+    pps_ready: Optional[MetricRecord] = None
+    if any(should_run_test(config, name) for name in (TEST_GPS_FIX, TEST_PING, TEST_AIM_READY, TEST_PPS)):
+        gps_fix, ping_ready, aim_ready, pps_ready = wait_for_parallel_statuses(
             client, config, ssm_ip, reboot_start_time, ssm_up_time)
         summary_components: List[str] = []
         if gps_fix:
@@ -699,11 +715,13 @@ def run_single_iteration(iteration: int, config: TestSequenceConfig, ssm_ip: str
             summary_components.append(f"{PING_DISPLAY_NAME}:{ping_ready.seconds}")
         if aim_ready:
             summary_components.append(f"AIM:{aim_ready.seconds}")
+        if pps_ready:
+            summary_components.append(f"PPS:{pps_ready.seconds}")
         if summary_components:
             LOG("")
             LOG(f"{LOG_PREFIX_MSG_INFO} All requested parallel checks completed! {' '.join(summary_components)}")
     else:
-        LOG(f"{LOG_PREFIX_MSG_INFO} No parallel checks requested, skipping GPS/Ping/AIM polling.")
+        LOG(f"{LOG_PREFIX_MSG_INFO} No parallel checks requested, skipping GPS/Ping/AIM/PPS polling.")
     current_offset = get_tn_offset(client)
     LOG(f"{LOG_PREFIX_MSG_INFO} TN offset currently {current_offset}", highlight=True)
     connected: Optional[MetricRecord] = None
@@ -724,6 +742,7 @@ def run_single_iteration(iteration: int, config: TestSequenceConfig, ssm_ip: str
         gps_fix=gps_fix if should_run_test(config, TEST_GPS_FIX) else None,
         ping_ready=ping_ready if should_run_test(config, TEST_PING) else None,
         aim_ready=aim_ready if should_run_test(config, TEST_AIM_READY) else None,
+        pps_ready=pps_ready if should_run_test(config, TEST_PPS) else None,
         connected=connected if should_run_test(config, TEST_CONNECTED) else None,
     )
 

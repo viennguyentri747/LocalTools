@@ -33,7 +33,7 @@ ARG_USE_CURRENT_LOCAL_OW_BRANCH = f"{ARGUMENT_LONG_PREFIX}use_current_local_ow_b
 ARG_MAKE_CLEAN = f"{ARGUMENT_LONG_PREFIX}make_clean"
 ARG_IS_DEBUG_BUILD = f"{ARGUMENT_LONG_PREFIX}is_debug_build"
 ARG_OW_BUILD_TYPE = f"{ARGUMENT_LONG_PREFIX}build_type"
-DEFAULT_CMD_INVOCATION = F"{get_win_python_executable_path()} -m available_tools.iesa_tools.t_ow_local_build"
+WIN_CMD_INVOCATION = F"{get_win_python_executable_path()} -m available_tools.iesa_tools.t_ow_local_build"
 PREFIX_OW_BUILD_ARTIFACT = f"iesa_test_"
 TEMP_OW_BUILD_OUTPUT_PATH = PERSISTENT_TEMP_PATH / "ow_build_output/"
 MANIFEST_OUT_ARTIFACT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}manifest.xml"
@@ -56,7 +56,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_IS_DEBUG_BUILD: True,
                 ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME],
             },
-            # override_cmd_invocation=DEFAULT_CMD_INVOCATION,
+            # override_cmd_invocation=WIN_CMD_INVOCATION,
         ),
         ToolTemplate(
             name="Build BINARY using current branch in local manifest",
@@ -70,7 +70,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_IS_DEBUG_BUILD: True,
                 ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME],
             },
-            # override_cmd_invocation=DEFAULT_CMD_INVOCATION,
+            # override_cmd_invocation=WIN_CMD_INVOCATION,
         ),
         ToolTemplate(
             name="Build IESA using specified branch in remote manifest",
@@ -86,7 +86,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME],
             },
             hidden=True,
-            # override_cmd_invocation=DEFAULT_CMD_INVOCATION,
+            # override_cmd_invocation=WIN_CMD_INVOCATION,
         ),
     ]
 
@@ -548,7 +548,7 @@ def sync_local_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
     if src_overwrite_commit == dest_orig_commit:
         LOG("Source and destination are at the same commit. No history check needed.")
     elif not git_is_ancestor(dest_orig_commit, src_overwrite_commit, cwd=local_repo_info.repo_local_path):
-        LOG_EXCEPTION_STR(f"Source (override) commit ({str(local_repo_info.repo_local_path)}: {src_overwrite_commit}) is not a descendant of destination ({str(dest_root_path)}: {dest_orig_commit}).\nMake sure check out correct branch + force push local branch to remote (as it fetched dest remotely via repo sync)!")
+        LOG_EXCEPTION_STR(f"Overwrite commit ({str(local_repo_info.repo_local_path)}: {src_overwrite_commit}) is not a descendant of original commit ({str(dest_root_path)}: {dest_orig_commit}).\nMake sure check out correct branch + force push local branch to remote (as it fetched dest remotely via repo sync)!")
     else:
         LOG(f"Common ancestor for '{repo_name}' found. Proceeding with sync.")
 

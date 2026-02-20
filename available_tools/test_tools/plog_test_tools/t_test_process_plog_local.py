@@ -20,6 +20,8 @@ from unit_tests.acu_log_tests.periodic_log_helper import (
 
 use_posix_paths()
 
+#Note: need to make win python's pip to install local_tools package first by: cd ~/local_tools && <win_python_wsl_path> -m pip install -e .; otherwise the win_cmd_invocation won't work as it can't find the module to run.
+WIN_CMD_INVOCATION = F"{get_win_python_executable_path()} -m available_tools.test_tools.plog_test_tools.t_test_process_plog_local"
 DEFAULT_TIME_WINDOW_HOURS: float = 0.1  # 0.1 = 6 minutes
 DEFAULT_COLUMNS: List[str] = [TIME_COLUMN, LAST_TIME_SYNC_COLUMN, LAST_VELOCITY_COLUMN, LAST_RTK_COMPASS_STATUS_COLUMN]
 DEFAULT_OUTPUT_PATH = PERSISTENT_TEMP_PATH / "compact_plog.tsv"
@@ -40,7 +42,7 @@ class CompactPlogRow:
 
 
 @dataclass
-class PlogData:
+class PLogFileInfo:
     plog_file: Path
     file_metadata_line: Optional[str]
     rows: List[CompactPlogRow]
@@ -50,8 +52,8 @@ def get_tool_templates() -> List[ToolTemplate]:
     """
     Provide a single template pointing to sample local ACU log files.
     """
-    sample_log_path_1 = ACU_LOG_PATH / "192.168.100.79" / "P_20251121_000000.txt"
-    sample_log_path_2 = ACU_LOG_PATH / "192.168.100.80" / "P_20251121_000000.txt"
+    sample_log_path_1 = ACU_LOG_PATH / "192.168.100.61" / "P_20260216_000000.txt"
+    sample_log_path_2 = ACU_LOG_PATH / "192.168.100.61" / "P_20260217_000000.txt"
     args = {
         ARG_PLOG_PATHS: [str(sample_log_path_1), str(sample_log_path_2)],
         ARG_OUTPUT_PATH: str(DEFAULT_OUTPUT_PATH),
@@ -186,8 +188,8 @@ def _build_compact_rows(plog_data: PLogData) -> List[CompactPlogRow]:
     return compact_rows
 
 
-def process_plog_files(plog_files: Sequence[Path], target_columns: Sequence[str], time_window: Optional[float]) -> List[PlogData]:
-    processed: List[PlogData] = []
+def process_plog_files(plog_files: Sequence[Path], target_columns: Sequence[str], time_window: Optional[float]) -> List[PLogFileInfo]:
+    processed: List[PLogFileInfo] = []
     for plog_file in plog_files:
         LOG(f"{LOG_PREFIX_MSG_INFO} Reading P-log: {plog_file}")
         log_text = read_file_content(plog_file, encoding="utf-8", errors="replace")
@@ -202,12 +204,12 @@ def process_plog_files(plog_files: Sequence[Path], target_columns: Sequence[str]
             else:
                 LOG(f"{LOG_PREFIX_MSG_WARNING} No rows found inside the requested time window for {plog_file}; skipping.")
         processed.append(
-            PlogData(plog_file=plog_file, file_metadata_line=file_metadata_line, rows=rows)
+            PLogFileInfo(plog_file=plog_file, file_metadata_line=file_metadata_line, rows=rows)
         )
     return processed
 
 
-def _get_compact_log_str(processed_data: Sequence[PlogData], columns: Sequence[str]) -> str:
+def _get_compact_log_str(processed_data: Sequence[PLogFileInfo], columns: Sequence[str]) -> str:
     """Build the final TSV content from processed files and selected columns."""
     metadata_lines: List[str] = []
     for file_data in processed_data:
@@ -287,7 +289,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     plog_files = sorted({_validate_plog_file(input_path) for input_path in input_paths})
     LOG(f"{LOG_PREFIX_MSG_INFO} Found {len(plog_files)} unique P-log file(s) to analyze from {len(input_paths)} input path(s).")
 
-    processed_data: List[PlogData] = process_plog_files(plog_files, target_columns, time_window)
+    processed_data: List[PLogFileInfo] = process_plog_files(plog_files, target_columns, time_window)
     processed_files = [file_data.plog_file for file_data in processed_data]
     rows_written = sum(len(file_data.rows) for file_data in processed_data)
     if rows_written == 0:

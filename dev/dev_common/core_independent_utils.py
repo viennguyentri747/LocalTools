@@ -195,7 +195,7 @@ def convert_win_to_wsl_path(win_path: str) -> str:
     Converts a Windows file path to a WSL path.
     Tries native `wslpath -u` first, falls back to manual string parsing.
     """
-    wsl_path = win_path
+    win_path = str(win_path)  # <-- fix: handle WindowsPath or PurePosixPath objects
     clean_path = win_path.strip('"').strip("'")
     alias_result = _apply_custom_win_to_wsl_aliases(clean_path)
     if alias_result:
@@ -306,6 +306,10 @@ def read_value_from_credential_file(credentials_file_path: str, key_to_read: str
     Reads a specific key's value from a credentials file.
     Returns the value if found, otherwise None.
     """
+    if is_platform_windows():
+        LOG(f"Converting Windows path to WSL path: {credentials_file_path}")
+        credentials_file_path = convert_win_to_wsl_path(credentials_file_path)
+
     if os.path.exists(credentials_file_path):
         try:
             with open(credentials_file_path, 'r') as f:

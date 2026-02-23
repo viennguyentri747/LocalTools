@@ -55,7 +55,7 @@ def get_tool_templates() -> List[ToolTemplate]:
         templates = tool.get_templates()
         # Insert the mode argument at the beginning to each template
         for template in templates:
-            template.args = {ARG_TEST_MODE: mode, **template.args}
+            template.args = {**template.args} #Can change to {ARG_TEST_MODE: mode, **template.args} if needed in the future
         aggregated_templates.extend(templates)
     return aggregated_templates
 

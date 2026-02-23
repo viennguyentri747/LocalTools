@@ -21,8 +21,8 @@ from unit_tests.acu_log_tests.periodic_log_helper import (
 use_posix_paths()
 
 #Note: need to make win python's pip to install local_tools package first by: cd ~/local_tools && <win_python_wsl_path> -m pip install -e .; otherwise the win_cmd_invocation won't work as it can't find the module to run.
-WIN_CMD_INVOCATION = F"{get_win_python_executable_path()} -m available_tools.test_tools.plog_test_tools.t_test_process_plog_local"
-DEFAULT_TIME_WINDOW_HOURS: float = 0.1  # 0.1 = 6 minutes
+WIN_CMD_INVOCATION = get_win_cmd_invocation("available_tools.test_tools.plog_test_tools.t_test_process_plog_local")
+DEFAULT_TIME_WINDOW_HOURS: float = 1.5  # 1.5 hours = 90 minutes
 DEFAULT_COLUMNS: List[str] = [TIME_COLUMN, LAST_TIME_SYNC_COLUMN, LAST_VELOCITY_COLUMN, LAST_RTK_COMPASS_STATUS_COLUMN]
 DEFAULT_OUTPUT_PATH = PERSISTENT_TEMP_PATH / "compact_plog.tsv"
 ARG_PLOG_PATHS = f"{ARGUMENT_LONG_PREFIX}plog_paths"
@@ -53,9 +53,9 @@ def get_tool_templates() -> List[ToolTemplate]:
     Provide a single template pointing to sample local ACU log files.
     """
     sample_log_path_1 = ACU_LOG_PATH / "192.168.100.61" / "P_20260216_000000.txt"
-    sample_log_path_2 = ACU_LOG_PATH / "192.168.100.61" / "P_20260217_000000.txt"
+    #sample_log_path_2 = ACU_LOG_PATH / "192.168.100.61" / "P_20260217_000000.txt"
     args = {
-        ARG_PLOG_PATHS: [str(sample_log_path_1), str(sample_log_path_2)],
+        ARG_PLOG_PATHS: [str(sample_log_path_1)],
         ARG_OUTPUT_PATH: str(DEFAULT_OUTPUT_PATH),
         ARG_COLUMNS: DEFAULT_COLUMNS,
         ARG_TIME_WINDOW: DEFAULT_TIME_WINDOW_HOURS,
@@ -68,6 +68,7 @@ def get_tool_templates() -> List[ToolTemplate]:
             args=args,
             search_root=ACU_LOG_PATH,
             usage_note="Update --plog_paths with one or more P-log file paths you want to shrink.",
+            override_cmd_invocation=WIN_CMD_INVOCATION,
         ),
     ]
 

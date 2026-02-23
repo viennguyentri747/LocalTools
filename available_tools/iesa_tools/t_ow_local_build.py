@@ -33,8 +33,10 @@ ARG_USE_CURRENT_LOCAL_OW_BRANCH = f"{ARGUMENT_LONG_PREFIX}use_current_local_ow_b
 ARG_MAKE_CLEAN = f"{ARGUMENT_LONG_PREFIX}make_clean"
 ARG_IS_DEBUG_BUILD = f"{ARGUMENT_LONG_PREFIX}is_debug_build"
 ARG_OW_BUILD_TYPE = f"{ARGUMENT_LONG_PREFIX}build_type"
-WIN_CMD_INVOCATION = F"{get_win_python_executable_path()} -m available_tools.iesa_tools.t_ow_local_build"
 PREFIX_OW_BUILD_ARTIFACT = f"iesa_test_"
+WIN_CMD_INVOCATION = get_win_cmd_invocation("available_tools.iesa_tools.t_ow_local_build")
+IESA_TEST_DIFF_PREFIX = f"iesa_test_diff_"
+IESA_METADATA_FILE = f"iesa_ow_build_metadata.json"
 TEMP_OW_BUILD_OUTPUT_PATH = PERSISTENT_TEMP_PATH / "ow_build_output/"
 MANIFEST_OUT_ARTIFACT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}manifest.xml"
 IESA_OUT_ARTIFACT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}build.iesa"
@@ -609,7 +611,7 @@ def export_repo_diff_artifact(repo_name: str, repo_path: Path) -> Optional[Path]
     """
     ensure_temp_build_output_dir()
     safe_repo_name = sanitize_str_to_file_name(repo_name) or repo_name
-    diff_filename = f"iesa_test_diff_{safe_repo_name}"
+    diff_filename = f"{IESA_TEST_DIFF_PREFIX}{safe_repo_name}"
     diff_path = TEMP_OW_BUILD_OUTPUT_PATH / diff_filename
     diff_content = git_diff_worktree(repo_path).strip()
     if not diff_content:
@@ -656,7 +658,7 @@ def copy_manifest_for_metadata(manifest_source_path: Path) -> Path:
 
 def write_build_metadata(metadata_payload: Dict[str, Any]) -> Path:
     ensure_temp_build_output_dir()
-    metadata_path = TEMP_OW_BUILD_OUTPUT_PATH / "ow_build_metadata.json"
+    metadata_path = TEMP_OW_BUILD_OUTPUT_PATH / f"{IESA_METADATA_FILE}"
     with open(metadata_path, "w", encoding="utf-8") as metadata_file:
         json.dump(metadata_payload, metadata_file, indent=2)
     LOG(f"{MAIN_STEP_LOG_PREFIX} Build metadata saved to '{metadata_path}'.")

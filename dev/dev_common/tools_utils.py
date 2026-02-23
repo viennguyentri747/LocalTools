@@ -316,6 +316,15 @@ def run_win_cmd(command: str) -> Tuple[str, str, int]:
         LOG(f"Failed to run Windows command: {e}")
         return "", str(e), -1
 
+def get_win_cmd_invocation(module_path: str, package_root: str = f"{LOCAL_TOOL_REPO_PATH}") -> str:
+    """
+    Returns a Windows command string to invoke a Python module via the Windows Python executable.
+
+    :param module_path: Dotted module path to invoke (e.g. 'available_tools.iesa_tools.t_ow_local_build')
+    :return: Full Windows CLI command string
+    """
+    win_cmd = F"cd {package_root} && {get_win_python_executable_path()} -m {module_path}"
+    return win_cmd
 
 def get_win_python_executable_path() -> str:
     """Return python executable path respecting template flags."""

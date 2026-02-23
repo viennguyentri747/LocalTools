@@ -287,6 +287,9 @@ def LOG(*values: object, sep: str = " ", end: str = "\n", file=None, highlight: 
 
 
 def is_diff_ignore_eol(file1: Path, file2: Path) -> bool:
+    if file1.is_dir() or file2.is_dir():
+        LOG(f"Skipping directory: {file1} (is dir: {file1.is_dir()}) or {file2} (is dir: {file2.is_dir()})")
+        return False  # treat directories as identical, skip copying
     return normalize_lines(file1) != normalize_lines(file2)
 
 

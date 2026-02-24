@@ -6,10 +6,10 @@ from pathlib import Path
 import sys
 from typing import Dict, List, Tuple
 
-from available_tools.test_tools import test_pattern_in_acu_logs_local as pattern_tool
+#from local_tools.available_tools.test_tools.log_test_tools import test_pattern_in_acu_logs_local as pattern_tool
 from available_tools.test_tools.test_ut_since_startup import t_test_ut_acquisition_status_via_bash_tools as bash_status_tool
 from available_tools.test_tools.test_ut_since_startup import t_test_ut_acquisition_status_tools as python_status_tool
-from available_tools.test_tools.plog_test_tools import t_test_process_plog_local
+from available_tools.test_tools.log_test_tools import t_test_process_plog_local
 from dev.dev_common import *
 
 
@@ -22,24 +22,24 @@ MODE_COMPACT_PLOG = "compact_plog"
 AVAILABLE_TEST_MODES = (MODE_STATUS, MODE_STATUS_NATIVE, MODE_ACU_PATTERN, MODE_COMPACT_PLOG)
 
 FORWARDED_TOOLS: Dict[str, ForwardedTool] = {
-    MODE_STATUS: ForwardedTool(
-        mode=MODE_STATUS,
-        description="Reboot UT and check status endpoints after startup.",
-        main=bash_status_tool.main,
-        get_templates=bash_status_tool.get_tool_templates,
-    ),
+    #MODE_STATUS: ForwardedTool(
+    #    mode=MODE_STATUS,
+    #    description="Reboot UT and check status endpoints after startup via bash.",
+    #    main=bash_status_tool.main,
+    #    get_templates=bash_status_tool.get_tool_templates,
+    #),
     MODE_STATUS_NATIVE: ForwardedTool(
         mode=MODE_STATUS_NATIVE,
-        description="Reboot UT and check status endpoints via native Python client.",
+        description="Reboot UT and check status endpoints via Python.",
         main=python_status_tool.main,
         get_templates=python_status_tool.get_tool_templates,
     ),
-    MODE_ACU_PATTERN: ForwardedTool(
-        mode=MODE_ACU_PATTERN,
-        description="Generate grep commands to search downloaded ACU logs.",
-        main=pattern_tool.main,
-        get_templates=pattern_tool.get_tool_templates,
-    ),
+    #MODE_ACU_PATTERN: ForwardedTool(
+    #    mode=MODE_ACU_PATTERN,
+    #    description="Generate grep commands to search downloaded ACU logs.",
+    #    main=pattern_tool.main,
+    #    get_templates=pattern_tool.get_tool_templates,
+    #),
     MODE_COMPACT_PLOG: ForwardedTool(
         mode=MODE_COMPACT_PLOG,
         description="Trim downloaded P-logs down to specific columns.",

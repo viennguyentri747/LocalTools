@@ -7,10 +7,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
-from available_tools.test_tools.plog_test_tools import t_test_process_plog_local
+from available_tools.test_tools.log_test_tools import t_test_process_plog_local
 from dev.dev_common import *
 from unit_tests.acu_log_tests.periodic_log_constants import LAST_TIME_SYNC_COLUMN, TIME_COLUMN
-from available_tools.test_tools.plog_test_tools.t_test_process_plog_local import process_plog_files, _validate_plog_file, _get_compact_log_str, ARG_PLOG_PATHS, ARG_TIME_WINDOW, ARG_OUTPUT_PATH, PLogFileInfo
+from unit_tests.acu_log_tests.periodic_log_helper import PLogData
+from available_tools.test_tools.log_test_tools.t_test_process_plog_local import process_plog_files, _validate_plog_file, _get_compact_log_str, ARG_PLOG_PATHS, ARG_TIME_WINDOW, ARG_OUTPUT_PATH
 
 
 use_posix_paths()
@@ -27,7 +28,7 @@ DRIFT_ISSUE_NAME = "DRIFT"
 SYNC_ZERO_ISSUE_NAME = "SYNC_ZERO"
 ALL_TIME_SYNC_ISSUES: List[str] = [DRIFT_ISSUE_NAME, SYNC_ZERO_ISSUE_NAME]
 #Note: need to make win python's pip to install local_tools package first by: cd ~/local_tools && <win_python_wsl_path> -m pip install -e .; otherwise the win_cmd_invocation won't work as it can't find the module to run.
-WIN_CMD_INVOCATION = get_win_cmd_invocation("available_tools.test_tools.plog_test_tools.t_test_time_sync_plog")
+WIN_CMD_INVOCATION = get_win_cmd_invocation("available_tools.test_tools.log_test_tools.t_test_time_sync_plog")
 
 def get_tool_templates() -> List[ToolTemplate]:
     sample_log_path_1 = ACU_LOG_PATH / "192.168.100.61" / "P_20260216_000000.txt"
@@ -112,9 +113,16 @@ def _record_issue(issues: List[str], plog_file: Path, row_index: int, time_value
     issues.append(f"Row {row_index} in {plog_file}: time={time_value}, {LAST_TIME_SYNC_COLUMN}={sync_value} ({message})")
 
 
-def _check_time_sync_drift(file_data: PLogFileInfo, max_secs_per_sync: float) -> List[str]:
+def _check_time_sync_drift(file_data: PLogData, max_secs_per_sync: float) -> List[str]:
     #  Wait for the first time sync tick, then baseline there and check deltas vs LAST_TIME_SYNC.
     issues: List[str] = []
+    plog_file = file_data.plog_file or Path("<unknown plog file>")
+    name_to_idx = {name: idx for idx, name in enumerate(file_data.header)}
+    time_idx = name_to_idx.get(TIME_COLUMN)
+    sync_idx = name_to_idx.get(LAST_TIME_SYNC_COLUMN)
+    if time_idx is None or sync_idx is None:
+        issues.append(f"Row 1 in {plog_file}: missing required columns ({TIME_COLUMN}, {LAST_TIME_SYNC_COLUMN})")
+        return issues
     start_time_float: Optional[float] = None
     start_time_label: Optional[str] = None
     start_sync_int: Optional[int] = None
@@ -125,14 +133,15 @@ def _check_time_sync_drift(file_data: PLogFileInfo, max_secs_per_sync: float) ->
     prev_sync: Optional[int] = None
     curr_day_offset: float = 0.0
 
-    for idx, row in enumerate(file_data.rows):
-        curr_time_value = (row.values.get(TIME_COLUMN) or "").strip()
-        curr_sync_value = (row.values.get(LAST_TIME_SYNC_COLUMN) or "").strip()
+    for idx, row in enumerate(file_data.raw_data_rows):
+        row_num = file_data.plog_data_row_indices[idx] if idx < len(file_data.plog_data_row_indices) else idx + 1
+        curr_time_value = (row[time_idx] if time_idx < len(row) else "").strip()
+        curr_sync_value = (row[sync_idx] if sync_idx < len(row) else "").strip()
         curr_time_secs_float = _parse_time_seconds(curr_time_value)
         curr_time_sync_int = _parse_int(curr_sync_value)
 
         if curr_time_secs_float is None or curr_time_sync_int is None:
-            _record_issue(issues, file_data.plog_file, idx + 1, curr_time_value or "?", curr_sync_value or "?",
+            _record_issue(issues, plog_file, row_num, curr_time_value or "?", curr_sync_value or "?",
                           "missing/invalid time sync data")
             continue
 
@@ -148,7 +157,7 @@ def _check_time_sync_drift(file_data: PLogFileInfo, max_secs_per_sync: float) ->
 
         if not baseline_ready:
             if curr_time_sync_int < prev_sync:
-                _record_issue(issues, file_data.plog_file, idx + 1, curr_time_value, curr_sync_value,
+                _record_issue(issues, plog_file, row_num, curr_time_value, curr_sync_value,
                               "LAST_TIME_SYNC decreased")
             if curr_time_sync_int > prev_sync:
                 start_time_float = curr_adj_time_secs_float
@@ -156,14 +165,14 @@ def _check_time_sync_drift(file_data: PLogFileInfo, max_secs_per_sync: float) ->
                 start_sync_int = curr_time_sync_int
                 baseline_ready = True
                 LOG(
-                    f"{LOG_PREFIX_MSG_INFO} Baseline ready: {file_data.plog_file} row {idx + 1}: "
+                    f"{LOG_PREFIX_MSG_INFO} Baseline ready: {plog_file} row {row_num}: "
                     f"time={curr_time_value}, {LAST_TIME_SYNC_COLUMN}={curr_sync_value}, "
                     f"adjusted_time={curr_adj_time_secs_float:.3f}, start_sync={start_sync_int}"
                 )
             elif not baseline_wait_reported and baseline_start_time is not None:
                 wait_secs = curr_adj_time_secs_float - baseline_start_time
                 if wait_secs > max_secs_per_sync:
-                    _record_issue(issues, file_data.plog_file, idx + 1, curr_time_value, curr_sync_value,
+                    _record_issue(issues, plog_file, row_num, curr_time_value, curr_sync_value,
                                   f"LAST_TIME_SYNC not advanced within {max_secs_per_sync:.3f}s")
                     baseline_wait_reported = True
             prev_time_of_day = curr_time_secs_float
@@ -184,13 +193,13 @@ def _check_time_sync_drift(file_data: PLogFileInfo, max_secs_per_sync: float) ->
             continue
 
         if curr_time_sync_int < prev_sync:
-            _record_issue(issues, file_data.plog_file, idx + 1, curr_time_value, curr_sync_value,
+            _record_issue(issues, plog_file, row_num, curr_time_value, curr_sync_value,
                           "LAST_TIME_SYNC decreased")
         real_time_delta_secs_float = curr_adj_time_secs_float - start_time_float
         sync_delta_secs_int = curr_time_sync_int - start_sync_int
         drift = real_time_delta_secs_float - sync_delta_secs_int
         if abs(drift) > max_secs_per_sync:
-            _record_issue(issues, file_data.plog_file, idx + 1, curr_time_value, curr_sync_value,
+            _record_issue(issues, plog_file, row_num, curr_time_value, curr_sync_value,
                           f"drift = {drift:.3f}s > {max_secs_per_sync:.3f}s", drift=drift,
                           drift_time_now=curr_adj_time_secs_float, drift_time_start=start_time_float,
                           drift_sync_now=curr_time_sync_int, drift_sync_start=start_sync_int,
@@ -202,8 +211,14 @@ def _check_time_sync_drift(file_data: PLogFileInfo, max_secs_per_sync: float) ->
     return issues
 
 
-def _check_time_sync_sync_zero(file_data: PLogFileInfo) -> List[str]:
+def _check_time_sync_sync_zero(file_data: PLogData) -> List[str]:
     issues: List[str] = []
+    plog_file = file_data.plog_file or Path("<unknown plog file>")
+    name_to_idx = {name: idx for idx, name in enumerate(file_data.header)}
+    time_idx = name_to_idx.get(TIME_COLUMN)
+    sync_idx = name_to_idx.get(LAST_TIME_SYNC_COLUMN)
+    if time_idx is None or sync_idx is None:
+        return [f"Row 1 in {plog_file}: missing required columns ({TIME_COLUMN}, {LAST_TIME_SYNC_COLUMN})"]
     start_sync_int: Optional[int] = None
     start_time_label: Optional[str] = None
     in_zero_block = False
@@ -212,10 +227,10 @@ def _check_time_sync_sync_zero(file_data: PLogFileInfo) -> List[str]:
     zero_end_time_label: Optional[str] = None
     zero_end_row: Optional[int] = None
     zero_count = 0
-    for idx, row in enumerate(file_data.rows):
-        row_num = idx + 1
-        curr_time_value = (row.values.get(TIME_COLUMN) or "").strip()
-        curr_sync_value = (row.values.get(LAST_TIME_SYNC_COLUMN) or "").strip()
+    for idx, row in enumerate(file_data.raw_data_rows):
+        row_num = file_data.plog_data_row_indices[idx] if idx < len(file_data.plog_data_row_indices) else idx + 1
+        curr_time_value = (row[time_idx] if time_idx < len(row) else "").strip()
+        curr_sync_value = (row[sync_idx] if sync_idx < len(row) else "").strip()
         curr_time_secs_float = _parse_time_seconds(curr_time_value)
         curr_time_sync_int = _parse_int(curr_sync_value)
         if curr_time_secs_float is None or curr_time_sync_int is None:
@@ -240,7 +255,7 @@ def _check_time_sync_sync_zero(file_data: PLogFileInfo) -> List[str]:
             issues.append(
                 f"{SYNC_ZERO_ISSUE_NAME}, start={zero_start_time_label} (row {zero_start_row}), "
                 f"end={zero_end_time_label} (row {zero_end_row}), total_count={zero_count}, "
-                f"Rows {zero_start_row}-{zero_end_row} in {file_data.plog_file} "
+                f"Rows {zero_start_row}-{zero_end_row} in {plog_file} "
                 f"(start_sync={start_sync_int}, start_time={start_time_label})"
             )
             in_zero_block = False
@@ -248,13 +263,13 @@ def _check_time_sync_sync_zero(file_data: PLogFileInfo) -> List[str]:
         issues.append(
             f"{SYNC_ZERO_ISSUE_NAME}, start={zero_start_time_label} (row {zero_start_row}), "
             f"end={zero_end_time_label} (row {zero_end_row}), total_count={zero_count}, "
-            f"Rows {zero_start_row}-{zero_end_row} in {file_data.plog_file} "
+            f"Rows {zero_start_row}-{zero_end_row} in {plog_file} "
             f"(start_sync={start_sync_int}, start_time={start_time_label})"
         )
     return issues
 
 
-def _check_time_sync(file_data: PLogFileInfo, max_secs_per_sync: float) -> Dict[str, List[str]]:
+def _check_time_sync(file_data: PLogData, max_secs_per_sync: float) -> Dict[str, List[str]]:
     drift_issues = _check_time_sync_drift(file_data, max_secs_per_sync)
     sync_zero_issues = _check_time_sync_sync_zero(file_data)
     return {DRIFT_ISSUE_NAME: drift_issues, SYNC_ZERO_ISSUE_NAME: sync_zero_issues}
@@ -306,8 +321,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     LOG(f"{LOG_PREFIX_MSG_INFO} Checking time sync issues: {', '.join(ALL_TIME_SYNC_ISSUES)}")
 
     processed_data = process_plog_files(plog_files, DEFAULT_COLUMNS, time_window)
-    processed_files = [file_data.plog_file for file_data in processed_data]
-    rows_written = sum(len(file_data.rows) for file_data in processed_data)
+    processed_files = [file_data.plog_file for file_data in processed_data if file_data.plog_file is not None]
+    rows_written = sum(len(file_data.raw_data_rows) for file_data in processed_data)
     if rows_written == 0:
         LOG(f"{LOG_PREFIX_MSG_WARNING} No rows found across {len(plog_files)} file(s); nothing to write.")
         return

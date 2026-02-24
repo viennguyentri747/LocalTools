@@ -22,6 +22,7 @@ import argparse
 import datetime as dt
 import sys
 import re
+from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Any
 from tabulate import tabulate
 from dev.dev_common import *
@@ -43,15 +44,23 @@ class PLogData:
         target_columns: Valid target columns to display
         base_time: First timestamp used as reference
         timestamps: List of datetime objects for each row
+        plog_file: Source plog path (optional)
+        file_metadata_line: Metadata lines before header (optional)
+        plog_data_row_indices: Source data row indices aligned with raw_data_rows
     """
 
     def __init__(self, header: List[str], data_rows: List[List[str]], target_columns: List[str],
-                 base_time: Optional[dt.datetime] = None, timestamps: Optional[List[dt.datetime]] = None):
+                 base_time: Optional[dt.datetime] = None, timestamps: Optional[List[dt.datetime]] = None,
+                 plog_file: Optional[Path] = None, file_metadata_line: Optional[str] = None,
+                 plog_data_row_indices: Optional[List[int]] = None):
         self.header = header
         self.raw_data_rows = data_rows
         self.target_columns = target_columns
         self.base_time = base_time
         self.timestamps = timestamps or []
+        self.plog_file = plog_file
+        self.file_metadata_line = file_metadata_line
+        self.plog_data_row_indices = (plog_data_row_indices if plog_data_row_indices is not None and len(plog_data_row_indices) == len(data_rows) else list(range(1, len(data_rows) + 1)))
 
     def to_table_string(self, tablefmt: str = "grid") -> str:
         """

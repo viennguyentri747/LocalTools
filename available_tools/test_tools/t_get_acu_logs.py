@@ -25,28 +25,27 @@ DEFAULT_DATE_VALUES = [
 ]
 
 def get_tool_templates() -> List[ToolTemplate]:
-
     return [
         ToolTemplate(
-            name="Get MP ACU Logs",
+            name="Get ACU Logs",
             extra_description="Copy flash log files from remote",
             args={
                 ARG_LOG_OUTPUT_PATH: str(DEFAULT_LOG_OUTPUT_PATH),
                 ARG_LOG_TYPES: list(DEFAULT_LOG_TYPE_PREFIXES),
-                ARG_LIST_IPS: LIST_MP_IPS,
+                ARG_LIST_IPS: [f"{SSM_IP_PREFIX}.100.57", f"{SSM_IP_PREFIX}.100.59"],
                 ARG_DATE_FILTERS: DEFAULT_DATE_VALUES,
             },
         ),
-        ToolTemplate(
-            name="Get All ACU Logs",
-            extra_description="Copy flash log files from remote",
-            args={
-                ARG_LOG_OUTPUT_PATH: str(DEFAULT_LOG_OUTPUT_PATH),
-                ARG_LOG_TYPES: list(DEFAULT_LOG_TYPE_PREFIXES),
-                ARG_LIST_IPS: LIST_MP_IPS + LIST_FD_IPS + LIST_HD_IPS,
-                ARG_DATE_FILTERS: DEFAULT_DATE_VALUES,
-            },
-        ),
+        #ToolTemplate(
+        #    name="Get All ACU Logs",
+        #    extra_description="Copy flash log files from remote",
+        #    args={
+        #        ARG_LOG_OUTPUT_PATH: str(DEFAULT_LOG_OUTPUT_PATH),
+        #        ARG_LOG_TYPES: list(DEFAULT_LOG_TYPE_PREFIXES),
+        #        ARG_LIST_IPS: LIST_MP_IPS + LIST_FD_IPS + LIST_HD_IPS,
+        #        ARG_DATE_FILTERS: DEFAULT_DATE_VALUES,
+        #    },
+        #),
     ]
 
 

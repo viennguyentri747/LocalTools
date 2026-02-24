@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
@@ -21,7 +20,7 @@ from unit_tests.acu_log_tests.periodic_log_helper import (
 use_posix_paths()
 
 #Note: need to make win python's pip to install local_tools package first by: cd ~/local_tools && <win_python_wsl_path> -m pip install -e .; otherwise the win_cmd_invocation won't work as it can't find the module to run.
-WIN_CMD_INVOCATION = get_win_cmd_invocation("available_tools.test_tools.plog_test_tools.t_test_process_plog_local")
+WIN_CMD_INVOCATION = get_win_cmd_invocation("available_tools.test_tools.log_test_tools.t_test_process_plog_local")
 DEFAULT_TIME_WINDOW_HOURS: float = 1.5  # 1.5 hours = 90 minutes
 DEFAULT_COLUMNS: List[str] = [TIME_COLUMN, LAST_TIME_SYNC_COLUMN, LAST_VELOCITY_COLUMN, LAST_RTK_COMPASS_STATUS_COLUMN]
 DEFAULT_OUTPUT_PATH = PERSISTENT_TEMP_PATH / "compact_plog.tsv"
@@ -29,24 +28,6 @@ ARG_PLOG_PATHS = f"{ARGUMENT_LONG_PREFIX}plog_paths"
 ARG_COLUMNS = f"{ARGUMENT_LONG_PREFIX}columns"
 ARG_TIME_WINDOW = f"{ARGUMENT_LONG_PREFIX}hours"
 ARG_OUTPUT_PATH = f"{ARGUMENT_LONG_PREFIX}output"
-
-@dataclass
-class CompactPlogRow:
-    """Holds selected column values for a single P-log row."""
-
-    values: Dict[str, str]
-
-    def to_tsv_values(self, order: Sequence[str]) -> List[str]:
-        """Return the values ordered for TSV output."""
-        return [self.values.get(column, "") for column in order]
-
-
-@dataclass
-class PLogFileInfo:
-    plog_file: Path
-    file_metadata_line: Optional[str]
-    rows: List[CompactPlogRow]
-
 
 def get_tool_templates() -> List[ToolTemplate]:
     """
@@ -127,27 +108,33 @@ def _parse_plog_text(log_text: str, target_columns: List[str], max_time_capture:
 
     valid_rows: List[List[str]] = []
     valid_times: List[datetime] = []
-    for row, timestamp in zip(all_rows, parsed_times):
+    valid_row_indices: List[int] = []
+    for row_idx, (row, timestamp) in enumerate(zip(all_rows, parsed_times), start=1):
         if timestamp is None:
             continue
         valid_rows.append(row)
         valid_times.append(timestamp)
+        valid_row_indices.append(row_idx)
 
     filtered_rows: List[List[str]] = []
     filtered_times: List[datetime] = []
+    filtered_row_indices: List[int] = []
     if max_time_capture is None:
         filtered_rows = valid_rows
         filtered_times = valid_times
+        filtered_row_indices = valid_row_indices
     else:
         start, end = compute_time_bounds(valid_times, max_time_capture)
         if start is not None and end is not None:
-            for row, timestamp in zip(valid_rows, valid_times):
+            for row, timestamp, row_idx in zip(valid_rows, valid_times, valid_row_indices):
                 if start <= timestamp <= end:
                     filtered_rows.append(row)
                     filtered_times.append(timestamp)
+                    filtered_row_indices.append(row_idx)
         else:
             filtered_rows = valid_rows
             filtered_times = valid_times
+            filtered_row_indices = valid_row_indices
 
     LOG(f"Finished parsing P-log, filtered {len(filtered_rows)} rows.")
     return PLogData(
@@ -156,6 +143,7 @@ def _parse_plog_text(log_text: str, target_columns: List[str], max_time_capture:
         target_columns=found_target_columns,
         base_time=base_time,
         timestamps=filtered_times,
+        plog_data_row_indices=filtered_row_indices,
     )
 
 
@@ -171,56 +159,43 @@ def _extract_metadata_lines(log_text: str) -> List[str]:
     return metadata
 
 
-def _build_compact_rows(plog_data: PLogData) -> List[CompactPlogRow]:
-    """Convert PLogData rows into CompactPlogRow objects keyed by column name."""
-    name_to_idx: Dict[str, int] = {name: idx for idx, name in enumerate(plog_data.header)}
-    compact_rows: List[CompactPlogRow] = []
-
-    for raw_row in plog_data.raw_data_rows:
-        row_values: Dict[str, str] = {}
-        for column in plog_data.target_columns:
-            idx = name_to_idx.get(column)
-            if idx is None or idx >= len(raw_row):
-                row_values[column] = ""
-            else:
-                row_values[column] = raw_row[idx]
-        compact_rows.append(CompactPlogRow(values=row_values))
-
-    return compact_rows
-
-
-def process_plog_files(plog_files: Sequence[Path], target_columns: Sequence[str], time_window: Optional[float]) -> List[PLogFileInfo]:
-    processed: List[PLogFileInfo] = []
+def process_plog_files(plog_files: Sequence[Path], target_columns: Sequence[str], time_window: Optional[float]) -> List[PLogData]:
+    processed: List[PLogData] = []
     for plog_file in plog_files:
         LOG(f"{LOG_PREFIX_MSG_INFO} Reading P-log: {plog_file}")
         log_text = read_file_content(plog_file, encoding="utf-8", errors="replace")
         file_metadata_lines = _extract_metadata_lines(log_text)
         file_metadata_line = "\n".join(file_metadata_lines) if file_metadata_lines else None
         plog_data: PLogData = _parse_plog_text(log_text, list(target_columns), time_window)
-
-        rows = _build_compact_rows(plog_data)
-        if not rows:
+        plog_data.plog_file = plog_file
+        plog_data.file_metadata_line = file_metadata_line
+        if not plog_data.raw_data_rows:
             if time_window is None:
                 LOG(f"{LOG_PREFIX_MSG_WARNING} No rows found in {plog_file}; skipping.")
             else:
                 LOG(f"{LOG_PREFIX_MSG_WARNING} No rows found inside the requested time window for {plog_file}; skipping.")
-        processed.append(
-            PLogFileInfo(plog_file=plog_file, file_metadata_line=file_metadata_line, rows=rows)
-        )
+        processed.append(plog_data)
     return processed
 
 
-def _get_compact_log_str(processed_data: Sequence[PLogFileInfo], columns: Sequence[str]) -> str:
+def _get_compact_log_str(processed_data: Sequence[PLogData], columns: Sequence[str]) -> str:
     """Build the final TSV content from processed files and selected columns."""
     metadata_lines: List[str] = []
     for file_data in processed_data:
         if file_data.file_metadata_line:
             metadata_lines = file_data.file_metadata_line.split("\n")
             break
-    rows = [row for file_data in processed_data for row in file_data.rows]
     lines: List[str] = []
     lines.extend(line for line in metadata_lines if line is not None)
-    row_values = [row.to_tsv_values(columns) for row in rows]
+    row_values: List[List[str]] = []
+    for file_data in processed_data:
+        name_to_idx: Dict[str, int] = {name: idx for idx, name in enumerate(file_data.header)}
+        for raw_row in file_data.raw_data_rows:
+            values: List[str] = []
+            for column in columns:
+                idx = name_to_idx.get(column)
+                values.append(raw_row[idx] if idx is not None and idx < len(raw_row) else "")
+            row_values.append(values)
     widths = [len(column) for column in columns]
     for values in row_values:
         for idx, value in enumerate(values):
@@ -290,9 +265,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     plog_files = sorted({_validate_plog_file(input_path) for input_path in input_paths})
     LOG(f"{LOG_PREFIX_MSG_INFO} Found {len(plog_files)} unique P-log file(s) to analyze from {len(input_paths)} input path(s).")
 
-    processed_data: List[PLogFileInfo] = process_plog_files(plog_files, target_columns, time_window)
-    processed_files = [file_data.plog_file for file_data in processed_data]
-    rows_written = sum(len(file_data.rows) for file_data in processed_data)
+    processed_data: List[PLogData] = process_plog_files(plog_files, target_columns, time_window)
+    processed_files = [file_data.plog_file for file_data in processed_data if file_data.plog_file is not None]
+    rows_written = sum(len(file_data.raw_data_rows) for file_data in processed_data)
     if rows_written == 0:
         LOG(f"{LOG_PREFIX_MSG_WARNING} No rows found across {len(plog_files)} file(s); nothing to write.")
         return

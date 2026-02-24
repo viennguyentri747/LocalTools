@@ -124,6 +124,7 @@ class MatchInfo:
         return self._patterns_to_match
 
 
+
 @dataclass
 class ToolTemplate:
     name: str
@@ -146,6 +147,16 @@ class ToolTemplate:
         self.should_run_now = should_run_now
         self.should_hidden = hidden
         self.override_cmd_invocation = override_cmd_invocation
+
+
+@dataclass
+class ToolData:
+    priority_number: int # Higher priority number means the tool will be placed lower in the list, default to 999 for backward compatibility
+    tool_template: List[ToolTemplate]
+
+    def __init__(self, tool_template: List[ToolTemplate], priority_number: int = 999):
+        self.tool_template = tool_template
+        self.priority_number = priority_number
 
 @dataclass(frozen=True)
 class ForwardedTool:

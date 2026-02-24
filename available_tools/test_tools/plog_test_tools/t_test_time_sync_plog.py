@@ -100,16 +100,16 @@ def _record_issue(issues: List[str], plog_file: Path, row_index: int, time_value
                   drift_time_start_label: Optional[str] = None) -> None:
     if drift is not None:
         if drift_time_now_label and drift_time_start_label and drift_sync_now is not None and drift_sync_start is not None:
-            drift_note = (f"{DRIFT_ISSUE_NAME}={drift:.3f}s, curr_time={drift_time_now_label} vs start_time={drift_time_start_label}, "
+            drift_note = (f"DRIFT={drift:.3f}s, curr_time={drift_time_now_label} vs start_time={drift_time_start_label}, "
                           f"current_sync={drift_sync_now} vs start_sync={drift_sync_start}")
         elif None not in (drift_time_now, drift_time_start, drift_sync_now, drift_sync_start):
-            drift_note = (f"{DRIFT_ISSUE_NAME}={drift:.3f}s, curr_time={drift_time_now:.3f}s vs start_time={drift_time_start:.3f}s, "
+            drift_note = (f"DRIFT={drift:.3f}s, curr_time={drift_time_now:.3f}s vs start_time={drift_time_start:.3f}s, "
                           f"current_sync={drift_sync_now} vs start_sync={drift_sync_start}")
         else:
-            drift_note = f"{DRIFT_ISSUE_NAME}={drift:.3f}s"
+            drift_note = f"DRIFT={drift:.3f}s"
         issues.append(f"{drift_note}, Row {row_index} in {plog_file} ({message})")
         return
-    issues.append(f"{plog_file} row {row_index}: time={time_value}, {LAST_TIME_SYNC_COLUMN}={sync_value} ({message})")
+    issues.append(f"Row {row_index} in {plog_file}: time={time_value}, {LAST_TIME_SYNC_COLUMN}={sync_value} ({message})")
 
 
 def _check_time_sync_drift(file_data: PLogFileInfo, max_secs_per_sync: float) -> List[str]:
@@ -170,6 +170,19 @@ def _check_time_sync_drift(file_data: PLogFileInfo, max_secs_per_sync: float) ->
             prev_sync = curr_time_sync_int
             continue
 
+        # Ignore drift while sync value is zero after having had a non-zero baseline; this is handled by SYNC_ZERO checks.
+        if start_sync_int is not None and start_sync_int > 0 and curr_time_sync_int == 0:
+            # Reset variables
+            baseline_ready = False
+            baseline_start_time = None
+            baseline_wait_reported = False
+            start_time_float = None
+            start_time_label = None
+            start_sync_int = None
+            prev_time_of_day = curr_time_secs_float
+            prev_sync = curr_time_sync_int
+            continue
+
         if curr_time_sync_int < prev_sync:
             _record_issue(issues, file_data.plog_file, idx + 1, curr_time_value, curr_sync_value,
                           "LAST_TIME_SYNC decreased")
@@ -193,7 +206,14 @@ def _check_time_sync_sync_zero(file_data: PLogFileInfo) -> List[str]:
     issues: List[str] = []
     start_sync_int: Optional[int] = None
     start_time_label: Optional[str] = None
+    in_zero_block = False
+    zero_start_time_label: Optional[str] = None
+    zero_start_row: Optional[int] = None
+    zero_end_time_label: Optional[str] = None
+    zero_end_row: Optional[int] = None
+    zero_count = 0
     for idx, row in enumerate(file_data.rows):
+        row_num = idx + 1
         curr_time_value = (row.values.get(TIME_COLUMN) or "").strip()
         curr_sync_value = (row.values.get(LAST_TIME_SYNC_COLUMN) or "").strip()
         curr_time_secs_float = _parse_time_seconds(curr_time_value)
@@ -204,11 +224,33 @@ def _check_time_sync_sync_zero(file_data: PLogFileInfo) -> List[str]:
             start_sync_int = curr_time_sync_int
             start_time_label = curr_time_value
             continue
-        if start_sync_int is not None and curr_time_sync_int == 0:
+        if start_sync_int is None:
+            continue
+        if curr_time_sync_int == 0:
+            if not in_zero_block:
+                in_zero_block = True
+                zero_start_time_label = curr_time_value
+                zero_start_row = row_num
+                zero_count = 0
+            zero_end_time_label = curr_time_value
+            zero_end_row = row_num
+            zero_count += 1
+            continue
+        if in_zero_block:
             issues.append(
-                f"{SYNC_ZERO_ISSUE_NAME}, curr_time={curr_time_value} vs start_time={start_time_label}, current_sync={curr_time_sync_int} "
-                f"vs start_sync={start_sync_int}, Row {idx + 1} in {file_data.plog_file} (current sync reset to zero)"
+                f"{SYNC_ZERO_ISSUE_NAME}, start={zero_start_time_label} (row {zero_start_row}), "
+                f"end={zero_end_time_label} (row {zero_end_row}), total_count={zero_count}, "
+                f"Rows {zero_start_row}-{zero_end_row} in {file_data.plog_file} "
+                f"(start_sync={start_sync_int}, start_time={start_time_label})"
             )
+            in_zero_block = False
+    if in_zero_block:
+        issues.append(
+            f"{SYNC_ZERO_ISSUE_NAME}, start={zero_start_time_label} (row {zero_start_row}), "
+            f"end={zero_end_time_label} (row {zero_end_row}), total_count={zero_count}, "
+            f"Rows {zero_start_row}-{zero_end_row} in {file_data.plog_file} "
+            f"(start_sync={start_sync_int}, start_time={start_time_label})"
+        )
     return issues
 
 
@@ -277,12 +319,13 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     issues: List[str] = []
     issue_counts_by_name: Dict[str, int] = {issue_name: 0 for issue_name in ALL_TIME_SYNC_ISSUES}
+    separator: str = "SEPARATOR"
     for file_data in processed_data:
         issues_by_name = _check_time_sync(file_data, max_secs_per_sync)
         for issue_name, group_issues in issues_by_name.items():
             issue_counts_by_name[issue_name] += len(group_issues)
             issues.extend(group_issues)
-    issue_counts_msg = ", ".join(f"{issue_name}={issue_counts_by_name[issue_name]}" for issue_name in ALL_TIME_SYNC_ISSUES)
+            issues.append(separator)
 
     metadata_path = _write_metadata_file(
         output_plog_path=output_path,
@@ -298,9 +341,15 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     LOG(f"{LOG_PREFIX_MSG_INFO} Metadata saved: {metadata_path}")
 
     if issues:
+        issue_counts_msg = ", ".join(f"{issue_name}={issue_counts_by_name[issue_name]}" for issue_name in ALL_TIME_SYNC_ISSUES)
+        LOG_LINE_SEPARATOR()
         LOG(f"{LOG_PREFIX_MSG_ERROR} Found {len(issues)} time sync issue(s) across {len(processed_data)} file(s). [{issue_counts_msg}]")
         for issue in issues:
-            LOG(f"  - {issue}", show_time=False)
+            if separator in issue:
+                LOG(show_time=False)
+            else:
+                LOG(f"  - {issue}", show_time=False)
+
         raise SystemExit(1)
 
     LOG(

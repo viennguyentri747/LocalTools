@@ -99,7 +99,7 @@ def main_paths(args: argparse.Namespace) -> None:
             encoding = tiktoken.get_encoding("cl100k_base")
             token_count = len(encoding.encode(file_contents))
             filename = os.path.basename(output_file_path)
-            LOG(f"{LINE_SEPARATOR}")
+            LOG_LINE_SEPARATOR()
             LOG(f"Estimated token count for {filename}: {beautify_number(token_count)}")
 
         if not no_open_explorer:

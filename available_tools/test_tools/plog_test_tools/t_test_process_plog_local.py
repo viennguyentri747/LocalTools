@@ -152,7 +152,7 @@ def _parse_plog_text(log_text: str, target_columns: List[str], max_time_capture:
     LOG(f"Finished parsing P-log, filtered {len(filtered_rows)} rows.")
     return PLogData(
         header=header,
-        rows=filtered_rows,
+        data_rows=filtered_rows,
         target_columns=found_target_columns,
         base_time=base_time,
         timestamps=filtered_times,
@@ -176,7 +176,7 @@ def _build_compact_rows(plog_data: PLogData) -> List[CompactPlogRow]:
     name_to_idx: Dict[str, int] = {name: idx for idx, name in enumerate(plog_data.header)}
     compact_rows: List[CompactPlogRow] = []
 
-    for raw_row in plog_data.raw_rows:
+    for raw_row in plog_data.raw_data_rows:
         row_values: Dict[str, str] = {}
         for column in plog_data.target_columns:
             idx = name_to_idx.get(column)
@@ -196,7 +196,7 @@ def process_plog_files(plog_files: Sequence[Path], target_columns: Sequence[str]
         log_text = read_file_content(plog_file, encoding="utf-8", errors="replace")
         file_metadata_lines = _extract_metadata_lines(log_text)
         file_metadata_line = "\n".join(file_metadata_lines) if file_metadata_lines else None
-        plog_data = _parse_plog_text(log_text, list(target_columns), time_window)
+        plog_data: PLogData = _parse_plog_text(log_text, list(target_columns), time_window)
 
         rows = _build_compact_rows(plog_data)
         if not rows:

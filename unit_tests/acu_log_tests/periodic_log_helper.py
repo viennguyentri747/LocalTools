@@ -45,10 +45,10 @@ class PLogData:
         timestamps: List of datetime objects for each row
     """
 
-    def __init__(self, header: List[str], rows: List[List[str]], target_columns: List[str],
+    def __init__(self, header: List[str], data_rows: List[List[str]], target_columns: List[str],
                  base_time: Optional[dt.datetime] = None, timestamps: Optional[List[dt.datetime]] = None):
         self.header = header
-        self.raw_rows = rows
+        self.raw_data_rows = data_rows
         self.target_columns = target_columns
         self.base_time = base_time
         self.timestamps = timestamps or []
@@ -61,7 +61,7 @@ class PLogData:
         Returns:
             Formatted table string
         """
-        if not self.raw_rows:
+        if not self.raw_data_rows:
             return f"{LOG_PREFIX_MSG_INFO} No rows within the specified window."
 
         table_data = self._get_filtered_rows()
@@ -72,14 +72,14 @@ class PLogData:
         Extract ROWS from RAW_ROWS with filtered columns = TARGET_COLUMNS.
         Returns list of rows, each row is a list of values.
         """
-        if not self.target_columns or not self.raw_rows:
+        if not self.target_columns or not self.raw_data_rows:
             return []
 
         name_to_idx: Dict[str, int] = {name: i for i, name in enumerate(self.header)}
         indices = [name_to_idx[name] for name in self.target_columns]
 
         filtered_rows: List[List[str]] = []
-        for row in self.raw_rows:
+        for row in self.raw_data_rows:
             row_data: List[str] = [row[idx] if idx < len(row) else "" for idx in indices]
             filtered_rows.append(row_data)
 
@@ -98,7 +98,7 @@ class PLogData:
             Returns an empty list if the column is not found or there are no rows.
         """
         # Return an empty list if there's no data or the column doesn't exist.
-        if not self.raw_rows or column_name not in self.header:
+        if not self.raw_data_rows or column_name not in self.header:
             return []
 
         # Find the index of the target column.
@@ -113,7 +113,7 @@ class PLogData:
         # It includes a check to prevent IndexError on ragged rows.
         column_values = [
             row[col_idx] if col_idx < len(row) else ""
-            for row in self.raw_rows
+            for row in self.raw_data_rows
         ]
 
         return column_values
@@ -128,7 +128,7 @@ class PLogData:
         Returns:
             Dictionary mapping column names to (timestamps, values) tuples
         """
-        if not self.raw_rows or not self.timestamps:
+        if not self.raw_data_rows or not self.timestamps:
             return {}
 
         name_to_idx: Dict[str, int] = {name: i for i, name in enumerate(self.header)}
@@ -142,7 +142,7 @@ class PLogData:
             times: List[dt.datetime] = []
             values: List[float] = []
 
-            for row, timestamp in zip(self.raw_rows, self.timestamps):
+            for row, timestamp in zip(self.raw_data_rows, self.timestamps):
                 if col_idx >= len(row):
                     continue
 
@@ -381,7 +381,7 @@ def parse_periodic_log(log_path: str, target_columns: List[str], max_time_captur
         filtered_rows = valid_rows
         filtered_times = valid_times
 
-    return PLogData(header=header, rows=filtered_rows, target_columns=found_target_columns,
+    return PLogData(header=header, data_rows=filtered_rows, target_columns=found_target_columns,
                     base_time=base_time, timestamps=filtered_times)
 
 
@@ -425,7 +425,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     print()
 
     # Generate and print table
-    if not plog_data.raw_rows:
+    if not plog_data.raw_data_rows:
         print(f"{LOG_PREFIX_MSG_INFO} No rows within the specified window. Nothing to print.")
         return 0
 

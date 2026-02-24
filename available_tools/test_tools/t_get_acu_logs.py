@@ -288,7 +288,7 @@ def _summarize_fetch_results(ips: List[str], summaries: Dict[str, IpFetchSummary
     ip_list_str = ", ".join(str(ip) for ip in ips)
     LOG(f"Log Fetch Summary for IPs [{ip_list_str}]")
     LOG("", show_time=False)
-    LOG(f"{LINE_SEPARATOR}", show_time=False)
+    LOG_LINE_SEPARATOR()
 
     for index, ip in enumerate(ips):
         summary = summaries.get(ip, IpFetchSummary(log_directory=log_output_dir / ip))
@@ -307,7 +307,7 @@ def _summarize_fetch_results(ips: List[str], summaries: Dict[str, IpFetchSummary
 
         if index < len(ips) - 1:
             LOG("", show_time=False)
-            LOG(f"{LINE_SEPARATOR}", show_time=False)
+            LOG_LINE_SEPARATOR()
 
     LOG("", show_time=False)
     LOG(f"{LINE_SEPARATOR}", show_time=False)

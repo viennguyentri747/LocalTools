@@ -231,9 +231,9 @@ def display_content_to_copy(
         LOG(f"{extra_prefix_descriptions}", show_time=False)
         LOG(f"\n", show_time=False)
     LOG(f"✅ Content{purpose_text}{clipboard_status}:", show_time=True)
-    LOG(f"{LINE_SEPARATOR}", show_time=False)
+    LOG_LINE_SEPARATOR()
     LOG(f"{content}", show_time=False)
-    LOG(f"{LINE_SEPARATOR}", show_time=False)
+    LOG_LINE_SEPARATOR()
 
     # Process post actions
     for post_action in post_actions:

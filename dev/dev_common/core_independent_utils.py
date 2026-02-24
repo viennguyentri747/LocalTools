@@ -392,3 +392,7 @@ def LOG_EXCEPTION(exception: Exception, msg=None, exit: bool = True):
 
     if exit:
         sys.exit(1)
+
+def LOG_LINE_SEPARATOR():
+    separator = f"\n{'=' * 70}\n"
+    LOG(f"{separator}", show_time = False)

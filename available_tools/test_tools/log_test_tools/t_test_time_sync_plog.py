@@ -17,7 +17,7 @@ from available_tools.test_tools.log_test_tools.t_test_process_plog_local import 
 use_posix_paths()
 
 DEFAULT_COLUMNS: List[str] = [TIME_COLUMN, LAST_TIME_SYNC_COLUMN]
-DEFAULT_MAX_SECS_PER_SYNC = 0.999990
+DEFAULT_MAX_SECS_PER_SYNC = 0.999
 DEFAULT_OUTPUT_PATH = PERSISTENT_TEMP_PATH / "time_sync_plog.tsv"
 
 ARG_PLOG_PATHS = ARG_PLOG_PATHS
@@ -108,7 +108,7 @@ def _record_issue(issues: List[str], plog_file: Path, row_index: int, time_value
                           f"current_sync={drift_sync_now} vs start_sync={drift_sync_start}")
         else:
             drift_note = f"DRIFT={drift:.3f}s"
-        issues.append(f"{drift_note}, Row {row_index} in {plog_file} ({message})")
+        issues.append(f"{drift_note}, Row {row_index} in {plog_file}:{row_index} :time={time_value}, {LAST_TIME_SYNC_COLUMN} ({message})")
         return
     issues.append(f"Row {row_index} in {plog_file}: time={time_value}, {LAST_TIME_SYNC_COLUMN}={sync_value} ({message})")
 
@@ -134,14 +134,14 @@ def _check_time_sync_drift(file_data: PLogData, max_secs_per_sync: float) -> Lis
     curr_day_offset: float = 0.0
 
     for idx, row in enumerate(file_data.raw_data_rows):
-        row_num = file_data.plog_data_row_indices[idx] if idx < len(file_data.plog_data_row_indices) else idx + 1
+        row_index = file_data.plog_data_row_indices[idx] if idx < len(file_data.plog_data_row_indices) else idx + 1
         curr_time_value = (row[time_idx] if time_idx < len(row) else "").strip()
         curr_sync_value = (row[sync_idx] if sync_idx < len(row) else "").strip()
         curr_time_secs_float = _parse_time_seconds(curr_time_value)
         curr_time_sync_int = _parse_int(curr_sync_value)
 
         if curr_time_secs_float is None or curr_time_sync_int is None:
-            _record_issue(issues, plog_file, row_num, curr_time_value or "?", curr_sync_value or "?",
+            _record_issue(issues, plog_file, row_index, curr_time_value or "?", curr_sync_value or "?",
                           "missing/invalid time sync data")
             continue
 
@@ -157,22 +157,21 @@ def _check_time_sync_drift(file_data: PLogData, max_secs_per_sync: float) -> Lis
 
         if not baseline_ready:
             if curr_time_sync_int < prev_sync:
-                _record_issue(issues, plog_file, row_num, curr_time_value, curr_sync_value,
-                              "LAST_TIME_SYNC decreased")
+                _record_issue(issues, plog_file, row_index, curr_time_value, curr_sync_value, "LAST_TIME_SYNC decreased")
             if curr_time_sync_int > prev_sync:
                 start_time_float = curr_adj_time_secs_float
                 start_time_label = curr_time_value
                 start_sync_int = curr_time_sync_int
                 baseline_ready = True
                 LOG(
-                    f"{LOG_PREFIX_MSG_INFO} Baseline ready: {plog_file} row {row_num}: "
+                    f"{LOG_PREFIX_MSG_INFO} Baseline ready: {plog_file} row {row_index}: "
                     f"time={curr_time_value}, {LAST_TIME_SYNC_COLUMN}={curr_sync_value}, "
                     f"adjusted_time={curr_adj_time_secs_float:.3f}, start_sync={start_sync_int}"
                 )
             elif not baseline_wait_reported and baseline_start_time is not None:
                 wait_secs = curr_adj_time_secs_float - baseline_start_time
                 if wait_secs > max_secs_per_sync:
-                    _record_issue(issues, plog_file, row_num, curr_time_value, curr_sync_value,
+                    _record_issue(issues, plog_file, row_index, curr_time_value, curr_sync_value,
                                   f"LAST_TIME_SYNC not advanced within {max_secs_per_sync:.3f}s")
                     baseline_wait_reported = True
             prev_time_of_day = curr_time_secs_float
@@ -193,13 +192,13 @@ def _check_time_sync_drift(file_data: PLogData, max_secs_per_sync: float) -> Lis
             continue
 
         if curr_time_sync_int < prev_sync:
-            _record_issue(issues, plog_file, row_num, curr_time_value, curr_sync_value,
+            _record_issue(issues, plog_file, row_index, curr_time_value, curr_sync_value,
                           "LAST_TIME_SYNC decreased")
         real_time_delta_secs_float = curr_adj_time_secs_float - start_time_float
         sync_delta_secs_int = curr_time_sync_int - start_sync_int
         drift = real_time_delta_secs_float - sync_delta_secs_int
         if abs(drift) > max_secs_per_sync:
-            _record_issue(issues, plog_file, row_num, curr_time_value, curr_sync_value,
+            _record_issue(issues, plog_file, row_index, curr_time_value, curr_sync_value,
                           f"drift = {drift:.3f}s > {max_secs_per_sync:.3f}s", drift=drift,
                           drift_time_now=curr_adj_time_secs_float, drift_time_start=start_time_float,
                           drift_sync_now=curr_time_sync_int, drift_sync_start=start_sync_int,

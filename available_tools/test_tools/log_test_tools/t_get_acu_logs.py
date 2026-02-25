@@ -11,17 +11,18 @@ from typing import Dict, List, Optional
 from available_tools.test_tools.common import *
 from dev.dev_common import *
 
-DEFAULT_LOG_TYPE_PREFIXES = [P_LOG_PREFIX, T_LOG_PREFIX, E_LOG_PREFIX]
+DEFAULT_LOG_TYPE_PREFIXES = [P_LOG_PREFIX, E_LOG_PREFIX]
 DEFAULT_LOG_OUTPUT_PATH = ACU_LOG_PATH
 ARG_LOG_TYPES = f"{ARGUMENT_LONG_PREFIX}type"
 ARG_DATE_FILTERS = f"{ARGUMENT_LONG_PREFIX}date"
 ARG_LOG_OUTPUT_PATH = f"{ARGUMENT_LONG_PREFIX}log_output_path"
 ARG_MAX_THREAD_COUNT = f"{ARGUMENT_LONG_PREFIX}max_threads"
 DEFAULT_MAX_THREAD_COUNT = 20
-DEFAULT_EXTRA_DAYS = 4
+DEFAULT_EXTRA_DAYS = 2
+
 DEFAULT_DATE_VALUES = [
-    get_acu_log_datename_from_date(datetime.now() - timedelta(days=days_back))
-    for days_back in range(DEFAULT_EXTRA_DAYS, -1, -1) # range from [-DEFAULT_EXTRA_DAYS, 0].
+    get_acu_log_datename_from_date(datetime.now() - timedelta(days=days_to_cut))
+    for days_to_cut in range(DEFAULT_EXTRA_DAYS + 1) # Starts at 0 (for today), ends at DEFAULT_EXTRA_DAYS (for old days)
 ]
 
 def get_tool_templates() -> List[ToolTemplate]:

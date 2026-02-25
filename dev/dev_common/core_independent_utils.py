@@ -100,7 +100,6 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
     exec_path = executable
     exec_cwd = cwd
     wsl_cwd: Optional[str] = None
-    # breakpoint()
     if is_windows:
         if run_in_wsl:
             exec_path = None

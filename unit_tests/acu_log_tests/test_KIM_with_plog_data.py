@@ -84,11 +84,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         LOG(f"{LOG_PREFIX_MSG_INFO} Parsing periodic log: {resolved_path}")
         try:
-            plog_data: PLogData = parse_periodic_log(
-                log_path=resolved_path,
-                target_columns=args.columns,
-                max_time_capture=args.hours,
-            )
+            plog_data: PLogData = parse_periodic_log( log_path=resolved_path, target_columns=args.columns, max_time_capture=args.hours, )
             plog_datas.append(plog_data)
         except ValueError as exc:
             LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to parse '{resolved_path}': {exc}")

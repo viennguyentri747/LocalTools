@@ -234,24 +234,34 @@ class PLogData:
         print()
 
 
-def find_header_and_rows(text: str) -> Tuple[Optional[List[str]], List[List[str]]]:
+def find_header_rows_and_line_numbers(text: str) -> Tuple[Optional[List[str]], List[List[str]], List[int]]:
     """
     Finds the tab-delimited header line starting with 'Time' and returns:
-      (header_columns, rows_as_list_of_lists)
+      (header_columns, rows_as_list_of_lists, source_line_numbers_of_rows)
     """
     header: Optional[List[str]] = None
     rows: List[List[str]] = []
+    row_line_numbers: List[int] = []
 
     lines = text.splitlines()
-    for i, raw in enumerate(lines):
+    for i, raw in enumerate(lines, start=1):
         line = raw.strip('\n')
         if line.startswith("Time\t"):
             header = line.split('\t')
             # The remaining lines until EOF that have tab separators are rows
-            for data_line in lines[i+1:]:
+            for line_number, data_line in enumerate(lines[i:], start=i + 1):
                 if '\t' in data_line:
                     rows.append(data_line.rstrip('\n').split('\t'))
+                    row_line_numbers.append(line_number)
             break
+    return header, rows, row_line_numbers
+
+
+def find_header_and_rows(text: str) -> Tuple[Optional[List[str]], List[List[str]]]:
+    """
+    Compatibility wrapper returning only header and parsed rows.
+    """
+    header, rows, _ = find_header_rows_and_line_numbers(text)
     return header, rows
 
 
@@ -346,52 +356,63 @@ def select_columns(header: List[str], targets: List[str]) -> Tuple[List[str], Li
     return valid, missing
 
 
-def parse_periodic_log(log_path: str, target_columns: List[str], max_time_capture: float) -> PLogData:
-    # Read and parse file
-    text = read_file_content(log_path, encoding="utf-8", errors="replace")
-    header, all_rows = find_header_and_rows(text)
+def parse_periodic_log_text(log_text: str, target_columns: List[str], max_time_capture: Optional[float]) -> PLogData:
+    """
+    Parse periodic log text and return filtered PLogData.
+    max_time_capture=None means keep all valid rows.
+    """
+    header, all_rows, all_row_line_numbers = find_header_rows_and_line_numbers(log_text)
 
     if not header or TIME_COLUMN not in header:
         raise ValueError("Log file does not contain a valid header with 'Time' column")
 
-    # Parse time series
     time_idx = header.index(TIME_COLUMN)
     base_time, parsed_times = build_time_series(all_rows, time_idx)
-
     if base_time is None:
         raise ValueError("The first data row does not provide a valid base time")
 
-    # Validate target columns
     found_target_columns, missing = select_columns(header, target_columns)
-    # Check for missing columns and raise error
     if missing:
         raise ValueError(f"Missing target columns: {missing}")
 
-    # Gather rows with valid timestamps
     valid_rows: List[List[str]] = []
     valid_times: List[dt.datetime] = []
-    for r, t in zip(all_rows, parsed_times):
-        if t is not None:
-            valid_rows.append(r)
-            valid_times.append(t)
+    valid_row_indices: List[int] = []
+    for r, t, row_idx in zip(all_rows, parsed_times, all_row_line_numbers):
+        if t is None:
+            continue
+        valid_rows.append(r)
+        valid_times.append(t)
+        valid_row_indices.append(row_idx)
 
-    # Compute time window bounds
-    start, end = compute_time_bounds(valid_times, max_time_capture)
-
-    # Filter rows within time window
-    filtered_rows = []
-    filtered_times = []
-    if start is not None and end is not None:
-        for r, t in zip(valid_rows, valid_times):
-            if start <= t <= end:
-                filtered_rows.append(r)
-                filtered_times.append(t)
-    else:
+    filtered_rows: List[List[str]] = []
+    filtered_times: List[dt.datetime] = []
+    filtered_row_indices: List[int] = []
+    if max_time_capture is None:
         filtered_rows = valid_rows
         filtered_times = valid_times
+        filtered_row_indices = valid_row_indices
+    else:
+        start, end = compute_time_bounds(valid_times, max_time_capture)
+        if start is not None and end is not None:
+            for r, t, row_idx in zip(valid_rows, valid_times, valid_row_indices):
+                if start <= t <= end:
+                    filtered_rows.append(r)
+                    filtered_times.append(t)
+                    filtered_row_indices.append(row_idx)
+        else:
+            filtered_rows = valid_rows
+            filtered_times = valid_times
+            filtered_row_indices = valid_row_indices
 
     return PLogData(header=header, data_rows=filtered_rows, target_columns=found_target_columns,
-                    base_time=base_time, timestamps=filtered_times)
+                    base_time=base_time, timestamps=filtered_times,
+                    plog_data_row_indices=filtered_row_indices)
+
+
+def parse_periodic_log(log_path: str, target_columns: List[str], max_time_capture: float) -> PLogData:
+    text = read_file_content(log_path, encoding="utf-8", errors="replace")
+    return parse_periodic_log_text(text, target_columns, max_time_capture)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -415,11 +436,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     try:
         # Parse log file using the new function
-        plog_data = parse_periodic_log(
-            log_path=log_path,
-            target_columns=args.columns,
-            max_time_capture=args.hours
-        )
+        plog_data = parse_periodic_log( log_path=log_path, target_columns=args.columns, max_time_capture=args.hours )
     except ValueError as e:
         print(f"[ERROR] {e}", file=sys.stderr)
         return 2

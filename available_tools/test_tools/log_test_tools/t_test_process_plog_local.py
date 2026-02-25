@@ -11,10 +11,7 @@ from dev.dev_common import *
 from unit_tests.acu_log_tests.periodic_log_constants import *
 from unit_tests.acu_log_tests.periodic_log_helper import (
     PLogData,
-    build_time_series,
-    compute_time_bounds,
-    find_header_and_rows,
-    select_columns,
+    parse_periodic_log_text,
 )
 
 use_posix_paths()
@@ -90,61 +87,11 @@ def _normalize_columns(columns: Sequence[str]) -> List[str]:
 
 
 def _parse_plog_text(log_text: str, target_columns: List[str], max_time_capture: Optional[float] = None) -> PLogData:
-    """Replicates parse_periodic_log but works with already-loaded text so we only read once."""
+    """Parse already-loaded text using shared periodic log helper logic."""
     LOG(f"{LOG_PREFIX_MSG_INFO} Parsing plog with columns: {target_columns}{f' (max time capture: {max_time_capture} hours)' if max_time_capture is not None else ''}")
-   
-    header, all_rows = find_header_and_rows(log_text)
-    if not header or TIME_COLUMN not in header:
-        raise ValueError("Log file does not contain a valid header starting with the Time column.")
-
-    time_idx = header.index(TIME_COLUMN)
-    base_time, parsed_times = build_time_series(all_rows, time_idx)
-    if base_time is None:
-        raise ValueError("Unable to determine the base time from the P-log.")
-
-    found_target_columns, missing = select_columns(header, target_columns)
-    if missing:
-        raise ValueError(f"Missing target columns: {missing}")
-
-    valid_rows: List[List[str]] = []
-    valid_times: List[datetime] = []
-    valid_row_indices: List[int] = []
-    for row_idx, (row, timestamp) in enumerate(zip(all_rows, parsed_times), start=1):
-        if timestamp is None:
-            continue
-        valid_rows.append(row)
-        valid_times.append(timestamp)
-        valid_row_indices.append(row_idx)
-
-    filtered_rows: List[List[str]] = []
-    filtered_times: List[datetime] = []
-    filtered_row_indices: List[int] = []
-    if max_time_capture is None:
-        filtered_rows = valid_rows
-        filtered_times = valid_times
-        filtered_row_indices = valid_row_indices
-    else:
-        start, end = compute_time_bounds(valid_times, max_time_capture)
-        if start is not None and end is not None:
-            for row, timestamp, row_idx in zip(valid_rows, valid_times, valid_row_indices):
-                if start <= timestamp <= end:
-                    filtered_rows.append(row)
-                    filtered_times.append(timestamp)
-                    filtered_row_indices.append(row_idx)
-        else:
-            filtered_rows = valid_rows
-            filtered_times = valid_times
-            filtered_row_indices = valid_row_indices
-
-    LOG(f"Finished parsing P-log, filtered {len(filtered_rows)} rows.")
-    return PLogData(
-        header=header,
-        data_rows=filtered_rows,
-        target_columns=found_target_columns,
-        base_time=base_time,
-        timestamps=filtered_times,
-        plog_data_row_indices=filtered_row_indices,
-    )
+    plog_data = parse_periodic_log_text(log_text, target_columns, max_time_capture)
+    LOG(f"Finished parsing P-log, filtered {len(plog_data.raw_data_rows)} rows.")
+    return plog_data
 
 
 def _extract_metadata_lines(log_text: str) -> List[str]:

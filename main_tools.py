@@ -36,6 +36,15 @@ def _ensure_tool_import_paths(tools_dir: Path) -> None:
             sys.path.insert(0, path_str)
 
 
+def _tool_declares_custom_priority(tool_path: Path) -> bool:
+    if tool_path.suffix != ".py":
+        return False
+    try:
+        return "priority_number" in tool_path.read_text(encoding="utf-8")
+    except Exception:
+        return False
+
+
 def _extract_tool_data_from_module(module: object) -> Optional[ToolData]:
     if hasattr(module, "getToolData"):
         tool_data = module.getToolData()
@@ -58,13 +67,7 @@ def _resolve_tool_data(tool: ToolEntry, tools_dir: Path, tool_data_cache: Dict[s
 
     _ensure_tool_import_paths(tools_dir)
     module_path = f"{tool.module_path}.{tool.stem}"
-    try:
-        module = importlib.import_module(module_path)
-    except BaseException as exc:
-        LOG_EXCEPTION(exc, msg=f"Failed to import module '{module_path}'", exit=False)
-        tool_data_cache[cache_key] = default_tool_data
-        return default_tool_data
-
+    module = importlib.import_module(module_path)
     tool_data = _extract_tool_data_from_module(module) or default_tool_data
     tool_data_cache[cache_key] = tool_data
     return tool_data
@@ -85,8 +88,12 @@ def discover_and_nest_tools(project_root: Path, folder_pattern: str, tool_prefix
             root_nodes[tool.folder] = ToolEntryNode(
                 name=tool.folder.upper(), metadata=metadata, folder_name=tool.folder, )
 
-        tool_data = _resolve_tool_data(tool, project_root, tool_data_cache)
-        tool_node = ToolEntryNode(name=tool.filename, tool=tool, tool_priority_number=tool_data.priority_number)
+        tool_priority_number = DEFAULT_TOOL_PRIORITY_NUMBER
+        # Avoid eager imports for all tools; only preload ToolData for priority if custom priority is declared
+        if _tool_declares_custom_priority(tool.path):
+            tool_data = _resolve_tool_data(tool, project_root, tool_data_cache)
+            tool_priority_number = tool_data.priority_number
+        tool_node = ToolEntryNode(name=tool.filename, tool=tool, tool_priority_number=tool_priority_number)
         root_nodes[tool.folder].children.append(tool_node)
 
     for node in root_nodes.values():

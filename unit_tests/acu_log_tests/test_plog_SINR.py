@@ -35,11 +35,7 @@ def main():
     for ip, ip_log_files in [(fetch_info.ut_ip, fetch_info.log_paths) for fetch_info in valid_fetch_infos]:
         for log_file in ip_log_files:
             LOG(f"{LOG_PREFIX_MSG_INFO} Parsing periodic log: {log_file} of IP: {ip}")
-            plog_data: PLogData = parse_periodic_log(
-                log_path=log_file,
-                target_columns=TARGET_COLUMNS,
-                max_time_capture=LOG_HOUR_CAPTURE
-            )
+            plog_data: PLogData = parse_periodic_log( log_path=log_file, target_columns=TARGET_COLUMNS, max_time_capture=LOG_HOUR_CAPTURE )
 
             table_str = f"UNIT TEST: {ip}\n" + plog_data.to_table_string(tablefmt="fancy_grid") + "\n\n"
             output_path = f"{PERSISTENT_TEMP_PATH}/PlogTest_output.txt"

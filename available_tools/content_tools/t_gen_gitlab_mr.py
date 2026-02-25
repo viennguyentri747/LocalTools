@@ -72,11 +72,15 @@ def write_markdown_file(content: str, repo_name: str, ticket_tag: Optional[str],
     return path
 
 
+
+def getToolData() -> ToolData:
+    return ToolData(tool_template=get_tool_templates())
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Generate GitLab MR metadata and create the MR automatically.",
         formatter_class=argparse.RawTextHelpFormatter,
-        epilog=build_examples_epilog(get_tool_templates(), Path(__file__))
+        epilog=build_examples_epilog(getToolData().tool_template, Path(__file__))
     )
 
     parser.add_argument(ARG_REPO_NAME, required=False, help="Repository name as defined in local mapping.")

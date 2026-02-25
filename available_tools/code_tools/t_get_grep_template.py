@@ -571,7 +571,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate ripgrep/fd command templates for code search",
         formatter_class=argparse.RawTextHelpFormatter,
-        epilog=build_examples_epilog(get_tool_templates(), Path(__file__)),
+        epilog=build_examples_epilog(getToolData().tool_template, Path(__file__)),
     )
 
     parser.add_argument(ARG_DISPLAY_NAME, default="", help="Display name for the interactive command header.")
@@ -594,6 +594,10 @@ def parse_args() -> argparse.Namespace:
     print("Args parsed:", parser.parse_args())
     return parser.parse_args()
 
+
+
+def getToolData() -> ToolData:
+    return ToolData(tool_template=get_tool_templates())
 
 def main() -> None:
     args = parse_args()

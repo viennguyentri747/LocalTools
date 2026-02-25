@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 from typing import List, Optional, Sequence, Set
 from available_tools.test_tools.common import *
-from available_tools.test_tools.t_get_acu_logs import DEFAULT_DATE_VALUES, batch_fetch_acu_logs
+from available_tools.test_tools.log_test_tools.t_get_acu_logs import DEFAULT_DATE_VALUES, batch_fetch_acu_logs
 from dev.dev_common import *
 
 DEFAULT_LOG_TYPE_PREFIXES = [P_LOG_PREFIX, T_LOG_PREFIX, E_LOG_PREFIX]
@@ -41,7 +41,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         description="Generate a grep command to search ACU logs for specific patterns.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
 
     parser.add_argument(ARG_LOG_OUTPUT_PATH, type=Path, default=Path(DEFAULT_LOG_OUTPUT_PATH),
                         help="Base directory where ACU logs are stored locally.", )
@@ -115,6 +115,10 @@ def _build_grep_command(patterns: List[str], files: List[Path]) -> str:
     combined_pattern = "|".join(sanitized_patterns)
     file_arguments = " ".join(quote(str(path)) for path in files)
     return f"grep -aE --color=always {quote(combined_pattern)} {file_arguments}; ec=$?; if [ $ec -eq 1 ]; then printf '\\nNo matches found!\\n'; elif [ $ec -eq 2 ]; then printf '\\nError: File not found or cannot be read!\\n'; fi"
+
+
+def getToolData() -> ToolData:
+    return ToolData(tool_template=get_tool_templates())
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
     args = parse_args(argv)

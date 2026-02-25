@@ -55,7 +55,7 @@ def parse_args() -> argparse.Namespace:
         description="Pull flash log files via SSH jump hosts.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
     parser.add_argument(
         ARG_LOG_TYPES,
         nargs='+',
@@ -319,6 +319,10 @@ def _format_missing_text(summary: IpFetchSummary, has_date_filters: bool) -> str
         return str(summary.missing_logs)
     return "None"
 
+
+
+def getToolData() -> ToolData:
+    return ToolData(tool_template=get_tool_templates())
 
 def main() -> None:
     args = parse_args()

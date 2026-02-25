@@ -5,7 +5,7 @@ import argparse
 import importlib
 import sys
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, Tuple
 from dataclasses import dataclass, field
 from dev.dev_common import *
 from dev.dev_common.tools_utils import *
@@ -16,15 +16,65 @@ class ToolEntryNode:
     """Represents a node in the tool hierarchy."""
     name: str
     tool: Optional[ToolEntry] = None
+    tool_priority_number: int = 999
     children: List[ToolEntryNode] = field(default_factory=list)
     metadata: Optional[ToolFolderMetadata] = None
     folder_name: Optional[str] = None
 
 
-def discover_and_nest_tools(project_root: Path, folder_pattern: str, tool_prefix: str, is_recursive: bool) -> List[ToolEntryNode]:
+DEFAULT_TOOL_PRIORITY_NUMBER = 999
+
+
+def _tool_cache_key(tool_path: Path) -> str:
+    return str(tool_path.resolve())
+
+
+def _ensure_tool_import_paths(tools_dir: Path) -> None:
+    for path_candidate in (tools_dir, tools_dir.parent):
+        path_str = str(path_candidate)
+        if path_str not in sys.path:
+            sys.path.insert(0, path_str)
+
+
+def _extract_tool_data_from_module(module: object) -> Optional[ToolData]:
+    if hasattr(module, "getToolData"):
+        tool_data = module.getToolData()
+        if isinstance(tool_data, ToolData):
+            return tool_data
+
+    LOG_EXCEPTION_STR("No getToolData() found in module.")
+    return None
+
+
+def _resolve_tool_data(tool: ToolEntry, tools_dir: Path, tool_data_cache: Dict[str, ToolData]) -> ToolData:
+    cache_key = _tool_cache_key(tool.path)
+    if cache_key in tool_data_cache:
+        return tool_data_cache[cache_key]
+
+    default_tool_data = ToolData(tool_template=[], priority_number=DEFAULT_TOOL_PRIORITY_NUMBER)
+    if tool.path.suffix != ".py":
+        tool_data_cache[cache_key] = default_tool_data
+        return default_tool_data
+
+    _ensure_tool_import_paths(tools_dir)
+    module_path = f"{tool.module_path}.{tool.stem}"
+    try:
+        module = importlib.import_module(module_path)
+    except BaseException as exc:
+        LOG_EXCEPTION(exc, msg=f"Failed to import module '{module_path}'", exit=False)
+        tool_data_cache[cache_key] = default_tool_data
+        return default_tool_data
+
+    tool_data = _extract_tool_data_from_module(module) or default_tool_data
+    tool_data_cache[cache_key] = tool_data
+    return tool_data
+
+
+def discover_and_nest_tools(project_root: Path, folder_pattern: str, tool_prefix: str, is_recursive: bool) -> Tuple[List[ToolEntryNode], Dict[str, ToolData]]:
     """Discovers tools and organizes them into a hierarchical structure."""
     tools: List[ToolEntry] = discover_tools(project_root, folder_pattern, tool_prefix, is_recursive)
     root_nodes: dict[str, ToolEntryNode] = {}
+    tool_data_cache: Dict[str, ToolData] = {}
 
     for tool in tools:
         if tool.folder not in root_nodes:
@@ -35,11 +85,16 @@ def discover_and_nest_tools(project_root: Path, folder_pattern: str, tool_prefix
             root_nodes[tool.folder] = ToolEntryNode(
                 name=tool.folder.upper(), metadata=metadata, folder_name=tool.folder, )
 
-        tool_node = ToolEntryNode(name=tool.filename, tool=tool)
+        tool_data = _resolve_tool_data(tool, project_root, tool_data_cache)
+        tool_node = ToolEntryNode(name=tool.filename, tool=tool, tool_priority_number=tool_data.priority_number)
         root_nodes[tool.folder].children.append(tool_node)
+
+    for node in root_nodes.values():
+        node.children.sort(key=lambda child: (child.tool_priority_number, child.name))
+
     # Sort the root nodes based on priority from folder name
     sorted_nodes = sorted(list(root_nodes.values()), key=lambda node: node.metadata.priority)
-    return sorted_nodes
+    return sorted_nodes, tool_data_cache
 
 
 def build_template_run_command(tool_path: Path, template: ToolTemplate) -> str:
@@ -200,7 +255,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     args = parse_args(argv)
     tools_dir = Path(get_arg_value(args, ARG_TOOLS_DIR))
 
-    tool_nodes: ToolEntryNode = discover_and_nest_tools(
+    tool_nodes, tool_data_cache = discover_and_nest_tools(
         tools_dir,
         get_arg_value(args, ARG_TOOL_FOLDER_PATTERN),
         get_arg_value(args, ARG_TOOL_PREFIX),
@@ -213,20 +268,13 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     LOG_LINE_SEPARATOR()
     LOG(f"Selected tool: {tool.full_path} ....")
 
-    # Only show templates for Python tools
-    if tool.path.suffix == ".py":
-        if str(tools_dir) not in sys.path:
-            sys.path.insert(0, str(tools_dir))
-        try:
-            module_path = f"{tool.module_path}.{tool.stem}"
-            LOG(f"Importing module: {module_path}")
-            module = importlib.import_module(module_path)
-            if hasattr(module, 'get_tool_templates'):
-                templates: List[ToolTemplate] = module.get_tool_templates()
-                if templates:
-                    return diplay_templates(tool.path, templates)
-        except Exception as e:
-            LOG_EXCEPTION(e)
+    tool_data = tool_data_cache.get(_tool_cache_key(tool.path))
+    if tool_data is None:
+        tool_data = _resolve_tool_data(tool, tools_dir, tool_data_cache)
+
+    templates: List[ToolTemplate] = tool_data.tool_template if isinstance(tool_data.tool_template, list) else []
+    if templates:
+        return diplay_templates(tool.path, templates)
 
     LOG("No templates available for this tool.")
     return 0

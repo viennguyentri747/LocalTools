@@ -390,7 +390,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Reboot a UT, poll its REST APIs until acquisition completes, and log the timing.",
         formatter_class=argparse.RawTextHelpFormatter,
-        epilog=build_examples_epilog(get_tool_templates(), Path(__file__)),
+        epilog=build_examples_epilog(getToolData().tool_template, Path(__file__)),
     )
     add_arg_generic(parser, ARG_SSM_IP, required=True,
                     help_text="Base URL or IP for the SSM API (e.g. http://10.0.0.5 or 10.0.0.5:8080).", )
@@ -765,6 +765,10 @@ def run_test_sequence(config: TestSequenceConfig) -> List[IterationMetrics]:
     finally:
         client.close()
 
+
+
+def getToolData() -> ToolData:
+    return ToolData(tool_template=get_tool_templates())
 
 def main() -> None:
     args = parse_args()

@@ -7,6 +7,7 @@ from typing import Callable, Dict, List
 from dev.dev_common.constants import ARG_MODE, ARG_PATH_LONG
 from dev.dev_common.core_independent_utils import LOG, is_platform_windows
 from dev.dev_common.core_utils import convert_wsl_to_win_path
+from dev.dev_common.custom_structures import ToolData
 from dev.dev_common.tools_utils import (
     ToolTemplate,
     build_examples_epilog,
@@ -53,13 +54,17 @@ def get_tool_templates() -> List[ToolTemplate]:
     ]
 
 
+def getToolData() -> ToolData:
+    return ToolData(tool_template=get_tool_templates())
+
+
 # --- Example Usage ---
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Convert file paths between Windows and WSL formats."
     )
     parser.formatter_class = argparse.RawTextHelpFormatter
-    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
     parser.add_argument(
         ARG_MODE,
         choices=MODE_CHOICES,

@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 from typing import List, Tuple
 
+from dev.dev_common.custom_structures import ToolData
 from dev.dev_common.tools_utils import ToolTemplate, build_examples_epilog
 from available_tools.inertial_sense_tools.decode_gen_fault_status_utils import (
     decode_gen_fault_status,
@@ -69,12 +70,16 @@ def get_tool_templates() -> List[ToolTemplate]:
         ),
     ]
 
+
+def getToolData() -> ToolData:
+    return ToolData(tool_template=get_tool_templates())
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Decode an Inertial Sense status value for multiple message types.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
     parser.add_argument(
         "-t",
         "--type",

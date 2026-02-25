@@ -10,6 +10,7 @@ from types import ModuleType
 from typing import Iterable, List, Optional
 
 from dev.dev_common import LOG, LOG_EXCEPTION
+from dev.dev_common.custom_structures import ToolData, ToolTemplate
 from main_tools import diplay_templates
 
 
@@ -81,6 +82,19 @@ def import_tool_module(tool_path: Path, tools_root: Optional[Path]) -> Optional[
     return None
 
 
+def extract_tool_templates(module: ModuleType, tool_path: Path) -> Optional[List[ToolTemplate]]:
+    if hasattr(module, "getToolData"):
+        tool_data = module.getToolData()
+        return tool_data.tool_template
+
+    if hasattr(module, "get_tool_templates"):
+        templates = module.get_tool_templates()
+        return templates
+
+    LOG(f"No 'getToolData' or 'get_tool_templates' found for tool {tool_path}")
+    return []
+
+
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = parse_args(argv)
     tool_path = resolve_tool_path(args.tool_path)
@@ -103,18 +117,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         LOG(f"Unable to load module for tool: {tool_path}")
         return 1
 
-    if not hasattr(module, "get_tool_templates"):
-        LOG(f"No 'get_tool_templates' found for tool {tool_path}")
-        return 0
-
-    try:
-        templates = module.get_tool_templates()
-    except Exception as exc:
-        LOG_EXCEPTION(exc, msg=f"Error retrieving templates from {tool_path}", exit=False)
-        return 1
-
-    if not isinstance(templates, list):
-        LOG(f"Invalid templates returned from {tool_path}: expected a list.")
+    templates = extract_tool_templates(module, tool_path)
+    if templates is None:
         return 1
 
     return diplay_templates(tool_path, templates)

@@ -93,11 +93,15 @@ def get_tool_templates() -> List[ToolTemplate]:
     ]
 
 
+
+def getToolData() -> ToolData:
+    return ToolData(tool_template=get_tool_templates())
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="OneWeb SW-Tools local build helper.")
     parser.formatter_class = argparse.RawTextHelpFormatter
     # Fill help epilog from templates
-    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
     parser.add_argument(ARG_OW_BUILD_TYPE, choices=[BUILD_TYPE_BINARY, BUILD_TYPE_IESA], type=str, default=BUILD_TYPE_BINARY,
                         help="Build type (binary or iesa). Defaults to binary.")
     parser.add_argument(ARG_MANIFEST_SOURCE, choices=[MANIFEST_SOURCE_LOCAL, MANIFEST_SOURCE_REMOTE], default=MANIFEST_SOURCE_LOCAL,

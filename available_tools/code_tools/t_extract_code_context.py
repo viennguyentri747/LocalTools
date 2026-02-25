@@ -16,19 +16,19 @@ FORWARDED_TOOLS: Dict[str, ForwardedTool] = {
         mode=EXTRACT_MODE_PATHS,
         description="Extract context archives from explicit filesystem paths.",
         main=main_paths,
-        get_templates=get_paths_tool_templates,
+        get_templates=lambda: ToolData(tool_template=get_paths_tool_templates()),
     ),
     EXTRACT_MODE_GIT_DIFF: ForwardedTool(
         mode=EXTRACT_MODE_GIT_DIFF,
         description="Generate context from a git diff between two refs.",
         main=main_git_diff,
-        get_templates=get_diff_tool_templates,
+        get_templates=lambda: ToolData(tool_template=get_diff_tool_templates()),
     ),
     EXTRACT_MODE_GIT_MR: ForwardedTool(
         mode=EXTRACT_MODE_GIT_MR,
         description="Fetch merge-request metadata and context from GitLab.",
         main=main_git_mr,
-        get_templates=get_mr_tool_templates,
+        get_templates=lambda: ToolData(tool_template=get_mr_tool_templates()),
     ),
 }
 
@@ -57,7 +57,7 @@ def get_tool_templates() -> List[ToolTemplate]:
 
     aggregated_templates: List[ToolTemplate] = []
     for mode, tool in FORWARDED_TOOLS.items():
-        aggregated_templates.extend(clone_with_mode(mode, tool.get_templates()))
+        aggregated_templates.extend(clone_with_mode(mode, tool.get_templates_list()))
 
     return aggregated_templates
 
@@ -148,7 +148,7 @@ def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
         help="Include changed file contents in the output (true or false). Defaults to true.",
     )
 
-    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
 
     return parser.parse_args(argv)
 
@@ -180,6 +180,10 @@ def _run_forwarded_tool(forwarded_tool: ForwardedTool, args: argparse.Namespace)
     LOG(f"{LOG_PREFIX_MSG_INFO} Running mode '{forwarded_tool.mode}': {forwarded_tool.description}")
     forwarded_tool.main(args)
 
+
+
+def getToolData() -> ToolData:
+    return ToolData(tool_template=get_tool_templates())
 
 def main(argv: List[str] | None = None) -> None:
     args = parse_args(argv)

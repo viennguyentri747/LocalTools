@@ -22,13 +22,13 @@ FORWARDED_TOOLS: Dict[str, ForwardedTool] = {
         mode=MODE_INS_MONITOR,
         description="Copy and run INS monitor message checks on a UT.",
         main=ins_monitor_tool.main,
-        get_templates=ins_monitor_tool.get_tool_templates,
+        get_templates=ins_monitor_tool.getToolData,
     ),
     MODE_TAIL_P_LOG: ForwardedTool(
         mode=MODE_TAIL_P_LOG,
         description="Generate ACU periodic log tail command snippets.",
         main=tail_p_log_tool.main,
-        get_templates=tail_p_log_tool.get_tool_templates,
+        get_templates=tail_p_log_tool.getToolData,
     ),
 }
 
@@ -57,7 +57,7 @@ def get_tool_templates() -> List[ToolTemplate]:
 
     aggregated_templates: List[ToolTemplate] = []
     for mode, tool in FORWARDED_TOOLS.items():
-        aggregated_templates.extend(clone_with_mode(mode, tool.get_templates()))
+        aggregated_templates.extend(clone_with_mode(mode, tool.get_templates_list()))
 
     return aggregated_templates
 
@@ -74,7 +74,7 @@ def parse_args(argv: List[str]) -> Tuple[argparse.Namespace, List[str]]:
         help="Which UT remote helper to run (e.g. ins_monitor, tail_p_log).",
     )
 
-    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
     return parser.parse_known_args(argv)
 
 
@@ -91,6 +91,10 @@ def _run_forwarded_tool(forwarded_tool: ForwardedTool, passthrough_args: List[st
     finally:
         sys.argv = original_argv
 
+
+
+def getToolData() -> ToolData:
+    return ToolData(tool_template=get_tool_templates())
 
 def main(argv: List[str] | None = None) -> None:
     if argv is None:

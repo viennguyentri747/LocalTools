@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import argparse # Import the argparse module for named command-line arguments
 from pathlib import Path
 from typing import List
+from dev.dev_common.custom_structures import ToolData
 from dev.dev_common.tools_utils import ToolTemplate, build_examples_epilog
 
 def get_tool_templates() -> List[ToolTemplate]:
@@ -57,6 +58,11 @@ def calculate_gps_and_utc_time(week: int, time_of_week_ms: int, leap_seconds: in
         "UTC Time": utc_time
     }
 
+
+def getToolData() -> ToolData:
+    return ToolData(tool_template=get_tool_templates())
+
+
 # --- Example Usage ---
 if __name__ == "__main__":
     # Create an ArgumentParser object
@@ -65,7 +71,7 @@ if __name__ == "__main__":
     )
     parser.formatter_class = argparse.RawTextHelpFormatter
     # Fill help epilog from templates
-    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
     # Add arguments for GPS week and time of week milliseconds
     parser.add_argument(
      "--week",

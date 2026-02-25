@@ -26,10 +26,14 @@ def get_tool_templates() -> List[ToolTemplate]:
     ]
 
 
+
+def getToolData() -> ToolData:
+    return ToolData(tool_template=get_tool_templates())
+
 def main():
     parser = argparse.ArgumentParser(description="Process .gitlab-ci.yml for local execution.")
     parser.formatter_class = argparse.RawTextHelpFormatter
-    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
 
     parser.add_argument(ARG_PATH_SHORT, ARG_GL_YML_FILE_PATH,
                         help="Path to the source .gitlab-ci.yml file", required=True)

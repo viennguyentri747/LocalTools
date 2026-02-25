@@ -59,7 +59,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         description="Filter Intellian P-log files down to a compact TSV with selected columns.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
 
     parser.add_argument(ARG_PLOG_PATHS, required=True, nargs="+", type=Path, help="One or more periodic log file paths (P_*.txt/P_*.log).")
     parser.add_argument( ARG_COLUMNS, nargs="+", default=None, help="Space-separated list of column names to keep (default: Time/Velocity/RTK Compass).", )
@@ -249,6 +249,10 @@ def _write_metadata_file(output_plog_path: Path, input_paths: Sequence[Path], ti
     write_to_file(str(metadata_path), json.dumps(metadata, indent=2), mode=WriteMode.OVERWRITE)
     return metadata_path
 
+
+
+def getToolData() -> ToolData:
+    return ToolData(tool_template=get_tool_templates())
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
     args = parse_args(argv)

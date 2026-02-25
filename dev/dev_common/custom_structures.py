@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 import re
-from typing import Callable, Dict, List, Any, Optional
+from typing import Callable, Dict, List, Any, Optional, Union
 from dev.dev_common import *
 from dev.dev_common.constants import *
 
@@ -165,4 +165,10 @@ class ForwardedTool:
     mode: str
     description: str
     main: Callable[..., None]
-    get_templates: Callable[[], List[ToolTemplate]]
+    get_templates: Callable[[], Union["ToolData", List[ToolTemplate]]]
+
+    def get_templates_list(self) -> List[ToolTemplate]:
+        templates = self.get_templates()
+        if isinstance(templates, ToolData):
+            return templates.tool_template
+        return templates

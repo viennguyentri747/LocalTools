@@ -38,7 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate a bash command that reboots a UT, waits for it to come back online, and checks key statuses.",
         formatter_class=argparse.RawTextHelpFormatter,
-        epilog=build_examples_epilog(get_tool_templates(), Path(__file__)),
+        epilog=build_examples_epilog(getToolData().tool_template, Path(__file__)),
     )
     parser.add_argument(ARG_SSM_IP, required=True,
                         help="Base URL or IP for the SSM API (e.g. http://10.0.0.5 or 10.0.0.5:8080).", )
@@ -343,6 +343,10 @@ def build_reboot_sequence_command(config: TestSequenceConfig) -> str:
 
     return command.strip()
 
+
+
+def getToolData() -> ToolData:
+    return ToolData(tool_template=get_tool_templates())
 
 def main() -> None:
     args = parse_args()

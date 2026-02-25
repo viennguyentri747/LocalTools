@@ -26,25 +26,25 @@ FORWARDED_TOOLS: Dict[str, ForwardedTool] = {
     #    mode=MODE_STATUS,
     #    description="Reboot UT and check status endpoints after startup via bash.",
     #    main=bash_status_tool.main,
-    #    get_templates=bash_status_tool.get_tool_templates,
+    #    get_templates=bash_status_tool.getToolData,
     #),
     MODE_STATUS_NATIVE: ForwardedTool(
         mode=MODE_STATUS_NATIVE,
         description="Reboot UT and check status endpoints via Python.",
         main=python_status_tool.main,
-        get_templates=python_status_tool.get_tool_templates,
+        get_templates=python_status_tool.getToolData,
     ),
     #MODE_ACU_PATTERN: ForwardedTool(
     #    mode=MODE_ACU_PATTERN,
     #    description="Generate grep commands to search downloaded ACU logs.",
     #    main=pattern_tool.main,
-    #    get_templates=pattern_tool.get_tool_templates,
+    #    get_templates=pattern_tool.getToolData,
     #),
     MODE_COMPACT_PLOG: ForwardedTool(
         mode=MODE_COMPACT_PLOG,
         description="Trim downloaded P-logs down to specific columns.",
         main=t_test_process_plog_local.main,
-        get_templates=t_test_process_plog_local.get_tool_templates,
+        get_templates=t_test_process_plog_local.getToolData,
     ),
 }
 
@@ -52,7 +52,7 @@ def get_tool_templates() -> List[ToolTemplate]:
     """Provide ready-to-run templates for the combined tool."""
     aggregated_templates: List[ToolTemplate] = []
     for mode, tool in FORWARDED_TOOLS.items():
-        templates = tool.get_templates()
+        templates = tool.get_templates_list()
         # Insert the mode argument at the beginning to each template
         for template in templates:
             template.args = {**template.args} #Can change to {ARG_TEST_MODE: mode, **template.args} if needed in the future
@@ -80,7 +80,7 @@ def parse_args(argv: List[str]) -> Tuple[argparse.Namespace, List[str]]:
         ),
     )
 
-    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
     return parser.parse_known_args(argv)
 
 
@@ -99,6 +99,10 @@ def _run_forwarded_tool(forwarded_tool: ForwardedTool, passthrough_args: List[st
     finally:
         sys.argv = original_argv
 
+
+
+def getToolData() -> ToolData:
+    return ToolData(tool_template=get_tool_templates())
 
 def main(argv: List[str] | None = None) -> None:
     if argv is None:

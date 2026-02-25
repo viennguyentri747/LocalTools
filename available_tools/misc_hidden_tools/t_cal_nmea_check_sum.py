@@ -46,7 +46,7 @@ def parse_args() -> argparse.Namespace:
         description="Calculate the NMEA checksum for an ASCE-formatted sentence.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
     parser.add_argument(
         ARG_SENTENCE,
         required=True,
@@ -76,6 +76,10 @@ def normalize_sentence(raw_sentence: str) -> str:
         stripped = stripped[1:]
     return stripped.split("*")[0]
 
+
+
+def getToolData() -> ToolData:
+    return ToolData(tool_template=get_tool_templates())
 
 def main() -> None:
     args = parse_args()

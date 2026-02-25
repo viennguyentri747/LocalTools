@@ -50,12 +50,16 @@ def get_tool_templates() -> List[ToolTemplate]:
     ]
 
 
+
+def getToolData() -> ToolData:
+    return ToolData(tool_template=get_tool_templates())
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Update Inertial Sense firmware packages and/or SDK from a single entry point.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
     parser.add_argument(ARG_UPDATE_FW, type=lambda x: x.lower() == TRUE_STR_VALUE, default=False,
                         help="Run firmware update workflow (true or false).", )
     parser.add_argument(ARG_UPDATE_SDK, type=lambda x: x.lower() == TRUE_STR_VALUE,

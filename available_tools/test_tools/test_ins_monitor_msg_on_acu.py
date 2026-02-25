@@ -76,12 +76,16 @@ def get_tool_templates() -> List[ToolTemplate]:
     ]
 
 
+
+def getToolData() -> ToolData:
+    return ToolData(tool_template=get_tool_templates())
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Show SCP+run command to copy and execute test_ins_monitor_messages.py on target UT.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
 
     parser.add_argument(ARG_PATH_LONG, ARG_PATH_SHORT, type=Path, default=DEFAULT_LOCAL_FILE,
                         help="Local path to the remote script to copy (default: remote_tools/src/test_ins_monitor_messages.py)", )

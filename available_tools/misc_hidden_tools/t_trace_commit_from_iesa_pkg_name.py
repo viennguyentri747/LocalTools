@@ -16,6 +16,7 @@ from typing import List, Optional, Tuple
 import requests
 
 
+from dev.dev_common.custom_structures import ToolData
 from dev.dev_common.tools_utils import ToolTemplate, build_examples_epilog
 
 
@@ -92,12 +93,16 @@ def find_version(base_url: str, target_version: str, page_size: int = 100, timeo
                 return None
 
 
+
+def getToolData() -> ToolData:
+    return ToolData(tool_template=get_tool_templates())
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Search /version/history for a given version_string."
     )
     # Fill help epilog from templates
-    parser.epilog = build_examples_epilog(get_tool_templates(), Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
     parser.add_argument("--version",  help="Exact version_string to search for")
     parser.add_argument("--base-url", default="http://10.1.26.170:8765",
                         help="Base server URL (default: %(default)s)", )

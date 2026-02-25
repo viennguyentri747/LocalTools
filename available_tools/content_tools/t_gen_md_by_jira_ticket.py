@@ -155,11 +155,15 @@ def get_repo_manifest_from_remote(main_manifest_branch: str) -> IesaManifest:
     return manifest
 
 
+def getToolData() -> ToolData:
+    return ToolData(tool_template=get_tool_templates())
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Generate coding task markdown from a Jira ticket.",
         formatter_class=argparse.RawTextHelpFormatter,
-        epilog=build_examples_epilog(get_tool_templates(), Path(__file__))
+        epilog=build_examples_epilog(getToolData().tool_template, Path(__file__))
     )
 
     parser.add_argument(ARG_TICKET_URL, type=str, required=False, help="The full URL of the Jira ticket.")

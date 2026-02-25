@@ -1,6 +1,6 @@
 #!/home/vien/workspace/intellian_core_repos/local_tools/MyVenvFolder/bin/python
 from dev.dev_common import *
-from misc_tools.t_get_acu_logs import AcuLogInfo
+from available_tools.test_tools.log_test_tools.t_get_acu_logs import AcuLogInfo
 from unit_tests.acu_log_tests.periodic_log_helper import *
 from unit_tests.acu_log_tests.common import batch_fetch_acu_logs_for_days
 

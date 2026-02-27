@@ -94,23 +94,22 @@ def _parse_int(value: str) -> Optional[int]:
         return None
 
 
-def _record_issue(issues: List[str], plog_file: Path, row_index: int, time_value: str, sync_value: str,
-                  message: str, drift: Optional[float] = None, drift_time_now: Optional[float] = None,
-                  drift_time_start: Optional[float] = None, drift_sync_now: Optional[int] = None,
-                  drift_sync_start: Optional[int] = None, drift_time_now_label: Optional[str] = None,
-                  drift_time_start_label: Optional[str] = None) -> None:
-    if drift is not None:
-        if drift_time_now_label and drift_time_start_label and drift_sync_now is not None and drift_sync_start is not None:
-            drift_note = (f"DRIFT={drift:.3f}s, curr_time={drift_time_now_label} vs start_time={drift_time_start_label}, "
-                          f"current_sync={drift_sync_now} vs start_sync={drift_sync_start}")
-        elif None not in (drift_time_now, drift_time_start, drift_sync_now, drift_sync_start):
-            drift_note = (f"DRIFT={drift:.3f}s, curr_time={drift_time_now:.3f}s vs start_time={drift_time_start:.3f}s, "
-                          f"current_sync={drift_sync_now} vs start_sync={drift_sync_start}")
-        else:
-            drift_note = f"DRIFT={drift:.3f}s"
-        issues.append(f"{drift_note}, Row {row_index} in {plog_file}:{row_index} :time={time_value}, {LAST_TIME_SYNC_COLUMN} ({message})")
-        return
-    issues.append(f"Row {row_index} in {plog_file}: time={time_value}, {LAST_TIME_SYNC_COLUMN}={sync_value} ({message})")
+def _record_issue(issues: List[str], plog_file: Path, row_index: int, message: str) -> None:
+    now_label = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    issues.append(f"[{now_label}] Row {row_index} in {plog_file}: {message}")
+
+
+def _record_drift_issue(issues: List[str], plog_file: Path, start_row: int, end_row: int, start_time_label: str, end_time_label: str,
+                        start_sync: int, end_sync: int, start_drift: float, end_drift: float, total_count: int, max_secs_per_sync: float,
+                        baseline_time_label: Optional[str], baseline_sync: Optional[int]) -> None:
+    row_scope = f"Rows {start_row}-{end_row}" if start_row != end_row else f"Row {start_row}"
+    baseline_note = f", baseline=(time={baseline_time_label}, sync={baseline_sync})" if baseline_time_label and baseline_sync is not None else ""
+    message = (
+        f"{DRIFT_ISSUE_NAME}, start={start_time_label} (row {start_row}, sync={start_sync}, drift={start_drift:.3f}s), "
+        f"end={end_time_label} (row {end_row}, sync={end_sync}, drift={end_drift:.3f}s), total_count={total_count}, "
+        f"{row_scope}, max_allowed={max_secs_per_sync:.3f}s{baseline_note}"
+    )
+    _record_issue(issues, plog_file, start_row, message)
 
 
 def _check_time_sync_drift(file_data: PLogData, max_secs_per_sync: float) -> List[str]:
@@ -121,7 +120,7 @@ def _check_time_sync_drift(file_data: PLogData, max_secs_per_sync: float) -> Lis
     time_idx = name_to_idx.get(TIME_COLUMN)
     sync_idx = name_to_idx.get(LAST_TIME_SYNC_COLUMN)
     if time_idx is None or sync_idx is None:
-        issues.append(f"Row 1 in {plog_file}: missing required columns ({TIME_COLUMN}, {LAST_TIME_SYNC_COLUMN})")
+        _record_issue(issues, plog_file, 1, f"missing required columns ({TIME_COLUMN}, {LAST_TIME_SYNC_COLUMN})")
         return issues
     start_time_float: Optional[float] = None
     start_time_label: Optional[str] = None
@@ -132,6 +131,52 @@ def _check_time_sync_drift(file_data: PLogData, max_secs_per_sync: float) -> Lis
     prev_time_of_day: Optional[float] = None
     prev_sync: Optional[int] = None
     curr_day_offset: float = 0.0
+    in_drift_block = False
+    drift_start_row: Optional[int] = None
+    drift_end_row: Optional[int] = None
+    drift_start_time_label: Optional[str] = None
+    drift_end_time_label: Optional[str] = None
+    drift_start_sync: Optional[int] = None
+    drift_end_sync: Optional[int] = None
+    drift_start_value: Optional[float] = None
+    drift_end_value: Optional[float] = None
+    drift_count = 0
+
+    def _flush_drift_block() -> None:
+        nonlocal in_drift_block, drift_start_row, drift_end_row, drift_start_time_label, drift_end_time_label
+        nonlocal drift_start_sync, drift_end_sync, drift_start_value, drift_end_value, drift_count
+        if not in_drift_block:
+            return
+        if None in (drift_start_row, drift_end_row, drift_start_time_label, drift_end_time_label, drift_start_sync, drift_end_sync, drift_start_value, drift_end_value):
+            in_drift_block = False
+            drift_start_row = drift_end_row = None
+            drift_start_time_label = drift_end_time_label = None
+            drift_start_sync = drift_end_sync = None
+            drift_start_value = drift_end_value = None
+            drift_count = 0
+            return
+        _record_drift_issue(
+            issues=issues,
+            plog_file=plog_file,
+            start_row=drift_start_row,
+            end_row=drift_end_row,
+            start_time_label=drift_start_time_label,
+            end_time_label=drift_end_time_label,
+            start_sync=drift_start_sync,
+            end_sync=drift_end_sync,
+            start_drift=drift_start_value,
+            end_drift=drift_end_value,
+            total_count=drift_count,
+            max_secs_per_sync=max_secs_per_sync,
+            baseline_time_label=start_time_label,
+            baseline_sync=start_sync_int,
+        )
+        in_drift_block = False
+        drift_start_row = drift_end_row = None
+        drift_start_time_label = drift_end_time_label = None
+        drift_start_sync = drift_end_sync = None
+        drift_start_value = drift_end_value = None
+        drift_count = 0
 
     for idx, row in enumerate(file_data.raw_data_rows):
         row_index = file_data.plog_data_row_indices[idx] if idx < len(file_data.plog_data_row_indices) else idx + 1
@@ -141,8 +186,8 @@ def _check_time_sync_drift(file_data: PLogData, max_secs_per_sync: float) -> Lis
         curr_time_sync_int = _parse_int(curr_sync_value)
 
         if curr_time_secs_float is None or curr_time_sync_int is None:
-            _record_issue(issues, plog_file, row_index, curr_time_value or "?", curr_sync_value or "?",
-                          "missing/invalid time sync data")
+            _flush_drift_block()
+            _record_issue(issues, plog_file, row_index, f"time={curr_time_value or '?'}, {LAST_TIME_SYNC_COLUMN}={curr_sync_value or '?'} (missing/invalid time sync data)")
             continue
 
         if prev_time_of_day is not None and curr_time_secs_float < prev_time_of_day:
@@ -156,8 +201,9 @@ def _check_time_sync_drift(file_data: PLogData, max_secs_per_sync: float) -> Lis
             continue
 
         if not baseline_ready:
+            _flush_drift_block()
             if curr_time_sync_int < prev_sync:
-                _record_issue(issues, plog_file, row_index, curr_time_value, curr_sync_value, "LAST_TIME_SYNC decreased")
+                _record_issue(issues, plog_file, row_index, f"time={curr_time_value}, {LAST_TIME_SYNC_COLUMN}={curr_sync_value} (LAST_TIME_SYNC decreased)")
             if curr_time_sync_int > prev_sync:
                 start_time_float = curr_adj_time_secs_float
                 start_time_label = curr_time_value
@@ -171,8 +217,7 @@ def _check_time_sync_drift(file_data: PLogData, max_secs_per_sync: float) -> Lis
             elif not baseline_wait_reported and baseline_start_time is not None:
                 wait_secs = curr_adj_time_secs_float - baseline_start_time
                 if wait_secs > max_secs_per_sync:
-                    _record_issue(issues, plog_file, row_index, curr_time_value, curr_sync_value,
-                                  f"LAST_TIME_SYNC not advanced within {max_secs_per_sync:.3f}s")
+                    _record_issue(issues, plog_file, row_index, f"time={curr_time_value}, {LAST_TIME_SYNC_COLUMN}={curr_sync_value} (LAST_TIME_SYNC not advanced within {max_secs_per_sync:.3f}s)")
                     baseline_wait_reported = True
             prev_time_of_day = curr_time_secs_float
             prev_sync = curr_time_sync_int
@@ -180,6 +225,7 @@ def _check_time_sync_drift(file_data: PLogData, max_secs_per_sync: float) -> Lis
 
         # Ignore drift while sync value is zero after having had a non-zero baseline; this is handled by SYNC_ZERO checks.
         if start_sync_int is not None and start_sync_int > 0 and curr_time_sync_int == 0:
+            _flush_drift_block()
             # Reset variables
             baseline_ready = False
             baseline_start_time = None
@@ -192,21 +238,30 @@ def _check_time_sync_drift(file_data: PLogData, max_secs_per_sync: float) -> Lis
             continue
 
         if curr_time_sync_int < prev_sync:
-            _record_issue(issues, plog_file, row_index, curr_time_value, curr_sync_value,
-                          "LAST_TIME_SYNC decreased")
+            _record_issue(issues, plog_file, row_index, f"time={curr_time_value}, {LAST_TIME_SYNC_COLUMN}={curr_sync_value} (LAST_TIME_SYNC decreased)")
         real_time_delta_secs_float = curr_adj_time_secs_float - start_time_float
         sync_delta_secs_int = curr_time_sync_int - start_sync_int
         drift = real_time_delta_secs_float - sync_delta_secs_int
         if abs(drift) > max_secs_per_sync:
-            _record_issue(issues, plog_file, row_index, curr_time_value, curr_sync_value,
-                          f"drift = {drift:.3f}s > {max_secs_per_sync:.3f}s", drift=drift,
-                          drift_time_now=curr_adj_time_secs_float, drift_time_start=start_time_float,
-                          drift_sync_now=curr_time_sync_int, drift_sync_start=start_sync_int,
-                          drift_time_now_label=curr_time_value, drift_time_start_label=start_time_label)
+            if not in_drift_block:
+                in_drift_block = True
+                drift_start_row = row_index
+                drift_start_time_label = curr_time_value
+                drift_start_sync = curr_time_sync_int
+                drift_start_value = drift
+                drift_count = 0
+            drift_end_row = row_index
+            drift_end_time_label = curr_time_value
+            drift_end_sync = curr_time_sync_int
+            drift_end_value = drift
+            drift_count += 1
+        else:
+            _flush_drift_block()
 
         prev_time_of_day = curr_time_secs_float
         prev_sync = curr_time_sync_int
 
+    _flush_drift_block()
     return issues
 
 
@@ -217,7 +272,8 @@ def _check_time_sync_sync_zero(file_data: PLogData) -> List[str]:
     time_idx = name_to_idx.get(TIME_COLUMN)
     sync_idx = name_to_idx.get(LAST_TIME_SYNC_COLUMN)
     if time_idx is None or sync_idx is None:
-        return [f"Row 1 in {plog_file}: missing required columns ({TIME_COLUMN}, {LAST_TIME_SYNC_COLUMN})"]
+        _record_issue(issues, plog_file, 1, f"missing required columns ({TIME_COLUMN}, {LAST_TIME_SYNC_COLUMN})")
+        return issues
     start_sync_int: Optional[int] = None
     start_time_label: Optional[str] = None
     in_zero_block = False
@@ -251,19 +307,21 @@ def _check_time_sync_sync_zero(file_data: PLogData) -> List[str]:
             zero_count += 1
             continue
         if in_zero_block:
-            issues.append(
-                f"{SYNC_ZERO_ISSUE_NAME}, start={zero_start_time_label} (row {zero_start_row}), "
-                f"end={zero_end_time_label} (row {zero_end_row}), total_count={zero_count}, "
-                f"Rows {zero_start_row}-{zero_end_row} in {plog_file} "
-                f"(start_sync={start_sync_int}, start_time={start_time_label})"
+            _record_issue(
+                issues,
+                plog_file,
+                zero_start_row or row_num,
+                f"{SYNC_ZERO_ISSUE_NAME}, start={zero_start_time_label} (row {zero_start_row}), end={zero_end_time_label} (row {zero_end_row}), "
+                f"total_count={zero_count}, Rows {zero_start_row}-{zero_end_row} (start_sync={start_sync_int}, start_time={start_time_label})",
             )
             in_zero_block = False
     if in_zero_block:
-        issues.append(
-            f"{SYNC_ZERO_ISSUE_NAME}, start={zero_start_time_label} (row {zero_start_row}), "
-            f"end={zero_end_time_label} (row {zero_end_row}), total_count={zero_count}, "
-            f"Rows {zero_start_row}-{zero_end_row} in {plog_file} "
-            f"(start_sync={start_sync_int}, start_time={start_time_label})"
+        _record_issue(
+            issues,
+            plog_file,
+            zero_start_row or 1,
+            f"{SYNC_ZERO_ISSUE_NAME}, start={zero_start_time_label} (row {zero_start_row}), end={zero_end_time_label} (row {zero_end_row}), "
+            f"total_count={zero_count}, Rows {zero_start_row}-{zero_end_row} (start_sync={start_sync_int}, start_time={start_time_label})",
         )
     return issues
 

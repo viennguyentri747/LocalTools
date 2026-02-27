@@ -8,12 +8,19 @@ import subprocess
 import zipfile
 from pathlib import Path
 from typing import Optional
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 from dev.dev_common import *
 from dev.dev_common.git_utils import BranchExistRequirement, checkout_branch, git_is_local_branch_existing, git_clone_shallow
 
 # --- Configuration ---
 INSENSE_SDK_UNPACK_DIR = INSENSE_SDK_REPO_PATH / "InsenseSDK"
 LIBUSB_ZIP_SRC_PATH = Path.home() / "downloads" / "libusb-master-1-0.zip"
+SDK_GITHUB_REPO = "inertialsense/inertial-sense-sdk"
+GITHUB_API_BASE_URL = "https://api.github.com"
+GITHUB_BASE_URL = "https://github.com"
+HTTP_USER_AGENT = "local-tools-sdk-updater"
 NO_PROMPT: bool = False
 
 
@@ -57,6 +64,68 @@ def _normalize_branch_name(branch_name: str) -> str:
     safe_branch = sanitize_str_to_file_name(branch_name).replace("/", "-").replace("\\", "-").replace(" ", "-")
     safe_branch = re.sub(r"-{2,}", "-", safe_branch).strip("-")
     return safe_branch or str_to_slug(branch_name) or "sdk-branch"
+
+
+def _github_ref_exists(repo: str, ref_namespace: str, ref_name: str) -> bool:
+    encoded_ref = quote(ref_name.strip(), safe="/")
+    check_url = f"{GITHUB_API_BASE_URL}/repos/{repo}/git/refs/{ref_namespace}/{encoded_ref}"
+    request = Request(check_url, headers={"Accept": "application/vnd.github+json", "User-Agent": HTTP_USER_AGENT})
+    try:
+        with urlopen(request, timeout=20) as response:
+            return 200 <= response.status < 300
+    except HTTPError as exc:
+        if exc.code == 404:
+            return False
+        LOG(f"❌ ERROR: Failed checking ref '{ref_name}' via {check_url} (HTTP {exc.code}).")
+        return False
+    except URLError as exc:
+        LOG(f"❌ ERROR: Network error while checking ref '{ref_name}': {exc}")
+        return False
+    except Exception as exc:
+        LOG(f"❌ ERROR: Unexpected error while checking ref '{ref_name}': {exc}")
+        return False
+
+
+def _extract_filename_from_content_disposition(content_disposition: Optional[str]) -> Optional[str]:
+    if not content_disposition:
+        return None
+    match = re.search(r'filename\*?=(?:UTF-8\'\')?"?([^";]+)"?', content_disposition, re.IGNORECASE)
+    if not match:
+        return None
+    file_name = match.group(1).strip().strip('"').strip("'")
+    return file_name if file_name else None
+
+
+def _download_github_archive_zip(repo: str, ref_namespace: str, ref_name: str) -> Optional[Path]:
+    encoded_ref = quote(ref_name.strip(), safe="/")
+    zip_url = f"{GITHUB_BASE_URL}/{repo}/archive/refs/{ref_namespace}/{encoded_ref}.zip"
+    request = Request(zip_url, headers={"User-Agent": HTTP_USER_AGENT})
+    download_dir = DOWNLOADS_PATH
+    download_dir.mkdir(parents=True, exist_ok=True)
+    fallback_name = f"inertial-sense-sdk-{_normalize_branch_name(ref_name)}.zip"
+    output_path = download_dir / fallback_name
+    tmp_path = output_path.with_suffix(".zip.part")
+    try:
+        LOG(f"⬇️ Downloading SDK archive from '{zip_url}' ...")
+        with urlopen(request, timeout=120) as response:
+            download_name = _extract_filename_from_content_disposition(response.headers.get("Content-Disposition"))
+            if download_name:
+                output_path = download_dir / download_name
+                tmp_path = output_path.with_suffix(".zip.part")
+            with tmp_path.open("wb") as fp:
+                shutil.copyfileobj(response, fp)
+        tmp_path.replace(output_path)
+        LOG(f"✅ Downloaded SDK archive to '{output_path}'.")
+        return output_path
+    except HTTPError as exc:
+        LOG(f"❌ ERROR: Failed to download SDK archive from '{zip_url}' (HTTP {exc.code}).")
+    except URLError as exc:
+        LOG(f"❌ ERROR: Network error while downloading SDK archive: {exc}")
+    except Exception as exc:
+        LOG(f"❌ ERROR: Unexpected error while downloading SDK archive: {exc}")
+    if tmp_path.exists():
+        tmp_path.unlink(missing_ok=True)
+    return None
 
 
 def unzip_to_dest(zip_path: Path, dest_dir: Path) -> bool:
@@ -389,8 +458,29 @@ def run_sdk_update_with_zip(sdk_zip_path: Path, *, no_prompt: bool = False, base
     signal_handler_stash_ref = "bca3b5c"
     apply_signal_handler(signal_handler_stash_ref, new_sdk_path)
 
+def run_sdk_update_with_branch_or_tag(branch_or_tag_name: str):
+    normalized_name = (branch_or_tag_name or "").strip()
+    if not normalized_name:
+        LOG("❌ FATAL: branch_or_tag_name is empty.")
+        return
+    LOG(f"🔎 Checking '{normalized_name}' in '{SDK_GITHUB_REPO}' (tag first, then branch)...")
+    ref_namespace: Optional[str] = None
+    if _github_ref_exists(SDK_GITHUB_REPO, "tags", normalized_name):
+        ref_namespace = "tags"
+        LOG(f"✅ Found tag '{normalized_name}'.")
+    elif _github_ref_exists(SDK_GITHUB_REPO, "heads", normalized_name):
+        ref_namespace = "heads"
+        LOG(f"✅ Tag not found; found branch '{normalized_name}'.")
+    else:
+        LOG(f"❌ FATAL: Neither tag nor branch '{normalized_name}' was found in '{SDK_GITHUB_REPO}'.")
+        return
 
-def run_sdk_update_with_branch(branch_name: str, *, no_prompt: bool = False, base_branch: Optional[str] = None,
+    sdk_zip_path = _download_github_archive_zip(SDK_GITHUB_REPO, ref_namespace, normalized_name)
+    if not sdk_zip_path:
+        return
+    run_sdk_update_with_zip(sdk_zip_path)
+
+def run_sdk_update_with_branch_checkout(branch_name: str, *, no_prompt: bool = False, base_branch: Optional[str] = None,
                                repo_url: str = "https://github.com/inertialsense/inertial-sense-sdk.git", ) -> None:
     global NO_PROMPT
     NO_PROMPT = no_prompt

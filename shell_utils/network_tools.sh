@@ -1,7 +1,8 @@
 #!/bin/bash
 # Common Variables
-common_ip_prefix="192.168.100"
-target_acu_ip="$common_ip_prefix.254"
+nor_ip_prefix="192.168.100"
+lab_ip_prefix="172.16.20"
+target_acu_ip="$nor_ip_prefix.254"
 ut_pass='use4Tst!'
 NOTE_PERMANENT_COMMAND='May need to copy key to UT (for permanent login) before running this command first time. Try to run login_permanent OR login_permanent_lab'
 
@@ -12,14 +13,14 @@ DEFAULT_AREA="nor"
 get_ip() {
     case "$1" in
         nor)
-            echo "$common_ip_prefix"
+            echo "$nor_ip_prefix"
         ;;
         lab)
-            echo "172.16.20"
+            echo "$lab_ip_prefix"
         ;;
-        roof)
-            echo "192.168.101"
-        ;;
+        #roof)
+        #    echo "192.168.101"
+        #;;
         *)
             echo "Invalid area. Use nor, lab, or roof." >&2
             return 1
@@ -35,6 +36,25 @@ resolve_area_and_octet() {
 
     if [[ -z "$first_arg" ]]; then
         return 1
+    fi
+
+    # Allow full IP as the first arg when area is omitted; infer area from known prefixes.
+    if [[ "$first_arg" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+        case "$first_arg" in
+            "$nor_ip_prefix".*)
+                RESOLVED_AREA="nor"
+            ;;
+            "$lab_ip_prefix".*)
+                RESOLVED_AREA="lab"
+            ;;
+            *)
+                echo "Error: Full IP '$first_arg' must start with $nor_ip_prefix or $lab_ip_prefix when area is omitted." >&2
+                return 1
+            ;;
+        esac
+        RESOLVED_OCTET="${first_arg##*.}"
+        RESOLVED_SHIFT=1
+        return 0
     fi
 
     if [[ "$first_arg" =~ ^[0-9]+$ ]]; then
@@ -203,8 +223,8 @@ login_permanent() {
     
     if [[ -z "$user" || -z "$ip" ]]; then
         echo "Usage: login_permanent <user> <ip> [password]"
-        echo "Ex: login_permanent root $common_ip_prefix.70 my_password"
-        echo "    login_permanent root $common_ip_prefix.70  # Interactive password prompt"
+        echo "Ex: login_permanent root $nor_ip_prefix.70 my_password"
+        echo "    login_permanent root $nor_ip_prefix.70  # Interactive password prompt"
         return 1
     fi
     
@@ -240,7 +260,7 @@ ping_ssm_ip() {
 
     if [[ -z "$ip" ]]; then
         echo "Usage: ping_ssm <ip> [--mute]"
-        echo "Ex: ping_ssm $common_ip_prefix.70 --mute"
+        echo "Ex: ping_ssm $nor_ip_prefix.70 --mute"
         return 1
     fi
 
@@ -275,7 +295,7 @@ ping_acu_ip() {
 
     if [[ -z "$ip" ]]; then
         echo "Usage: ping_acu_ip <ip> [--mute]"
-        echo "Ex: ping_acu_ip $common_ip_prefix.70 --mute"
+        echo "Ex: ping_acu_ip $nor_ip_prefix.70 --mute"
         return 1
     fi
 
@@ -382,8 +402,8 @@ scp_acu() {
     local local_paths=("${@:3:$local_path_count}") # This captures all arguments from the 3rd to the penultimate as local paths
     echo "Attempting to SCP files from: ${local_paths[@]} to $remote_path on remote"
     for path in "${local_paths[@]}"; do
-        echo "scp -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -J root@${ip_prefix}.$last_octet $path root@$common_ip_prefix.254:$remote_path"
-        scp -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -J "root@${ip_prefix}.$last_octet" "$path" "root@$common_ip_prefix.254:$remote_path"
+        echo "scp -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -J root@${ip_prefix}.$last_octet $path root@$nor_ip_prefix.254:$remote_path"
+        scp -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -J "root@${ip_prefix}.$last_octet" "$path" "root@$nor_ip_prefix.254:$remote_path"
     done
 }
 
@@ -404,7 +424,7 @@ scp_acu_to_local() {
     fi
 
     # Use the SSM as a jump host and copy from the ACU to the local machine
-    scp -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -J "root@${ip_prefix}.$last_octet" "root@$common_ip_prefix.254:$remote_path" "$local_path"
+    scp -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -J "root@${ip_prefix}.$last_octet" "root@$nor_ip_prefix.254:$remote_path" "$local_path"
 }
 
 # unset ut_pass

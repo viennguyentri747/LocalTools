@@ -67,8 +67,8 @@ def _normalize_branch_name(branch_name: str) -> str:
 
 
 def _github_ref_exists(repo: str, ref_namespace: str, ref_name: str) -> bool:
-    encoded_ref = quote(ref_name.strip(), safe="/")
-    check_url = f"{GITHUB_API_BASE_URL}/repos/{repo}/git/refs/{ref_namespace}/{encoded_ref}"
+    check_url = f"{GITHUB_API_BASE_URL}/repos/{repo}/git/refs/{ref_namespace}/{ref_name}"
+    LOG(f"Checking if ref '{ref_name}' exists via {check_url}")
     request = Request(check_url, headers={"Accept": "application/vnd.github+json", "User-Agent": HTTP_USER_AGENT})
     try:
         with urlopen(request, timeout=20) as response:
@@ -97,8 +97,7 @@ def _extract_filename_from_content_disposition(content_disposition: Optional[str
 
 
 def _download_github_archive_zip(repo: str, ref_namespace: str, ref_name: str) -> Optional[Path]:
-    encoded_ref = quote(ref_name.strip(), safe="/")
-    zip_url = f"{GITHUB_BASE_URL}/{repo}/archive/refs/{ref_namespace}/{encoded_ref}.zip"
+    zip_url = f"{GITHUB_BASE_URL}/{repo}/archive/refs/{ref_namespace}/{ref_name}.zip"
     request = Request(zip_url, headers={"User-Agent": HTTP_USER_AGENT})
     download_dir = DOWNLOADS_PATH
     download_dir.mkdir(parents=True, exist_ok=True)
@@ -117,10 +116,6 @@ def _download_github_archive_zip(repo: str, ref_namespace: str, ref_name: str) -
         tmp_path.replace(output_path)
         LOG(f"✅ Downloaded SDK archive to '{output_path}'.")
         return output_path
-    except HTTPError as exc:
-        LOG(f"❌ ERROR: Failed to download SDK archive from '{zip_url}' (HTTP {exc.code}).")
-    except URLError as exc:
-        LOG(f"❌ ERROR: Network error while downloading SDK archive: {exc}")
     except Exception as exc:
         LOG(f"❌ ERROR: Unexpected error while downloading SDK archive: {exc}")
     if tmp_path.exists():
@@ -241,6 +236,7 @@ def _path_contains_any_files(path: Path) -> bool:
         return False
     for item in path.rglob("*"):
         if item.is_file() or item.is_symlink():
+            LOG(f"   -> Found file: {item}")
             return True
     return False
 
@@ -261,6 +257,58 @@ def _remove_empty_dirs(path: Path) -> bool:
     except OSError:
         return False
     return True
+
+
+def sdk_update_pre_setup(*, base_branch: Optional[str], sdk_dir_suffix: str,
+                         target_branch_suffix: str) -> Optional[tuple[Path, str, Path, str]]:
+    repo_path = INSENSE_SDK_REPO_PATH
+    if not checkout_branch(repo_path, base_branch, branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_EXIST, allow_empty=True, ):
+        LOG(f"❌ FATAL: Failed to checkout base branch '{base_branch}'")
+        return None
+    INSENSE_SDK_UNPACK_DIR.mkdir(parents=True, exist_ok=True)
+    new_sdk_dir_name = f"inertial-sense-sdk-{sdk_dir_suffix}"
+    new_sdk_path = INSENSE_SDK_UNPACK_DIR / new_sdk_dir_name
+    if new_sdk_path.exists():
+        if not new_sdk_path.is_dir() or _path_contains_any_files(new_sdk_path):
+            LOG(
+                f"❌ FATAL: Target SDK path already exists at '{new_sdk_path}' and contains files. "
+            )
+            display_content_to_copy(
+                f"rm -rf {new_sdk_path}", purpose="Content to clean up SDK directory before retrying",
+            )
+            return None
+        LOG(f"⚠️ WARNING: Target SDK path already exists at '{new_sdk_path}' but contains only empty directories. Cleaning it up...")
+        if not _remove_empty_dirs(new_sdk_path):
+            LOG(
+                f"❌ FATAL: Could not remove empty directories under '{new_sdk_path}'. "
+                f"Check and delete it with command 'rm -rf {new_sdk_path}'."
+            )
+            return None
+        LOG(f"   -> Removed empty SDK path: '{new_sdk_path}'")
+    target_branch_prefix = f"update-sdk-{str_to_slug(target_branch_suffix)}"
+    target_branch_name = f"{target_branch_prefix}-{str_to_slug(get_short_date_now())}"
+    if git_is_local_branch_existing(repo_path, target_branch_name):
+        LOG(
+            f"❌ FATAL: Already having target branch {target_branch_name} -> Aborting update, check again and delete the branch if you want to retry!!")
+        return None
+    if not checkout_branch(repo_path, target_branch_name, branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_NOT_EXIST, ):
+        LOG("❌ FATAL: Could not switch/create branch -> Aborting update.")
+        return None
+    return repo_path, new_sdk_dir_name, new_sdk_path, target_branch_name
+
+
+def _finalize_sdk_update_from_zip(*, sdk_zip_path: Path, version: str,
+                                  pre_setup_result: tuple[Path, str, Path, str]) -> None:
+    repo_path, new_sdk_dir_name, new_sdk_path, _ = pre_setup_result
+    if not unzip_to_dest(sdk_zip_path, INSENSE_SDK_UNPACK_DIR):
+        return
+    git_stage_and_commit(repo_path, f"Unzip new SDK {version}", suppress_output=True)
+    integrate_libusb(new_sdk_path)
+    modify_sdk_cmake_files(version, new_sdk_path)
+    cleanup_old_sdks(INSENSE_SDK_UNPACK_DIR, new_sdk_dir_name)
+    LOG("\n🎉 SDK update process finished successfully!")
+    signal_handler_stash_ref = "bca3b5c"
+    apply_signal_handler(signal_handler_stash_ref, new_sdk_path)
 
 
 def get_current_git_branch() -> Optional[str]:
@@ -413,7 +461,7 @@ def apply_signal_handler(stash_ref: str, new_sdk_path: Optional[Path] = None) ->
 
 def run_sdk_update_with_zip(sdk_zip_path: Path, *, no_prompt: bool = False, base_branch: Optional[str] = None) -> None:
     global NO_PROMPT
-    sdk_zip_path = sdk_zip_path.expanduser()
+    sdk_zip_path = Path(sdk_zip_path).expanduser()
     NO_PROMPT = no_prompt
 
     if not sdk_zip_path.exists():
@@ -425,46 +473,41 @@ def run_sdk_update_with_zip(sdk_zip_path: Path, *, no_prompt: bool = False, base
         return
     LOG(f"   -> Extracted version: {version}")
 
-    repo_path = INSENSE_SDK_REPO_PATH
-    branch_prefix = f"update-sdk-{str_to_slug(version)}"
-    target_branch_name = f"{branch_prefix}-{str_to_slug(get_short_date_now())}"
-
-    if git_is_local_branch_existing(repo_path, target_branch_name):
-        LOG(
-            f"❌ FATAL: Already having target branch {target_branch_name} -> Aborting update, check again and delete the branch if you want to retry!!")
+    pre_setup_result = sdk_update_pre_setup(base_branch=base_branch, sdk_dir_suffix=version, target_branch_suffix=version)
+    if not pre_setup_result:
         return
+    _finalize_sdk_update_from_zip(sdk_zip_path=sdk_zip_path, version=version, pre_setup_result=pre_setup_result)
 
-    if not checkout_branch(repo_path, base_branch, branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_EXIST, allow_empty=True, ):
-        LOG(f"❌ FATAL: Failed to checkout base branch '{base_branch}'")
-        return
 
-    if not checkout_branch(repo_path, target_branch_name, branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_NOT_EXIST, ):
-        LOG("❌ FATAL: Could not switch/create branch -> Aborting update.")
-        return
-
-    INSENSE_SDK_UNPACK_DIR.mkdir(parents=True, exist_ok=True)
-    if not unzip_to_dest(sdk_zip_path, INSENSE_SDK_UNPACK_DIR):
-        return
-
-    new_sdk_dir_name = f"inertial-sense-sdk-{version}"
-    new_sdk_path = INSENSE_SDK_UNPACK_DIR / new_sdk_dir_name
-    git_stage_and_commit(repo_path, f"Unzip new SDK {version}", suppress_output=True)
-
-    integrate_libusb(new_sdk_path)
-    modify_sdk_cmake_files(version, new_sdk_path)
-    cleanup_old_sdks(INSENSE_SDK_UNPACK_DIR, new_sdk_dir_name)
-
-    LOG("\n🎉 SDK update process finished successfully!")
-    signal_handler_stash_ref = "bca3b5c"
-    apply_signal_handler(signal_handler_stash_ref, new_sdk_path)
-
-def run_sdk_update_with_branch_or_tag(branch_or_tag_name: str):
+def run_sdk_update_with_ref_or_path(branch_or_tag_name: Optional[str] = None, *, sdk_zip_path: Optional[Path] = None,
+                                      no_prompt: bool = False, base_branch: Optional[str] = None) -> None:
+    global NO_PROMPT
+    NO_PROMPT = no_prompt
     normalized_name = (branch_or_tag_name or "").strip()
+    resolved_zip_path = Path(sdk_zip_path).expanduser() if sdk_zip_path else None
+
+    if resolved_zip_path:
+        if normalized_name:
+            LOG("⚠️ WARNING: Both sdk_zip_path and branch_or_tag_name provided. Prioritizing sdk_zip_path.")
+        if not resolved_zip_path.exists():
+            LOG(f"❌ FATAL: SDK zip file not found at '{resolved_zip_path}'")
+            return
+        version = extract_version_from_zip(resolved_zip_path)
+        if not version:
+            return
+        LOG(f"   -> Extracted version: {version}")
+        pre_setup_result = sdk_update_pre_setup(base_branch=base_branch, sdk_dir_suffix=version, target_branch_suffix=version)
+        if not pre_setup_result:
+            return
+        _finalize_sdk_update_from_zip(sdk_zip_path=resolved_zip_path, version=version, pre_setup_result=pre_setup_result)
+        return
+
     if not normalized_name:
-        LOG("❌ FATAL: branch_or_tag_name is empty.")
+        LOG("❌ FATAL: Missing SDK source. Provide either sdk_zip_path or branch_or_tag_name.")
         return
     LOG(f"🔎 Checking '{normalized_name}' in '{SDK_GITHUB_REPO}' (tag first, then branch)...")
     ref_namespace: Optional[str] = None
+    sdk_dir_suffix = _normalize_branch_name(normalized_name)
     if _github_ref_exists(SDK_GITHUB_REPO, "tags", normalized_name):
         ref_namespace = "tags"
         LOG(f"✅ Found tag '{normalized_name}'.")
@@ -475,12 +518,20 @@ def run_sdk_update_with_branch_or_tag(branch_or_tag_name: str):
         LOG(f"❌ FATAL: Neither tag nor branch '{normalized_name}' was found in '{SDK_GITHUB_REPO}'.")
         return
 
-    sdk_zip_path = _download_github_archive_zip(SDK_GITHUB_REPO, ref_namespace, normalized_name)
-    if not sdk_zip_path:
+    version = extract_version_from_branch(normalized_name)
+    if not version:
         return
-    run_sdk_update_with_zip(sdk_zip_path)
+    LOG(f"   -> Extracted version: {version}")
+    pre_setup_result = sdk_update_pre_setup(base_branch=base_branch, sdk_dir_suffix=sdk_dir_suffix, target_branch_suffix=version)
+    if not pre_setup_result:
+        return
 
-def run_sdk_update_with_branch_checkout(branch_name: str, *, no_prompt: bool = False, base_branch: Optional[str] = None,
+    downloaded_zip_path = _download_github_archive_zip(SDK_GITHUB_REPO, ref_namespace, normalized_name)
+    if not downloaded_zip_path:
+        return
+    _finalize_sdk_update_from_zip(sdk_zip_path=downloaded_zip_path, version=version, pre_setup_result=pre_setup_result)
+
+def run_sdk_update_with_branch_checkout(branch_name: str, *, base_branch: str, no_prompt: bool = False,
                                repo_url: str = "https://github.com/inertialsense/inertial-sense-sdk.git", ) -> None:
     global NO_PROMPT
     NO_PROMPT = no_prompt
@@ -494,42 +545,14 @@ def run_sdk_update_with_branch_checkout(branch_name: str, *, no_prompt: bool = F
         return
     LOG(f"   -> Extracted version: {version}")
 
-    repo_path = INSENSE_SDK_REPO_PATH
-    # Checkout base branch
-    if not checkout_branch(repo_path, base_branch, branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_EXIST, allow_empty=True, ):
-        LOG(f"❌ FATAL: Failed to checkout base branch '{base_branch}'")
+    pre_setup_result = sdk_update_pre_setup(
+        base_branch=base_branch,
+        sdk_dir_suffix=_normalize_branch_name(normalized_branch),
+        target_branch_suffix=version,
+    )
+    if not pre_setup_result:
         return
-
-    # Check if the SDK dir already exists
-    INSENSE_SDK_UNPACK_DIR.mkdir(parents=True, exist_ok=True)
-    new_sdk_dir_name = f"inertial-sense-sdk-{_normalize_branch_name(normalized_branch)}"
-    new_sdk_path = INSENSE_SDK_UNPACK_DIR / new_sdk_dir_name
-    if new_sdk_path.exists():
-        if not new_sdk_path.is_dir() or _path_contains_any_files(new_sdk_path):
-            LOG(
-                f"❌ FATAL: Target SDK path already exists at '{new_sdk_path}' and contains files. "
-                f"Check and delete it with command 'rm -rf {new_sdk_path}'."
-            )
-            return
-        LOG(f"⚠️ WARNING: Target SDK path already exists at '{new_sdk_path}' but contains only empty directories. Cleaning it up...")
-        if not _remove_empty_dirs(new_sdk_path):
-            LOG(
-                f"❌ FATAL: Could not remove empty directories under '{new_sdk_path}'. "
-                f"Check and delete it with command 'rm -rf {new_sdk_path}'."
-            )
-            return
-        LOG(f"   -> Removed empty SDK path: '{new_sdk_path}'")
-
-    target_branch_prefix = f"update-sdk-{str_to_slug(version)}"
-    target_branch_name = f"{target_branch_prefix}-{str_to_slug(get_short_date_now())}"
-    if git_is_local_branch_existing(repo_path, target_branch_name):
-        LOG(
-            f"❌ FATAL: Already having target branch {target_branch_name} -> Aborting update, check again and delete the branch if you want to retry!!")
-        return
-
-    if not checkout_branch(repo_path, target_branch_name, branch_exist_requirement=BranchExistRequirement.BRANCH_MUST_NOT_EXIST, ):
-        LOG("❌ FATAL: Could not switch/create branch -> Aborting update.")
-        return
+    repo_path, new_sdk_dir_name, new_sdk_path, _ = pre_setup_result
 
     if not git_clone_shallow(repo_url, new_sdk_path, branch_name=normalized_branch, depth=1):
         return

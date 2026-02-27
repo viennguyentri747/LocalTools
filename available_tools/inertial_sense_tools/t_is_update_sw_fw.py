@@ -44,7 +44,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_UPDATE_SDK: TRUE_STR_VALUE,
                 ARG_INSENSE_CL_BASE_BRANCH: BRANCH_MANPACK_MASTER,
                 ARG_SDK_BRANCH_OR_TAG: "2.7.0",
-                ARG_SDK_PATH: "~/downloads/inertial-sense-sdk-2.6.0.zip",
+                #ARG_SDK_PATH: "~/downloads/inertial-sense-sdk-2.6.0.zip",
                 #ARG_SDK_BRANCH: "2.7.0-rc",
             },
             extra_description="For SDK zip: Go to branch on https://github.com/inertialsense/inertial-sense-sdk/branches -> Download inertial-sense-sdk-2.7.0-rc.zip via `< > Code` button -> Local Tab -> Download ZIP.",
@@ -79,7 +79,7 @@ def main() -> None:
     parser.add_argument("-v", ARG_VERSION_OR_FPKG_FW_PATH, type=str, default=None,
                         help="Firmware .fpkg file path (e.g., ~/downloads/IS-firmware_r2.6.0+YYYY-MM-DD-HHMMSS.fpkg).", )
     parser.add_argument(ARG_SDK_PATH, ARG_PATH_SHORT, type=Path, default=None,
-                        help="SDK zip path (optional; if omitted, --sdk_branch is used). Ex: ~/downloads/inertial-sense-sdk-2.6.0.zip.", )
+                        help="SDK zip path (optional; prioritized over --sdk_branch_or_tag if both provided). Ex: ~/downloads/inertial-sense-sdk-2.6.0.zip.", )
     parser.add_argument(ARG_SDK_BRANCH, type=str, default=None,
                         help="SDK branch name to clone (optional; preferred if provided). Ex: 2.7.0-rc.", )
     parser.add_argument(ARG_SDK_BRANCH_OR_TAG, type=str, default=None,
@@ -108,19 +108,22 @@ def main() -> None:
         run_fw_update(str(fw_path), no_prompt=args.no_prompt, base_branch=args.ow_sw_base_branch, fpkg_only=args.fpkg_only)
 
     if args.update_sdk:
-        sdk_branch_or_tag = get_arg_value(args, ARG_SDK_BRANCH_OR_TAG)
-        if sdk_branch_or_tag:
-            run_sdk_update_with_branch_or_tag(sdk_branch_or_tag, no_prompt=args.no_prompt, base_branch=args.insense_cl_base_branch)
-            return
+        insense_cl_base_branch = get_arg_value(args, ARG_INSENSE_CL_BASE_BRANCH)
         sdk_path = get_arg_value(args, ARG_SDK_PATH)
-        if sdk_path:
-            run_sdk_update_with_zip(sdk_path, no_prompt=args.no_prompt, base_branch=args.insense_cl_base_branch)
+        sdk_branch_or_tag = get_arg_value(args, ARG_SDK_BRANCH_OR_TAG)
+        if sdk_path or sdk_branch_or_tag:
+            run_sdk_update_with_ref_or_path(
+                sdk_branch_or_tag,
+                sdk_zip_path=sdk_path,
+                no_prompt=args.no_prompt,
+                base_branch=insense_cl_base_branch,
+            )
             return
         sdk_branch = get_arg_value(args, ARG_SDK_BRANCH)
         if sdk_branch:
-            run_sdk_update_with_branch_checkout(sdk_branch, no_prompt=args.no_prompt, base_branch=args.insense_cl_base_branch)
+            run_sdk_update_with_branch_checkout(sdk_branch, no_prompt=args.no_prompt, base_branch=insense_cl_base_branch)
             return
-        LOG_EXCEPTION(ValueError("Missing SDK branch/path"), msg="--sdk_branch or --sdk_path must be provided when --update_sdk is true.", exit=False)
+        LOG_EXCEPTION(ValueError("Missing SDK source"), msg="--sdk_path, --sdk_branch_or_tag, or --sdk_branch must be provided when --update_sdk is true.", exit=False)
         return
 
 

@@ -66,6 +66,13 @@ ACU_IP = "192.168.100.254"
 ACU_USER = "root"
 ACU_VAR_LOG_PATH = Path("/var/log")
 ACU_FLASH_LOGS_PATH = Path("/home") / ACU_USER / "flash_logs/"
+API_SYSTEM_REBOOT_ENDPOINT = "/api/system/reboot"
+API_SYSTEM_STATUS_ENDPOINT = "/api/system/status"
+API_GNSS_STATS_ENDPOINT = "/api/gnss/gnssstats"
+API_GNSS_PPS_STATS_ENDPOINT = "/api/gnss/ppsstats"
+API_ANTENNA_INFO_ENDPOINT = "/api/antenna/antennainfo"
+API_MODEM_STATUS_ENDPOINT = "/api/modem/modemstatus"
+API_AIM_ANTENNA_CONFIG_ENDPOINT = "/aim/api/lui/data/config/antenna"
 LIST_MP_IPS = [F"{SSM_IP_PREFIX}.100.54", F"{SSM_IP_PREFIX}.100.56", F"{SSM_IP_PREFIX}.100.57", F"{SSM_IP_PREFIX}.100.60",
                F"{SSM_IP_PREFIX}.100.61", F"{SSM_IP_PREFIX}.100.62", F"{SSM_IP_PREFIX}.100.64"]
 LIST_FD_IPS = [F"{SSM_IP_PREFIX}.101.79", F"{SSM_IP_PREFIX}.101.126"]

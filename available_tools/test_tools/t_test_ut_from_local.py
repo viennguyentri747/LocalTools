@@ -4,10 +4,11 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import sys
-from typing import Dict, List, Tuple
+from typing import Dict, Iterable, List, Tuple
 
 #from local_tools.available_tools.test_tools.log_test_tools import test_pattern_in_acu_logs_local as pattern_tool
 from available_tools.test_tools.test_ut_since_startup import t_test_ut_acquisition_status_via_bash_tools as bash_status_tool
+from available_tools.test_tools.test_ut_since_startup import t_test_ut_3d_fix_status_tools as fix3d_status_tool
 from available_tools.test_tools.test_ut_since_startup import t_test_ut_acquisition_status_tools as python_status_tool
 from available_tools.test_tools.log_test_tools import t_test_process_plog_local
 from dev.dev_common import *
@@ -17,9 +18,10 @@ ARG_TEST_MODE = f"{ARGUMENT_LONG_PREFIX}mode"
 
 MODE_STATUS = "status_since_startup"
 MODE_STATUS_NATIVE = "status_since_startup_python"
+MODE_3D_FIX = "fix_3d"
 MODE_ACU_PATTERN = "acu_log_pattern"
 MODE_COMPACT_PLOG = "compact_plog"
-AVAILABLE_TEST_MODES = (MODE_STATUS, MODE_STATUS_NATIVE, MODE_ACU_PATTERN, MODE_COMPACT_PLOG)
+AVAILABLE_TEST_MODES = (MODE_STATUS, MODE_STATUS_NATIVE, MODE_3D_FIX, MODE_ACU_PATTERN, MODE_COMPACT_PLOG)
 
 FORWARDED_TOOLS: Dict[str, ForwardedTool] = {
     #MODE_STATUS: ForwardedTool(
@@ -33,6 +35,12 @@ FORWARDED_TOOLS: Dict[str, ForwardedTool] = {
         description="Reboot UT and check status endpoints via Python.",
         main=python_status_tool.main,
         get_templates=python_status_tool.getToolData,
+    ),
+    MODE_3D_FIX: ForwardedTool(
+        mode=MODE_3D_FIX,
+        description="Wait for antenna GOOD, reboot UT, and measure GNSS 3D-fix time.",
+        main=fix3d_status_tool.main,
+        get_templates=fix3d_status_tool.getToolData,
     ),
     #MODE_ACU_PATTERN: ForwardedTool(
     #    mode=MODE_ACU_PATTERN,
@@ -50,13 +58,28 @@ FORWARDED_TOOLS: Dict[str, ForwardedTool] = {
 
 def get_tool_templates() -> List[ToolTemplate]:
     """Provide ready-to-run templates for the combined tool."""
+    def clone_with_mode(mode: str, templates: Iterable[ToolTemplate]) -> List[ToolTemplate]:
+        cloned: List[ToolTemplate] = []
+        for template in templates:
+            templated_args = dict(template.args or {})
+            templated_args[ARG_TEST_MODE] = mode
+            cloned.append(
+                ToolTemplate(
+                    name=template.name,
+                    extra_description=template.extra_description,
+                    args=templated_args,
+                    search_root=template.search_root,
+                    no_need_live_edit=template.no_need_live_edit,
+                    usage_note=template.usage_note,
+                    should_run_now=getattr(template, "run_now_without_modify", False),
+                    hidden=getattr(template, "should_hidden", False),
+                )
+            )
+        return cloned
+
     aggregated_templates: List[ToolTemplate] = []
     for mode, tool in FORWARDED_TOOLS.items():
-        templates = tool.get_templates_list()
-        # Insert the mode argument at the beginning to each template
-        for template in templates:
-            template.args = {**template.args} #Can change to {ARG_TEST_MODE: mode, **template.args} if needed in the future
-        aggregated_templates.extend(templates)
+        aggregated_templates.extend(clone_with_mode(mode, tool.get_templates_list()))
     return aggregated_templates
 
 
@@ -75,6 +98,7 @@ def parse_args(argv: List[str]) -> Tuple[argparse.Namespace, List[str]]:
             f"Which UT helper to run. "
             f"'{MODE_STATUS}' forwards to test_ut_acquisition_status_via_bash.py. "
             f"'{MODE_STATUS_NATIVE}' forwards to test_ut_acquisition_status.py. "
+            f"'{MODE_3D_FIX}' forwards to t_test_ut_3d_fix_status_tools.py. "
             f"'{MODE_ACU_PATTERN}' forwards to test_pattern_in_acu_logs.py. "
             f"'{MODE_COMPACT_PLOG}' forwards to test_gen_compact_log_from_plog.py."
         ),

@@ -1,7 +1,7 @@
 #!/home/vien/workspace/intellian_core_repos/local_tools/MyVenvFolder/bin/python
 from __future__ import annotations
 from dev.dev_common.python_misc_utils import get_arg_value
-from dev.dev_common.constants import ARGUMENT_LONG_PREFIX
+from dev.dev_common.constants import ARGUMENT_LONG_PREFIX, API_AIM_ANTENNA_CONFIG_ENDPOINT, API_ANTENNA_INFO_ENDPOINT, API_GNSS_PPS_STATS_ENDPOINT, API_GNSS_STATS_ENDPOINT, API_MODEM_STATUS_ENDPOINT, API_SYSTEM_REBOOT_ENDPOINT, API_SYSTEM_STATUS_ENDPOINT
 
 import argparse
 import random
@@ -27,9 +27,6 @@ PING_CMD_TIMEOUT = 5
 TN_OFFSET_FIELD = "dither_coarse_search_hypothesis0"
 TN_OFFSET_MIN = -180
 TN_OFFSET_MAX = 180
-TN_CONFIG_ENDPOINT = "/aim/api/lui/data/config/antenna"
-
-
 DEFAULT_SSM_REBOOT_TIMEOUT = 90  # seconds to wait for SSM to respond after reboot
 DEFAULT_REQUEST_INTERVAL = 1  # seconds between url request attempts
 DEFAULT_GPX_FIX_TIMEOUT = 200  # seconds to wait for gpx fix
@@ -325,7 +322,7 @@ class SsmHttpClient:
 
 
 def _tn_config_url(client: SsmHttpClient) -> str:
-    return f"{client.base_url}{TN_CONFIG_ENDPOINT}"
+    return f"{client.base_url}{API_AIM_ANTENNA_CONFIG_ENDPOINT}"
 
 
 def get_tn_offset(client: SsmHttpClient, retries: int = 5) -> float:
@@ -498,7 +495,7 @@ def wait_for_system_up(client: SsmHttpClient, config: TestSequenceConfig,
         try:
             # We don't strictly need to inspect the status code, just that it responds
             # but using response_type ensures we log clean "statecode: X" output.
-            client.request("/api/system/status", response_type=SystemState)
+            client.request(API_SYSTEM_STATUS_ENDPOINT, response_type=SystemState)
 
             ssm_up_time = time.time()
             elapsed = int(ssm_up_time - start_count_time)
@@ -537,7 +534,7 @@ def wait_for_parallel_statuses( custom_client: SsmHttpClient, config: TestSequen
         # --- Check PPS ---
         if run_pps and not pps_record:
             try:
-                pps = custom_client.request("/api/gnss/ppsstats", response_type=SystemState)
+                pps = custom_client.request(API_GNSS_PPS_STATS_ENDPOINT, response_type=SystemState)
                 if pps and pps.statecode.strip() == "0.0.0":
                     ts = time.time()
                     pps_record = MetricRecord(seconds=int(ts - reboot_start), timestamp=timestamp_str(ts))
@@ -548,7 +545,7 @@ def wait_for_parallel_statuses( custom_client: SsmHttpClient, config: TestSequen
         # --- Check GNSS ---
         if run_gps and not gps_record:
             try:
-                gnss = custom_client.request("/api/gnss/gnssstats", response_type=GnssStatus)
+                gnss = custom_client.request(API_GNSS_STATS_ENDPOINT, response_type=GnssStatus)
                 if gnss and gnss.has_3d_fix:
                     ts = time.time()
                     gps_record = MetricRecord(seconds=int(ts - reboot_start), timestamp=timestamp_str(ts))
@@ -569,7 +566,7 @@ def wait_for_parallel_statuses( custom_client: SsmHttpClient, config: TestSequen
         # --- Check AIM ---
         if run_aim and not aim_record:
             try:
-                antenna = custom_client.request("/api/antenna/antennainfo", response_type=AntennaStatus)
+                antenna = custom_client.request(API_ANTENNA_INFO_ENDPOINT, response_type=AntennaStatus)
                 if antenna and antenna.is_good:
                     ts = time.time()
                     aim_record = MetricRecord(seconds=int(ts - reboot_start), timestamp=timestamp_str(ts))
@@ -588,7 +585,7 @@ def wait_for_connected(client: SsmHttpClient, config: TestSequenceConfig, reboot
         if time.time() > deadline:
             raise TimeoutError("Timed out waiting for APN connection status to report connected.")
         try:
-            conn = client.request("/api/modem/modemstatus", response_type=ApnConnectionStatus)
+            conn = client.request(API_MODEM_STATUS_ENDPOINT, response_type=ApnConnectionStatus)
             if conn and conn.is_connected:
                 ts = time.time()
                 record = MetricRecord(seconds=int(ts - reboot_start), timestamp=timestamp_str(ts))
@@ -691,8 +688,8 @@ def run_single_iteration(iteration: int, config: TestSequenceConfig, ssm_ip: str
     tn_settle_time = 3
     LOG(f"{LOG_PREFIX_MSG_INFO} Sleeping {tn_settle_time} seconds after TN offset update...", highlight=False)
     time.sleep(tn_settle_time)
-    LOG(f"{LOG_PREFIX_MSG_INFO} Issuing reboot request to {config.ssm_ip}/api/system/reboot")
-    client.request("/api/system/reboot", allow_read_timeout=True)
+    LOG(f"{LOG_PREFIX_MSG_INFO} Issuing reboot request to {config.ssm_ip}{API_SYSTEM_REBOOT_ENDPOINT}")
+    client.request(API_SYSTEM_REBOOT_ENDPOINT, allow_read_timeout=True)
     sleep_time = 5
     LOG(f"{LOG_PREFIX_MSG_INFO} Sleeping {sleep_time} seconds before polling...")
     time.sleep(sleep_time)

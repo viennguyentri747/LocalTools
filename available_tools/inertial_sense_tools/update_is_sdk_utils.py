@@ -73,14 +73,6 @@ def _github_ref_exists(repo: str, ref_namespace: str, ref_name: str) -> bool:
     try:
         with urlopen(request, timeout=20) as response:
             return 200 <= response.status < 300
-    except HTTPError as exc:
-        if exc.code == 404:
-            return False
-        LOG(f"❌ ERROR: Failed checking ref '{ref_name}' via {check_url} (HTTP {exc.code}).")
-        return False
-    except URLError as exc:
-        LOG(f"❌ ERROR: Network error while checking ref '{ref_name}': {exc}")
-        return False
     except Exception as exc:
         LOG(f"❌ ERROR: Unexpected error while checking ref '{ref_name}': {exc}")
         return False
@@ -130,9 +122,6 @@ def unzip_to_dest(zip_path: Path, dest_dir: Path) -> bool:
             zip_ref.extractall(dest_dir)
         LOG("   -> Unzip complete.")
         return True
-    except FileNotFoundError:
-        LOG(f"❌ ERROR: Zip file not found at '{zip_path}'")
-        return False
     except Exception as exc:
         LOG(f"❌ ERROR: Failed to unzip '{zip_path.name}': {exc}")
         return False

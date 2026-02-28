@@ -16,8 +16,7 @@ from unit_tests.acu_log_tests.periodic_log_helper import (
 
 use_posix_paths()
 
-#Note: need to make win python's pip to install local_tools package first by: cd ~/local_tools && <win_python_wsl_path> -m pip install -e .; otherwise the win_cmd_invocation won't work as it can't find the module to run.
-WIN_CMD_INVOCATION = get_win_cmd_invocation("available_tools.test_tools.log_test_tools.t_test_process_plog_local")
+LOCAL_LOG_WRAPPER_CMD = f"{Path(__file__).resolve().parents[1] / 't_test_logs_from_local.py'} --mode compact_plog"
 DEFAULT_TIME_WINDOW_HOURS: float = 1.5  # 1.5 hours = 90 minutes
 DEFAULT_COLUMNS: List[str] = [TIME_COLUMN, LAST_TIME_SYNC_COLUMN, LAST_VELOCITY_COLUMN, LAST_RTK_COMPASS_STATUS_COLUMN]
 DEFAULT_OUTPUT_PATH = PERSISTENT_TEMP_PATH / "compact_plog.tsv"
@@ -46,7 +45,7 @@ def get_tool_templates() -> List[ToolTemplate]:
             args=args,
             search_root=ACU_LOG_PATH,
             usage_note="Update --plog_paths with one or more P-log file paths you want to shrink.",
-            override_cmd_invocation=WIN_CMD_INVOCATION,
+            override_cmd_invocation=LOCAL_LOG_WRAPPER_CMD,
         ),
     ]
 

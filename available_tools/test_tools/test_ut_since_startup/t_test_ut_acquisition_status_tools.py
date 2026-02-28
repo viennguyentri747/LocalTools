@@ -356,6 +356,7 @@ def set_tn_offset(client: SsmHttpClient, offset: int) -> None:
 
 
 # --- Configuration & Setup ---
+LOCAL_UT_WRAPPER_CMD = f"{Path(__file__).resolve().parents[1] / 't_test_ut_from_local.py'} --mode status_since_startup_python"
 
 def get_tool_templates() -> List[ToolTemplate]:
     """Provide ready-to-run templates for integration with main_tools."""
@@ -379,6 +380,7 @@ def get_tool_templates() -> List[ToolTemplate]:
             name="Check UT statuses since startup (reboot) via python",
             extra_description="Reboot a UT/SSM, wait for acquisition, and record timing stats.",
             args=dict(base_args),
+            override_cmd_invocation=LOCAL_UT_WRAPPER_CMD,
         ),
     ]
 

@@ -28,6 +28,7 @@ ARG_FIX_TIMEOUT = f"{ARGUMENT_LONG_PREFIX}fix-timeout"
 ARG_WAIT_POST_FAIL = f"{ARGUMENT_LONG_PREFIX}wait-post-fail"
 ARG_TOTAL_ITERATIONS = f"{ARGUMENT_LONG_PREFIX}total-iterations"
 ARG_PRINT_TIMESTAMP = f"{ARGUMENT_LONG_PREFIX}print-timestamp"
+LOCAL_UT_WRAPPER_CMD = f"{Path(__file__).resolve().parents[1] / 't_test_ut_from_local.py'} --mode fix_3d"
 
 
 class Fix3DTimeoutError(TimeoutError):
@@ -78,6 +79,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_PRINT_TIMESTAMP: False,
                 ARG_SSM_IP: DEFAULT_SSM_IP,
             },
+            override_cmd_invocation=LOCAL_UT_WRAPPER_CMD,
         ),
     ]
 

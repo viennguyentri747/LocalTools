@@ -8,6 +8,7 @@ from typing import List
 from available_tools.test_tools.test_ut_since_startup.t_test_ut_acquisition_status_tools import *
 from dev.dev_common import *
 
+LOCAL_UT_WRAPPER_CMD = f"{Path(__file__).resolve().parents[1] / 't_test_ut_from_local.py'} --mode status_since_startup"
 
 def get_tool_templates() -> List[ToolTemplate]:
     """Provide ready-to-run templates for integration with main_tools."""
@@ -30,6 +31,7 @@ def get_tool_templates() -> List[ToolTemplate]:
             extra_description="Generate the multi-step bash one-liner to reboot a UT and confirm services.",
             args=dict(base_args),
             hidden=True,
+            override_cmd_invocation=LOCAL_UT_WRAPPER_CMD,
         ),
     ]
 

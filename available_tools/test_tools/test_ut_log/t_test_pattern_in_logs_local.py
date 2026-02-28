@@ -5,12 +5,13 @@ from pathlib import Path
 import sys
 from typing import List, Optional, Sequence, Set
 from available_tools.test_tools.common import *
-from available_tools.test_tools.log_test_tools.t_get_acu_logs import DEFAULT_DATE_VALUES, batch_fetch_acu_logs
+from available_tools.test_tools.test_ut_log.t_get_acu_logs import DEFAULT_DATE_VALUES, batch_fetch_acu_logs
 from dev.dev_common import *
 
 DEFAULT_LOG_TYPE_PREFIXES = [P_LOG_PREFIX, T_LOG_PREFIX, E_LOG_PREFIX]
 DEFAULT_LOG_OUTPUT_PATH = ACU_LOG_PATH
 DEFAULT_PATTERNS = ["MOTION DETECT", "INS-READY"]
+LOCAL_LOG_WRAPPER_CMD = f"{Path(__file__).resolve().parents[1] / 't_test_logs_from_local.py'} --mode acu_log_pattern"
 
 ARG_LOG_TYPES = f"{ARGUMENT_LONG_PREFIX}log_types"
 ARG_DATE_FILTERS = f"{ARGUMENT_LONG_PREFIX}date"
@@ -33,6 +34,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_MAX_THREAD_COUNT: DEFAULT_MAX_THREAD_COUNT,
                 ARG_SHOULD_HAS_VAR_LOG: True,
             },
+            override_cmd_invocation=LOCAL_LOG_WRAPPER_CMD,
         ),
     ]
 

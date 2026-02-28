@@ -13,6 +13,7 @@ from dev.dev_common import *
 
 DEFAULT_LOG_TYPE_PREFIXES = [P_LOG_PREFIX, E_LOG_PREFIX]
 DEFAULT_LOG_OUTPUT_PATH = ACU_LOG_PATH
+LOCAL_LOG_WRAPPER_CMD = f"{Path(__file__).resolve().parents[1] / 't_test_logs_from_local.py'} --mode get_acu_logs"
 ARG_LOG_TYPES = f"{ARGUMENT_LONG_PREFIX}type"
 ARG_DATE_FILTERS = f"{ARGUMENT_LONG_PREFIX}date"
 ARG_LOG_OUTPUT_PATH = f"{ARGUMENT_LONG_PREFIX}log_output_path"
@@ -36,6 +37,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_LIST_IPS: [f"{SSM_IP_PREFIX}.100.57", f"{SSM_IP_PREFIX}.100.59"],
                 ARG_DATE_FILTERS: DEFAULT_DATE_VALUES,
             },
+            override_cmd_invocation=LOCAL_LOG_WRAPPER_CMD,
         ),
         #ToolTemplate(
         #    name="Get All ACU Logs",

@@ -150,9 +150,7 @@ def build_examples_epilog(templates: List[ToolTemplate], script_path: Path) -> s
                 part = " ".join([arg] + [str(v) for v in value])
                 arg_parts.append(part)
             elif isinstance(value, bool):
-                # flags: include only when True
-                if value:
-                    arg_parts.append(str(arg))
+                arg_parts.append(f"{arg} {str(value).lower()}")
             else:
                 arg_parts.append(f"{arg} {value}")
 

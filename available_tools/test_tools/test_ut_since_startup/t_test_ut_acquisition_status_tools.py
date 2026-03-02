@@ -5,7 +5,6 @@ from dev.dev_common.constants import ARGUMENT_LONG_PREFIX, API_AIM_ANTENNA_CONFI
 
 import argparse
 import random
-import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -210,28 +209,16 @@ class ApnConnectionStatus(ApiResponse):
 
 # --- Logging Infrastructure ---
 
-class StatusLineRenderer:
-    """Render a single status line that can be rewritten in place."""
+def _log_status_line(text: str, last_len: int) -> int:
+    LOG(f"{text}{' ' * max(0, last_len - len(text))}", same_line=True)
+    return len(text)
 
-    def __init__(self) -> None:
-        self._active = False
-        self._last_len = 0
 
-    def show(self, text: str) -> None:
-        line = f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {text}"
-        padding = max(0, self._last_len - len(line))
-        sys.stderr.write(f"\r{line}{' ' * padding}")
-        sys.stderr.flush()
-        self._last_len = len(line)
-        self._active = True
-
-    def clear(self) -> None:
-        if not self._active:
-            return
-        sys.stderr.write("\r" + " " * self._last_len + "\r")
-        sys.stderr.flush()
-        self._active = False
-        self._last_len = 0
+def _clear_status_line(last_len: int) -> None:
+    if last_len <= 0:
+        return
+    LOG(" " * last_len, same_line=True, show_time=False)
+    LOG("", show_time=False)
 
 
 class RequestLogger:
@@ -666,18 +653,15 @@ def log_overall_summary(ssm_ip: str, metrics: List[IterationMetrics], total_iter
 
 def wait_between_iterations(wait_secs: int) -> None:
     LOG(f"{LOG_PREFIX_MSG_INFO} Waiting {wait_secs} secs before next iteration...")
-    renderer = StatusLineRenderer()
     start = time.time()
-    elapsed = 0
+    elapsed = last_len = 0
     while elapsed < wait_secs:
-        renderer.show(f"Wait {wait_secs} secs, elapsed: {elapsed} sec")
+        last_len = _log_status_line(f"Wait {wait_secs} secs, elapsed: {elapsed} sec", last_len)
         time.sleep(1)
         elapsed = int(time.time() - start)
         elapsed = min(elapsed, wait_secs)
-    renderer.show(f"Wait {wait_secs} secs, elapsed: {wait_secs} sec")
-    sys.stderr.write("\n")
-    sys.stderr.flush()
-    renderer.clear()
+    last_len = _log_status_line(f"Wait {wait_secs} secs, elapsed: {wait_secs} sec", last_len)
+    _clear_status_line(last_len)
 
 
 def run_single_iteration(iteration: int, config: TestSequenceConfig, ssm_ip: str,

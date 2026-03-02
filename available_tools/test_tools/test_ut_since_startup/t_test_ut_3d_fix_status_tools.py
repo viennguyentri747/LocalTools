@@ -9,7 +9,7 @@ from typing import Iterator, List, Optional
 
 import requests
 
-from available_tools.test_tools.test_ut_since_startup.t_test_ut_acquisition_status_tools import AntennaStatus, GnssStatus, MetricRecord, SsmHttpClient, StatusLineRenderer, timestamp_str, wait_for_system_up
+from available_tools.test_tools.test_ut_since_startup.t_test_ut_acquisition_status_tools import AntennaStatus, GnssStatus, MetricRecord, SsmHttpClient, timestamp_str, wait_for_system_up
 from dev.dev_common import *
 from dev.dev_common.constants import API_ANTENNA_INFO_ENDPOINT, API_GNSS_STATS_ENDPOINT, API_SYSTEM_REBOOT_ENDPOINT, ARGUMENT_LONG_PREFIX
 from dev.dev_common.python_misc_utils import get_arg_value
@@ -20,6 +20,7 @@ DEFAULT_SSM_REBOOT_TIMEOUT = 90
 DEFAULT_FIX_TIMEOUT = 120
 DEFAULT_WAIT_POST_FAIL = 30
 DEFAULT_TOTAL_ITERATIONS = 0
+DEFAULT_SHOULD_WAIT_ANT_GOOD = True
 
 ARG_SSM_IP = f"{ARGUMENT_LONG_PREFIX}ssm"
 ARG_REQUEST_INTERVAL = f"{ARGUMENT_LONG_PREFIX}request-interval-secs"
@@ -27,6 +28,7 @@ ARG_SSM_REBOOT_TIMEOUT = f"{ARGUMENT_LONG_PREFIX}ssm-reboot-timeout"
 ARG_FIX_TIMEOUT = f"{ARGUMENT_LONG_PREFIX}fix-timeout"
 ARG_WAIT_POST_FAIL = f"{ARGUMENT_LONG_PREFIX}wait-post-fail"
 ARG_TOTAL_ITERATIONS = f"{ARGUMENT_LONG_PREFIX}total-iterations"
+ARG_SHOULD_WAIT_ANT_GOOD = f"{ARGUMENT_LONG_PREFIX}should-wait-ant-good"
 ARG_PRINT_TIMESTAMP = f"{ARGUMENT_LONG_PREFIX}print-timestamp"
 LOCAL_UT_WRAPPER_CMD = f"{Path(__file__).resolve().parents[1] / 't_test_ut_from_local.py'} --mode fix_3d"
 
@@ -43,6 +45,7 @@ class Fix3DConfig:
     fix_timeout: int = DEFAULT_FIX_TIMEOUT
     wait_post_fail: int = DEFAULT_WAIT_POST_FAIL
     total_iterations: int = DEFAULT_TOTAL_ITERATIONS
+    should_wait_ant_good: bool = DEFAULT_SHOULD_WAIT_ANT_GOOD
     print_timestamp: bool = False
 
     @classmethod
@@ -54,6 +57,7 @@ class Fix3DConfig:
             fix_timeout=int(get_arg_value(args, ARG_FIX_TIMEOUT)),
             wait_post_fail=int(get_arg_value(args, ARG_WAIT_POST_FAIL)),
             total_iterations=int(get_arg_value(args, ARG_TOTAL_ITERATIONS)),
+            should_wait_ant_good=bool(get_arg_value(args, ARG_SHOULD_WAIT_ANT_GOOD)),
             print_timestamp=bool(get_arg_value(args, ARG_PRINT_TIMESTAMP)),
         )
 
@@ -69,13 +73,14 @@ def get_tool_templates() -> List[ToolTemplate]:
     return [
         ToolTemplate(
             name="Check UT 3D fix after reboot",
-            extra_description="Wait for antenna GOOD, reboot the UT, then measure time to GNSS 3D fix.",
+            extra_description="Optionally wait for antenna GOOD, reboot the UT, then measure time to GNSS 3D fix.",
             args={
                 ARG_REQUEST_INTERVAL: DEFAULT_REQUEST_INTERVAL,
                 ARG_SSM_REBOOT_TIMEOUT: DEFAULT_SSM_REBOOT_TIMEOUT,
                 ARG_FIX_TIMEOUT: DEFAULT_FIX_TIMEOUT,
                 ARG_WAIT_POST_FAIL: DEFAULT_WAIT_POST_FAIL,
                 ARG_TOTAL_ITERATIONS: DEFAULT_TOTAL_ITERATIONS,
+                ARG_SHOULD_WAIT_ANT_GOOD: DEFAULT_SHOULD_WAIT_ANT_GOOD,
                 ARG_PRINT_TIMESTAMP: False,
                 ARG_SSM_IP: DEFAULT_SSM_IP,
             },
@@ -90,7 +95,7 @@ def getToolData() -> ToolData:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Wait for antenna GOOD, reboot a UT, and measure how long GNSS takes to reach 3D fix.",
+        description="Optionally wait for antenna GOOD, reboot a UT, and measure how long GNSS takes to reach 3D fix.",
         formatter_class=argparse.RawTextHelpFormatter,
         epilog=build_examples_epilog(getToolData().tool_template, Path(__file__)),
     )
@@ -106,6 +111,8 @@ def parse_args() -> argparse.Namespace:
                     help_text=f"Seconds to wait after a failed iteration (default: {DEFAULT_WAIT_POST_FAIL}).", )
     add_arg_generic(parser, ARG_TOTAL_ITERATIONS, arg_type=int, default=DEFAULT_TOTAL_ITERATIONS,
                     help_text="Number of iterations to run; use 0 to continue forever.", )
+    add_arg_bool(parser, ARG_SHOULD_WAIT_ANT_GOOD, default=DEFAULT_SHOULD_WAIT_ANT_GOOD,
+                 help_text="Wait for antenna GOOD before sending the reboot request.", )
     add_arg_bool(parser, ARG_PRINT_TIMESTAMP, default=False,
                  help_text="Include timestamps in per-iteration success logs.", )
     return parser.parse_args()
@@ -144,64 +151,80 @@ def _brief_request_error(exc: requests.RequestException) -> str:
     return f"http error {response.status_code}, retrying" if response is not None else "request failed, retrying"
 
 
+def _log_status_line(text: str, last_len: int) -> int:
+    LOG(f"{text}{' ' * max(0, last_len - len(text))}", same_line=True)
+    return len(text)
+
+
+def _clear_status_line(last_len: int) -> None:
+    if last_len <= 0:
+        return
+    LOG(" " * last_len, same_line=True, show_time=False)
+    LOG("", show_time=False)
+
+
 def wait_with_status(wait_secs: int, reason: str) -> None:
     if wait_secs <= 0:
         return
     LOG(f"{LOG_PREFIX_MSG_INFO} Waiting {wait_secs} sec ({reason})...")
-    renderer = StatusLineRenderer()
     start = time.time()
-    elapsed = 0
+    elapsed = last_len = 0
     while elapsed < wait_secs:
-        renderer.show(f"{reason}: {elapsed}/{wait_secs} sec")
+        last_len = _log_status_line(f"{reason}: {elapsed}/{wait_secs} sec", last_len)
         time.sleep(1)
         elapsed = min(int(time.time() - start), wait_secs)
-    renderer.clear()
+    _clear_status_line(last_len)
 
 
 def wait_for_antenna_good(client: SsmHttpClient, config: Fix3DConfig) -> MetricRecord:
-    renderer = StatusLineRenderer()
     start = time.time()
-    retry_count = 0
+    deadline = start + config.fix_timeout
+    retry_count = last_len = 0
     while True:
+        if time.time() > deadline:
+            _clear_status_line(last_len)
+            raise TimeoutError(f"Timed out waiting for antenna GOOD before reboot after {config.fix_timeout} sec.")
         elapsed = int(time.time() - start)
         try:
             antenna = client.request(API_ANTENNA_INFO_ENDPOINT, response_type=AntennaStatus)
             status = antenna.status if antenna else "UNKNOWN"
-            renderer.show(f"Waiting for antenna GOOD before reboot [{elapsed}s | retries:{retry_count}]: {status}")
+            last_len = _log_status_line(f"Waiting for antenna GOOD before reboot [{elapsed}s | retries:{retry_count}]: {status}", last_len)
             if antenna and antenna.is_good:
-                renderer.clear()
+                _clear_status_line(last_len)
                 ts = time.time()
                 record = MetricRecord(seconds=int(ts - start), timestamp=timestamp_str(ts))
                 LOG(f"{LOG_PREFIX_MSG_INFO} Antenna status GOOD after {record.seconds} sec", highlight=True)
                 return record
         except requests.RequestException as exc:
             retry_count += 1
-            renderer.show(f"Waiting for antenna GOOD before reboot [{elapsed}s | retries:{retry_count}]: {_brief_request_error(exc)}")
+            last_len = _log_status_line(f"Waiting for antenna GOOD before reboot [{elapsed}s | retries:{retry_count}]: {_brief_request_error(exc)}", last_len)
         time.sleep(config.request_interval)
 
 
 def wait_for_3d_fix(client: SsmHttpClient, config: Fix3DConfig, reboot_start: float) -> MetricRecord:
-    renderer = StatusLineRenderer()
     deadline = reboot_start + config.fix_timeout
-    retry_count = 0
+    retry_count = last_len = 0
     while True:
         now = time.time()
         if now > deadline:
-            renderer.clear()
+            _clear_status_line(last_len)
+            #extra_sleep_secs_after_timeout = 20
+            #show_noti(title="Error", message=f"Timed out waiting for GNSS 3D fix after {config.fix_timeout} sec. Sleeping for {extra_sleep_secs_after_timeout} sec before raising error.")
+            #time.sleep(extra_sleep_secs_after_timeout)
             raise Fix3DTimeoutError(f"Timed out waiting for GNSS 3D fix after {config.fix_timeout} sec.")
         elapsed = int(now - reboot_start)
         try:
             gnss = client.request(API_GNSS_STATS_ENDPOINT, response_type=GnssStatus)
-            renderer.show(f"Waiting for GNSS 3D fix [{elapsed}s/{config.fix_timeout}s | retries:{retry_count}]: {gnss if gnss else '<empty>'}")
+            last_len = _log_status_line(f"Waiting for GNSS 3D fix [{elapsed}s/{config.fix_timeout}s | retries:{retry_count}]: {gnss if gnss else '<empty>'}", last_len)
             if gnss and gnss.has_3d_fix:
-                renderer.clear()
+                _clear_status_line(last_len)
                 ts = time.time()
                 record = MetricRecord(seconds=int(ts - reboot_start), timestamp=timestamp_str(ts))
                 LOG(f"{LOG_PREFIX_MSG_INFO} GNSS 3D fix achieved after {record.seconds} sec", highlight=True)
                 return record
         except requests.RequestException as exc:
             retry_count += 1
-            renderer.show(f"Waiting for GNSS 3D fix [{elapsed}s/{config.fix_timeout}s | retries:{retry_count}]: {_brief_request_error(exc)}")
+            last_len = _log_status_line(f"Waiting for GNSS 3D fix [{elapsed}s/{config.fix_timeout}s | retries:{retry_count}]: {_brief_request_error(exc)}", last_len)
         time.sleep(config.request_interval)
 
 
@@ -210,7 +233,10 @@ def run_single_iteration(iteration: int, fail_count: int, min_fix: Optional[int]
     LOG("=" * 38)
     LOG(f"Iteration {iteration} (fix3d_fails: {fail_count} | min: {format_metric(min_fix)} | max: {format_metric(max_fix)})")
     LOG("=" * 38)
-    wait_for_antenna_good(client, config)
+    if config.should_wait_ant_good:
+        wait_for_antenna_good(client, config)
+    else:
+        LOG(f"{LOG_PREFIX_MSG_INFO} Skipping antenna GOOD wait before reboot.")
     LOG(f"{LOG_PREFIX_MSG_INFO} Issuing reboot request to {config.ssm_ip}{API_SYSTEM_REBOOT_ENDPOINT}")
     client.request(API_SYSTEM_REBOOT_ENDPOINT, allow_read_timeout=True)
     sleep_time = 5
@@ -258,9 +284,9 @@ def run_fix_sequence(config: Fix3DConfig) -> List[Fix3DIterationResult]:
             except Fix3DTimeoutError as exc:
                 fail_count += 1
                 LOG(f"{LOG_PREFIX_MSG_ERROR} {exc}")
-                show_noti(title="3D FIX timeout", message=f"{config.ssm_ip}: iteration {iteration} timed out after {config.fix_timeout} sec")
+                show_noti(title="3D FIX timeout", message=f"{config.ssm_ip}: iteration {iteration} - {exc}")
                 wait_with_status(config.wait_post_fail, "post-failure wait")
-            except (TimeoutError, requests.RequestException) as exc:
+            except Exception as exc:
                 LOG(f"{LOG_PREFIX_MSG_WARNING} Iteration {iteration} failed before 3D fix: {exc}")
                 wait_with_status(config.wait_post_fail, "post-failure wait")
     finally:

@@ -284,6 +284,46 @@ def LOG(*values: object, sep: str = " ", end: str = "\n", file=None, highlight: 
     else:
         print(message, end=end, file=file, flush=flush)
 
+def LOG(*values: object, sep: str = " ", end: str = "\n", file=None, highlight: bool = False,
+        show_time: bool = True, show_traceback: bool = False, flush: bool = True,
+        log_type: ELogType = ELogType.NORMAL, same_line: bool = False) -> None:
+    if log_type < get_current_log_level():
+        return
+    # Prepare the message
+    message = sep.join(str(value) for value in values)
+
+    # Add timestamp if requested
+    if show_time:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        message = f"[{timestamp}] {message}"
+
+    # Add backtrace if requested
+    if show_traceback:
+        tb = traceback.format_stack()
+        print(f"Total stack frames: {len(tb)}")  # Debug line
+        max_frames = 5  # Maximum number of frames to print
+        if len(tb) > max_frames:
+            filtered_tb = tb[-max_frames:]
+        else:
+            filtered_tb = tb
+        message = f"{message}\nBacktrace:\n" + "".join(filtered_tb)
+
+    auto_highlight = False
+    if not highlight and log_type in (ELogType.WARNING, ELogType.CRITICAL):
+        auto_highlight = True
+
+    # If same_line, overwrite end to keep cursor on the same line
+    effective_end = "\r" if same_line else end
+
+    if highlight or auto_highlight:
+        HIGHLIGHT_COLOR = "\033[92m"  # green
+        BOLD = "\033[1m"
+        RESET = "\033[0m"
+        print(f"{BOLD}{HIGHLIGHT_COLOR}", end="", file=file, flush=flush)
+        print(message, end="", file=file, flush=flush)
+        print(f"{RESET}", end=effective_end, file=file, flush=flush)
+    else:
+        print(message, end=effective_end, file=file, flush=flush)
 
 def is_diff_ignore_eol(file1: Path, file2: Path) -> bool:
     if file1.is_dir() or file2.is_dir():

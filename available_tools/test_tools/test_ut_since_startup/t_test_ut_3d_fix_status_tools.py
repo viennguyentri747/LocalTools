@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, List, Optional
@@ -176,38 +177,44 @@ def wait_with_status(wait_secs: int, reason: str) -> None:
     _clear_status_line(last_len)
 
 
-def wait_for_antenna_good(client: SsmHttpClient, config: Fix3DConfig) -> MetricRecord:
-    start = time.time()
+def wait_for_antenna_good(client: SsmHttpClient, config: Fix3DConfig, start_time: Optional[float] = None, show_progress: bool = True) -> MetricRecord:
+    start = time.time() if start_time is None else start_time
     deadline = start + config.fix_timeout
     retry_count = last_len = 0
+    stage = "after reboot" if start_time is not None else "before reboot"
     while True:
         if time.time() > deadline:
-            _clear_status_line(last_len)
-            raise TimeoutError(f"Timed out waiting for antenna GOOD before reboot after {config.fix_timeout} sec.")
+            if show_progress:
+                _clear_status_line(last_len)
+            raise TimeoutError(f"Timed out waiting for antenna GOOD {stage} after {config.fix_timeout} sec.")
         elapsed = int(time.time() - start)
         try:
             antenna = client.request(API_ANTENNA_INFO_ENDPOINT, response_type=AntennaStatus)
             status = antenna.status if antenna else "UNKNOWN"
-            last_len = _log_status_line(f"Waiting for antenna GOOD before reboot [{elapsed}s | retries:{retry_count}]: {status}", last_len)
+            if show_progress:
+                last_len = _log_status_line(f"Waiting for antenna GOOD {stage} [{elapsed}s/{config.fix_timeout}s | retries:{retry_count}]: {status}", last_len)
             if antenna and antenna.is_good:
-                _clear_status_line(last_len)
+                if show_progress:
+                    _clear_status_line(last_len)
                 ts = time.time()
                 record = MetricRecord(seconds=int(ts - start), timestamp=timestamp_str(ts))
                 LOG(f"{LOG_PREFIX_MSG_INFO} Antenna status GOOD after {record.seconds} sec", highlight=True)
                 return record
         except requests.RequestException as exc:
             retry_count += 1
-            last_len = _log_status_line(f"Waiting for antenna GOOD before reboot [{elapsed}s | retries:{retry_count}]: {_brief_request_error(exc)}", last_len)
+            if show_progress:
+                last_len = _log_status_line(f"Waiting for antenna GOOD {stage} [{elapsed}s/{config.fix_timeout}s | retries:{retry_count}]: {_brief_request_error(exc)}", last_len)
         time.sleep(config.request_interval)
 
 
-def wait_for_3d_fix(client: SsmHttpClient, config: Fix3DConfig, reboot_start: float) -> MetricRecord:
+def wait_for_3d_fix(client: SsmHttpClient, config: Fix3DConfig, reboot_start: float, show_progress: bool = True) -> MetricRecord:
     deadline = reboot_start + config.fix_timeout
     retry_count = last_len = 0
     while True:
         now = time.time()
         if now > deadline:
-            _clear_status_line(last_len)
+            if show_progress:
+                _clear_status_line(last_len)
             #extra_sleep_secs_after_timeout = 20
             #show_noti(title="Error", message=f"Timed out waiting for GNSS 3D fix after {config.fix_timeout} sec. Sleeping for {extra_sleep_secs_after_timeout} sec before raising error.")
             #time.sleep(extra_sleep_secs_after_timeout)
@@ -215,17 +222,51 @@ def wait_for_3d_fix(client: SsmHttpClient, config: Fix3DConfig, reboot_start: fl
         elapsed = int(now - reboot_start)
         try:
             gnss = client.request(API_GNSS_STATS_ENDPOINT, response_type=GnssStatus)
-            last_len = _log_status_line(f"Waiting for GNSS 3D fix [{elapsed}s/{config.fix_timeout}s | retries:{retry_count}]: {gnss if gnss else '<empty>'}", last_len)
+            if show_progress:
+                last_len = _log_status_line(f"Waiting for GNSS 3D fix [{elapsed}s/{config.fix_timeout}s | retries:{retry_count}]: {gnss if gnss else '<empty>'}", last_len)
             if gnss and gnss.has_3d_fix:
-                _clear_status_line(last_len)
+                if show_progress:
+                    _clear_status_line(last_len)
                 ts = time.time()
                 record = MetricRecord(seconds=int(ts - reboot_start), timestamp=timestamp_str(ts))
                 LOG(f"{LOG_PREFIX_MSG_INFO} GNSS 3D fix achieved after {record.seconds} sec", highlight=True)
                 return record
         except requests.RequestException as exc:
             retry_count += 1
-            last_len = _log_status_line(f"Waiting for GNSS 3D fix [{elapsed}s/{config.fix_timeout}s | retries:{retry_count}]: {_brief_request_error(exc)}", last_len)
+            if show_progress:
+                last_len = _log_status_line(f"Waiting for GNSS 3D fix [{elapsed}s/{config.fix_timeout}s | retries:{retry_count}]: {_brief_request_error(exc)}", last_len)
         time.sleep(config.request_interval)
+
+
+def wait_for_post_reboot_checks(config: Fix3DConfig, reboot_start: float) -> MetricRecord:
+    future_to_name: dict[Future[MetricRecord], str] = {}
+    future_errors: dict[str, Exception] = {}
+    future_results: dict[str, MetricRecord] = {}
+    thread_clients: List[SsmHttpClient] = []
+    with ThreadPoolExecutor(max_workers=2 if config.should_wait_ant_good else 1) as executor:
+        fix_client = SsmHttpClient(config.ssm_ip)
+        thread_clients.append(fix_client)
+        future_to_name[executor.submit(wait_for_3d_fix, fix_client, config, reboot_start, False)] = "3d_fix"
+        if config.should_wait_ant_good:
+            antenna_client = SsmHttpClient(config.ssm_ip)
+            thread_clients.append(antenna_client)
+            future_to_name[executor.submit(wait_for_antenna_good, antenna_client, config, reboot_start, False)] = "antenna_good"
+        for future, name in future_to_name.items():
+            try:
+                future_results[name] = future.result()
+            except Exception as exc:
+                future_errors[name] = exc
+    for thread_client in thread_clients:
+        thread_client.close()
+    antenna_error = future_errors.get("antenna_good")
+    if antenna_error is not None:
+        LOG(f"{LOG_PREFIX_MSG_WARNING} Optional antenna GOOD check did not complete: {antenna_error}")
+    elif "antenna_good" in future_results:
+        LOG(f"{LOG_PREFIX_MSG_INFO} Optional antenna GOOD check completed after {future_results['antenna_good'].seconds} sec")
+    fix_error = future_errors.get("3d_fix")
+    if fix_error is not None:
+        raise fix_error
+    return future_results["3d_fix"]
 
 
 def run_single_iteration(iteration: int, fail_count: int, min_fix: Optional[int], max_fix: Optional[int], config: Fix3DConfig,
@@ -233,10 +274,6 @@ def run_single_iteration(iteration: int, fail_count: int, min_fix: Optional[int]
     LOG("=" * 38)
     LOG(f"Iteration {iteration} (fix3d_fails: {fail_count} | min: {format_metric(min_fix)} | max: {format_metric(max_fix)})")
     LOG("=" * 38)
-    if config.should_wait_ant_good:
-        wait_for_antenna_good(client, config)
-    else:
-        LOG(f"{LOG_PREFIX_MSG_INFO} Skipping antenna GOOD wait before reboot.")
     LOG(f"{LOG_PREFIX_MSG_INFO} Issuing reboot request to {config.ssm_ip}{API_SYSTEM_REBOOT_ENDPOINT}")
     client.request(API_SYSTEM_REBOOT_ENDPOINT, allow_read_timeout=True)
     sleep_time = 5
@@ -245,8 +282,11 @@ def run_single_iteration(iteration: int, fail_count: int, min_fix: Optional[int]
     reboot_start = time.time()
     LOG(f"{LOG_PREFIX_MSG_INFO} Waiting for SSM to respond...")
     server_up, _ = wait_for_system_up(client, config, reboot_start)
-    LOG(f"{LOG_PREFIX_MSG_INFO} SSM up after {server_up.seconds} sec, checking GNSS 3D fix...")
-    fix_record = wait_for_3d_fix(client, config, reboot_start)
+    if config.should_wait_ant_good:
+        LOG(f"{LOG_PREFIX_MSG_INFO} SSM up after {server_up.seconds} sec, waiting for GNSS 3D fix and optional antenna GOOD in parallel...")
+    else:
+        LOG(f"{LOG_PREFIX_MSG_INFO} SSM up after {server_up.seconds} sec, checking GNSS 3D fix...")
+    fix_record = wait_for_post_reboot_checks(config, reboot_start) if config.should_wait_ant_good else wait_for_3d_fix(client, config, reboot_start)
     return Fix3DIterationResult(iteration=iteration, server_up=server_up, fix_record=fix_record)
 
 

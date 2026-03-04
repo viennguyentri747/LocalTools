@@ -1,6 +1,7 @@
 #!/bin/bash
 # Common Variables
 nor_ip_prefix="192.168.100"
+ip_range=255
 lab_ip_prefix="172.16.20"
 target_acu_ip="$nor_ip_prefix.254"
 ut_pass='use4Tst!'
@@ -427,5 +428,23 @@ scp_acu_to_local() {
     scp -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -J "root@${ip_prefix}.$last_octet" "root@$nor_ip_prefix.254:$remote_path" "$local_path"
 }
 
+
+search_ip() {
+    #setopt LOCAL_OPTIONS NO_NOTIFY NO_MONITOR 2>/dev/null
+    local ips=()
+    echo "Scanning ${nor_ip_prefix}.1-${ip_range}..."
+    for ((i=1; i<=ip_range; i++)); do
+        (ping -c1 -W1 "${nor_ip_prefix}.${i}" >/dev/null 2>&1 && echo "${nor_ip_prefix}.${i}") &
+    done | while read -r ip; do
+        ips+=("$ip")
+    done
+
+    wait
+
+    echo -e "Reachable IPs:\n${(j:\n:)ips}"
+}
+
 # unset ut_pass
 # unset NOTE_PERMANENT_COMMAND
+
+

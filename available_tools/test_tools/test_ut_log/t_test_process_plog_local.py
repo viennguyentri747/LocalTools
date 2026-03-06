@@ -17,8 +17,8 @@ from unit_tests.acu_log_tests.periodic_log_helper import (
 use_posix_paths()
 
 LOCAL_LOG_WRAPPER_CMD = f"{Path(__file__).resolve().parents[1] / 't_test_logs_from_local.py'} --mode compact_plog"
-DEFAULT_TIME_WINDOW_HOURS: float = 1.5  # 1.5 hours = 90 minutes
-DEFAULT_COLUMNS: List[str] = [TIME_COLUMN, LAST_TIME_SYNC_COLUMN, LAST_VELOCITY_COLUMN, LAST_RTK_COMPASS_STATUS_COLUMN]
+DEFAULT_TIME_WINDOW_HOURS: Optional[float] = None
+DEFAULT_COLUMNS: List[str] = [TIME_COLUMN, LAST_TIME_SYNC_COLUMN, LAST_VELOCITY_COLUMN, LAST_RTK_COMPASS_STATUS_COLUMN, LAST_ROLL_P_COLUMN, LAST_PITCH_P_COLUMN, LAST_YAW_P_COLUMN]
 DEFAULT_OUTPUT_PATH = PERSISTENT_TEMP_PATH / "compact_plog.tsv"
 ARG_PLOG_PATHS = f"{ARGUMENT_LONG_PREFIX}plog_paths"
 ARG_COLUMNS = f"{ARGUMENT_LONG_PREFIX}columns"
@@ -29,13 +29,13 @@ def get_tool_templates() -> List[ToolTemplate]:
     """
     Provide a single template pointing to sample local ACU log files.
     """
-    sample_log_path_1 = ACU_LOG_PATH / "192.168.100.61" / "P_20260216_000000.txt"
-    #sample_log_path_2 = ACU_LOG_PATH / "192.168.100.61" / "P_20260217_000000.txt"
+    sample_log_path_1 = ACU_LOG_PATH / "192.168.100.57" / "P_20260216_000000.txt"
+    sample_log_path_2 = ACU_LOG_PATH / "192.168.100.59" / "P_20260217_000000.txt"
     args = {
-        ARG_PLOG_PATHS: [str(sample_log_path_1)],
+        ARG_PLOG_PATHS: [str(sample_log_path_1), str(sample_log_path_2)],
         ARG_OUTPUT_PATH: str(DEFAULT_OUTPUT_PATH),
         ARG_COLUMNS: DEFAULT_COLUMNS,
-        ARG_TIME_WINDOW: DEFAULT_TIME_WINDOW_HOURS,
+        # ARG_TIME_WINDOW: 1.5,
     }
    
     return [
@@ -59,7 +59,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
 
     parser.add_argument(ARG_PLOG_PATHS, required=True, nargs="+", type=Path, help="One or more periodic log file paths (P_*.txt/P_*.log).")
     parser.add_argument( ARG_COLUMNS, nargs="+", default=None, help="Space-separated list of column names to keep (default: Time/Velocity/RTK Compass).", )
-    parser.add_argument( ARG_TIME_WINDOW, type=float, default=DEFAULT_TIME_WINDOW_HOURS, help="Time window in hours to keep from the tail of the log (default: all rows).", )
+    parser.add_argument( ARG_TIME_WINDOW, type=float, default=DEFAULT_TIME_WINDOW_HOURS, help="Optional time window in hours to keep from the tail of the log (default: parse all rows).", )
     parser.add_argument( ARG_OUTPUT_PATH, type=Path, default=Path(DEFAULT_OUTPUT_PATH), help=f"Destination file for the compact log (default: {DEFAULT_OUTPUT_PATH}).", )
 
     return parser.parse_args(argv)
@@ -116,10 +116,7 @@ def process_plog_files(plog_files: Sequence[Path], target_columns: Sequence[str]
         plog_data.plog_file = plog_file
         plog_data.file_metadata_line = file_metadata_line
         if not plog_data.raw_data_rows:
-            if time_window is None:
-                LOG(f"{LOG_PREFIX_MSG_WARNING} No rows found in {plog_file}; skipping.")
-            else:
-                LOG(f"{LOG_PREFIX_MSG_WARNING} No rows found inside the requested time window for {plog_file}; skipping.")
+            LOG(f"{LOG_PREFIX_MSG_WARNING} No rows found in {plog_file}; skipping.")
         processed.append(plog_data)
     return processed
 

@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
+import paramiko
 import shlex
 import subprocess
 import sys
@@ -10,6 +11,43 @@ from dev.dev_common.core_utils import LOG, run_shell
 
 SSH_KEY_TYPE_RSA = 'rsa'
 KEY_TYPE_ED25519 = 'ed25519'
+
+
+def run_ssh_command(host_ip: str, user: str, password: str, command: str, timeout: int = 5, jump_host_ip: Optional[str] = None,
+                    jump_user: Optional[str] = None, jump_password: Optional[str] = None) -> Tuple[str, str]:
+    """Run a command over SSH with optional jump-host forwarding and return (stdout, stderr)."""
+    if not password:
+        raise ValueError("SSH password is required.")
+
+    target_client = None
+    jump_client = None
+    jump_channel = None
+    try:
+        target_client = paramiko.SSHClient()
+        target_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        connect_kwargs = dict(hostname=host_ip, username=user, password=password, look_for_keys=False, allow_agent=False, timeout=timeout)
+
+        if jump_host_ip:
+            jump_client = paramiko.SSHClient()
+            jump_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            jump_client.connect(jump_host_ip, username=jump_user or user, password=jump_password or password, look_for_keys=False,
+                                allow_agent=False, timeout=timeout)
+            jump_transport = jump_client.get_transport()
+            if jump_transport is None:
+                raise RuntimeError(f"Jump host transport unavailable: {jump_host_ip}")
+            jump_channel = jump_transport.open_channel('direct-tcpip', (host_ip, 22), ('127.0.0.1', 0))
+            connect_kwargs["sock"] = jump_channel
+
+        target_client.connect(**connect_kwargs)
+        _, stdout, stderr = target_client.exec_command(command, timeout=timeout)
+        return stdout.read().decode('utf-8', errors='replace'), stderr.read().decode('utf-8', errors='replace')
+    finally:
+        if target_client:
+            target_client.close()
+        if jump_channel:
+            jump_channel.close()
+        if jump_client:
+            jump_client.close()
 
 
 @dataclass

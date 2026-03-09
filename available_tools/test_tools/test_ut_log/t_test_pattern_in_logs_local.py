@@ -1,4 +1,4 @@
-#!/home/vien/workspace/intellian_core_repos/local_tools/MyVenvFolder/bin/python
+#!/usr/local/bin/local_python
 from __future__ import annotations
 import argparse
 from pathlib import Path

@@ -1,4 +1,4 @@
-#!/home/vien/workspace/intellian_core_repos/local_tools/MyVenvFolder/bin/python
+#!/usr/local/bin/local_python
 from __future__ import annotations
 
 from dev.dev_common.gui_utils import interactive_select_with_arrows, OptionData

@@ -1,4 +1,4 @@
-#!/home/vien/workspace/intellian_core_repos/local_tools/MyVenvFolder/bin/python
+#!/usr/local/bin/local_python
 """
 Obsidian integration for Jira using the Obsidian Local REST API with cmd.exe curl.
 This version uses subprocess to call cmd.exe with curl commands instead of requests library.

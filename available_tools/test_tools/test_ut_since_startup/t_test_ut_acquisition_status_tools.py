@@ -1,4 +1,4 @@
-#!/home/vien/workspace/intellian_core_repos/local_tools/MyVenvFolder/bin/python
+#!/usr/local/bin/local_python
 from __future__ import annotations
 from dev.dev_common.python_misc_utils import get_arg_value
 from dev.dev_common.constants import ARGUMENT_LONG_PREFIX, API_AIM_ANTENNA_CONFIG_ENDPOINT, API_ANTENNA_INFO_ENDPOINT, API_GNSS_PPS_STATS_ENDPOINT, API_GNSS_STATS_ENDPOINT, API_MODEM_STATUS_ENDPOINT, API_SYSTEM_REBOOT_ENDPOINT, API_SYSTEM_STATUS_ENDPOINT
@@ -17,7 +17,6 @@ from requests import Response
 # Ensure these imports exist in your environment
 from dev.dev_common import *
 
-SSM_USER = "root"
 PING_TARGET = ACU_IP
 PING_DISPLAY_NAME = "Ping ACU"
 DEFAULT_HTTP_TIMEOUT = 10

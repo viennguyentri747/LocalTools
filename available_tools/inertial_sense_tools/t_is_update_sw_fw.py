@@ -1,4 +1,4 @@
-#!/home/vien/workspace/intellian_core_repos/local_tools/MyVenvFolder/bin/python
+#!/usr/local/bin/local_python
 """Unified tool to update Inertial Sense firmware seeds and SDK."""
 
 import argparse

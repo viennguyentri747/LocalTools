@@ -1,4 +1,4 @@
-#!/home/vien/workspace/intellian_core_repos/local_tools/MyVenvFolder/bin/python
+#!/usr/local/bin/local_python
 """Parse one NMEA sentence using pynmea2 and print a structured view."""
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-#!/home/vien/workspace/intellian_core_repos/local_tools/MyVenvFolder/bin/python
+#!/usr/local/bin/local_python
 import argparse
 import sys
 import threading
@@ -34,7 +34,7 @@ def get_tool_templates() -> List[ToolTemplate]:
             args={
                 ARG_LOG_OUTPUT_PATH: str(DEFAULT_LOG_OUTPUT_PATH),
                 ARG_LOG_TYPES: list(DEFAULT_LOG_TYPE_PREFIXES),
-                ARG_LIST_IPS: [f"{SSM_IP_PREFIX}.100.57", f"{SSM_IP_PREFIX}.100.59"],
+                ARG_LIST_IPS: [f"{SSM_NORMAL_IP_PREFIX}.57", f"{SSM_NORMAL_IP_PREFIX}.59"],
                 ARG_DATE_FILTERS: DEFAULT_DATE_VALUES,
             },
             override_cmd_invocation=LOCAL_LOG_WRAPPER_CMD,

@@ -1,4 +1,4 @@
-#!/home/vien/workspace/intellian_core_repos/local_tools/MyVenvFolder/bin/python
+#!/usr/local/bin/local_python
 """
 Parse "Intellian Periodic Log" (tab-delimited) and print:
   1) All available column names

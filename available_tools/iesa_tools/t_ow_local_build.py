@@ -1,9 +1,9 @@
-#!/home/vien/workspace/intellian_core_repos/local_tools/MyVenvFolder/bin/python
+#!/usr/local/bin/local_python
 """
 OneWeb SW-Tools interactive local build helper (top-down, manifest-aware).
 """
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import sys
 import textwrap
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from dev.dev_common import *
 from dev.dev_common.gitlab_utils import *
 from dev.dev_iesa import *
@@ -256,7 +256,8 @@ def main() -> None:
             sys.exit(1)
 
     metadata_payload: Dict[str, Any] = {
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "build_type": build_type,
         "manifest_branch": manifest_branch,
         # "original_iesa_md5": iesa_original_md5,
@@ -353,6 +354,7 @@ def setup_prebuild(build_type: str, manifest_source: str, ow_manifest_branch: st
     overridden_repo_change_details: List[Dict[str, Any]] = []
 
     if overwrite_repos:
+        ci_repo_refs_map = get_ci_repo_refs_from_ci_yml(GITLAB_CI_YML_PATH)
         # Copy local code to overwrite code from remote before build
         repo_names = [get_path_no_suffix(r, GIT_SUFFIX) for r in overwrite_repos]
         for repo_name in repo_names:
@@ -367,7 +369,7 @@ def setup_prebuild(build_type: str, manifest_source: str, ow_manifest_branch: st
             rel_path = actual_manifest.get_repo_relative_path_vs_tmp_build(repo_name)
             if not rel_path:
                 continue
-            change_snapshot = collect_repo_changes(repo_name, rel_path)
+            change_snapshot = collect_repo_changes(repo_name, rel_path, ci_repo_refs_map.get(repo_name, []))
             change_snapshots.append(change_snapshot)
 
         any_changed: bool = any(snapshot.get("has_changes") for snapshot in change_snapshots)
@@ -451,35 +453,41 @@ def remove_tmp_build() -> None:
         OW_SW_BUILD_FOLDER_PATH.mkdir(parents=True)
 
 
-def get_tisdk_ref_from_ci_yml(file_path: str) -> Optional[str]:
-    tisdk_ref = None
-    sdk_release_ref = None
-
+def get_ci_repo_refs_from_ci_yml(file_path: str) -> Dict[str, List[str]]:
+    repo_refs: Dict[str, Set[str]] = {}
     with open(file_path, 'r') as f:
         ci_config = yaml.safe_load(f)
 
-    # Search through all items in the YAML file to find job definitions
     for job_details in ci_config.values():
         if not isinstance(job_details, dict) or 'needs' not in job_details or not isinstance(job_details.get('needs'), list):
             continue
 
-        # Iterate over the dependencies in the 'needs' list
         for need in job_details['needs']:
-            # We are looking for a dictionary entry from the correct project
-            if isinstance(need, dict) and need.get('project') == f'{INTELLIAN_ADC_GROUP}/{IESA_TISDK_TOOLS_REPO_NAME}':
-                job = need.get('job')
-                ref = need.get('ref')
-                if job == 'sdk_create_tarball':
-                    tisdk_ref = ref
-                elif job == 'sdk_create_tarball_release':
-                    sdk_release_ref = ref
+            if not isinstance(need, dict):
+                continue
+            project = (need.get('project') or "").strip()
+            ref = (need.get('ref') or "").strip()
+            if not project or not ref:
+                continue
+            repo_info: Optional[IesaLocalRepoInfo] = LOCAL_REPO_MAPPING.get_by_gl_project_path(project)
+            if not repo_info:
+                continue
+            if repo_info.repo_name not in repo_refs:
+                repo_refs[repo_info.repo_name] = set()
+            repo_refs[repo_info.repo_name].add(ref)
 
-    if (tisdk_ref is None or sdk_release_ref is None) or (tisdk_ref != sdk_release_ref):
+    return {repo_name: sorted(list(refs)) for repo_name, refs in repo_refs.items()}
+
+
+def get_tisdk_ref_from_ci_yml(file_path: str) -> Optional[str]:
+    ci_repo_refs = get_ci_repo_refs_from_ci_yml(file_path)
+    tisdk_refs = ci_repo_refs.get(IESA_TISDK_TOOLS_REPO_NAME, [])
+    if len(tisdk_refs) != 1:
         LOG(
-            f"ERROR: TISDK ref mismatch in CI config. 'sdk_create_tarball' ref is '{tisdk_ref}' while 'sdk_create_tarball_release' is '{sdk_release_ref}'.", file=sys.stderr)
+            f"ERROR: Expected exactly 1 TISDK ref in CI config but got {tisdk_refs}.", file=sys.stderr)
         return None
 
-    return tisdk_ref
+    return tisdk_refs[0]
 
 
 def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, use_current_ow_branch: bool, skip_repo_update=False) -> Path:
@@ -577,13 +585,21 @@ def sync_local_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
             dest_path.mkdir(parents=True, exist_ok=True)
 
 
-def collect_repo_changes(repo_name: str, rel_path: str) -> Dict[str, Any]:
+def collect_repo_changes(repo_name: str, rel_path: str, ci_refs: List[str]) -> Dict[str, Any]:
     repo_path = OW_SW_BUILD_FOLDER_PATH / rel_path
+    repo_info: Optional[IesaLocalRepoInfo] = LOCAL_REPO_MAPPING.get_by_name(repo_name)
+    source_repo_path = repo_info.repo_local_path if repo_info else repo_path
     if not repo_path.exists():
         LOG(f"WARNING: Repo path '{repo_path}' not found when collecting changes for '{repo_name}'.")
         return {
             "repo_name": repo_name,
             "relative_path_vs_tmp_build": rel_path,
+            "expected_ci_ref": None,
+            "actual_ref": None,
+            "actual_commit": None,
+            "expected_ci_commit": None,
+            "ref_relation_vs_ci_ref": "repo_not_found",
+            "ref_matches_ci_ref": False,
             "status_lines": [],
             "has_changes": False,
             "diff_file_path": None,
@@ -600,11 +616,27 @@ def collect_repo_changes(repo_name: str, rel_path: str) -> Dict[str, Any]:
         LOG(f"\nNo changes detected in {repo_name}.")
         diff_file_path = None
 
+    expected_ci_ref: Optional[str] = ci_refs[0] if len(ci_refs) == 1 else None
+    if len(ci_refs) > 1:
+        LOG(f"{LOG_PREFIX_MSG_WARNING} Multiple CI refs found for '{repo_name}': {ci_refs}. Skipping strict CI ref comparison.")
+    actual_ref = git_get_current_branch(source_repo_path) or "HEAD"
+    actual_commit = git_resolve_ref_to_commit(source_repo_path, "HEAD")
+    expected_ci_commit = git_resolve_ref_to_commit(source_repo_path, expected_ci_ref) if expected_ci_ref else None
+    ref_relation_vs_ci_ref = git_get_ref_relation(source_repo_path, expected_ci_ref, "HEAD") if expected_ci_ref else "ci_ref_not_found"
+    ref_matches_ci_ref = bool(expected_ci_commit and actual_commit and expected_ci_commit == actual_commit)
+    has_changes = (not ref_matches_ci_ref) if expected_ci_ref else bool(changes)
+
     return {
         "repo_name": repo_name,
         "relative_path_vs_tmp_build": rel_path,
+        "expected_ci_ref": expected_ci_ref,
+        "actual_ref": actual_ref,
+        "actual_commit": actual_commit,
+        "expected_ci_commit": expected_ci_commit,
+        "ref_relation_vs_ci_ref": ref_relation_vs_ci_ref,
+        "ref_matches_ci_ref": ref_matches_ci_ref,
         "status_lines": changes,
-        "has_changes": bool(changes),
+        "has_changes": has_changes,
         "diff_file_path": str(diff_file_path) if diff_file_path else None,
     }
 
@@ -617,7 +649,7 @@ def export_repo_diff_artifact(repo_name: str, repo_path: Path) -> Optional[Path]
     safe_repo_name = sanitize_str_to_file_name(repo_name) or repo_name
     diff_filename = f"{IESA_TEST_DIFF_PREFIX}{safe_repo_name}"
     diff_path = TEMP_OW_BUILD_OUTPUT_PATH / diff_filename
-    diff_content = git_diff_worktree(repo_path).strip()
+    diff_content = build_repo_change_artifact_content(repo_path)
     if not diff_content:
         if diff_path.exists():
             diff_path.unlink()
@@ -628,6 +660,24 @@ def export_repo_diff_artifact(repo_name: str, repo_path: Path) -> Optional[Path]
         diff_file.write(diff_content + "\n")
     LOG(f"Saved diff for '{repo_name}' to '{diff_path}'.")
     return diff_path
+
+
+def build_repo_change_artifact_content(repo_path: Path) -> str:
+    sections: List[str] = []
+    unstaged_diff = git_diff_worktree(repo_path).strip()
+    if unstaged_diff:
+        sections.append(f"### git diff (unstaged)\n{unstaged_diff}")
+    staged_diff = git_diff_worktree(repo_path, ["--cached"]).strip()
+    if staged_diff:
+        sections.append(f"### git diff --cached\n{staged_diff}")
+    untracked_result = run_shell([CMD_GIT, "ls-files", "--others", "--exclude-standard"], cwd=repo_path, capture_output=True, text=True, check_throw_exception_on_exit_code=False)
+    if untracked_result.returncode == 0:
+        untracked_lines = [line for line in untracked_result.stdout.splitlines() if line.strip()]
+        if untracked_lines:
+            sections.append("### git ls-files --others --exclude-standard\n" + "\n".join(untracked_lines))
+    else:
+        LOG(f"WARNING: Unable to list untracked files in '{repo_path}', git returned {untracked_result.returncode}.", file=sys.stderr)
+    return "\n\n".join(sections).strip()
 
 
 def ensure_temp_build_output_dir() -> None:
@@ -665,7 +715,7 @@ def write_build_metadata(metadata_payload: Dict[str, Any]) -> Path:
     metadata_path = TEMP_OW_BUILD_OUTPUT_PATH / f"{IESA_METADATA_FILE}"
     with open(metadata_path, "w", encoding="utf-8") as metadata_file:
         json.dump(metadata_payload, metadata_file, indent=2)
-    LOG(f"{MAIN_STEP_LOG_PREFIX} Build metadata saved to '{metadata_path}'.")
+    LOG(f"{MAIN_STEP_LOG_PREFIX} Build metadata saved to '{metadata_path}.")
     return metadata_path
 
 

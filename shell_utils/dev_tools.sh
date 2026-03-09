@@ -28,7 +28,20 @@ get_acu_logs() {
     ~/core_repos/local_tools/tool_invoker_cli.py '~/core_repos/local_tools/available_tools/misc_hidden_tools/t_get_acu_logs.py' "$@"
 }
 
-_DT_GREP_TOOL=(~/core_repos/local_tools/MyVenvFolder/bin/python ~/core_repos/local_tools/available_tools/code_tools/t_get_grep_template.py)
+test_mcp() {
+    if [ -z "$1" ]; then
+        echo "Usage: test_mcp <path_to_mcp_server.py>. Ex: test_mcp ~/core_repos/local_tools/mcp_server/ssh_command_mcp_server.py"
+        return 1
+    fi
+
+    # Convert to absolute path if it isn't already
+    local ABS_PATH=$(realpath "$1")
+
+    echo "Starting MCP Inspector for: $ABS_PATH"
+    npx @modelcontextprotocol/inspector "$ABS_PATH"
+}
+
+_DT_GREP_TOOL=(local_python ~/core_repos/local_tools/available_tools/code_tools/t_get_grep_template.py)
 _DT_CORE_REPOS_PATH="~/core_repos/"
 _DT_C_EXTS=(c cpp cc cxx h hpp hxx)
 # NOTE: The pattern-key order below controls the labeled category order in the fzf results.

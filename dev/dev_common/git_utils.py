@@ -1,4 +1,4 @@
-#!/home/vien/workspace/intellian_core_repos/local_tools/MyVenvFolder/bin/python
+#!/usr/local/bin/local_python
 
 import subprocess
 import re
@@ -42,6 +42,33 @@ def git_get_sha1_of_head_commit(repo_path: Path) -> Optional[str]:
     commit_sha1 = run_shell("git rev-parse HEAD", cwd=repo_path, capture_output=True,
                             text=True).stdout.strip()
     return commit_sha1
+
+
+def git_resolve_ref_to_commit(repo_path: Path | str, git_ref: str) -> Optional[str]:
+    """Resolve a git ref to a commit SHA; returns None when unresolved."""
+    normalized_ref = (git_ref or "").strip()
+    if not normalized_ref:
+        return None
+    result = run_shell([CMD_GIT, "rev-parse", f"{normalized_ref}^{{commit}}"], cwd=repo_path, capture_output=True, text=True, check_throw_exception_on_exit_code=False)
+    resolved_sha = result.stdout.strip()
+    if result.returncode != 0 or not resolved_sha:
+        return None
+    return resolved_sha
+
+
+def git_get_ref_relation(repo_path: Path | str, base_ref: str, target_ref: str) -> str:
+    """Return relation between refs: same_commit|ahead|behind|diverged|unknown."""
+    base_sha = git_resolve_ref_to_commit(repo_path, base_ref)
+    target_sha = git_resolve_ref_to_commit(repo_path, target_ref)
+    if not base_sha or not target_sha:
+        return "unknown"
+    if base_sha == target_sha:
+        return "same_commit"
+    if git_is_ancestor(base_sha, target_sha, cwd=repo_path):
+        return "ahead"
+    if git_is_ancestor(target_sha, base_sha, cwd=repo_path):
+        return "behind"
+    return "diverged"
 
 
 def git_is_ancestor(ancestor_ref: str, descentdant_ref: str, cwd: Union[str, Path]) -> bool:

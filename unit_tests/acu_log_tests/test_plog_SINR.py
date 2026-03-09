@@ -1,4 +1,4 @@
-#!/home/vien/workspace/intellian_core_repos/local_tools/MyVenvFolder/bin/python
+#!/usr/local/bin/local_python
 from dev.dev_common import *
 from available_tools.test_tools.test_ut_log.t_get_acu_logs import AcuLogInfo
 from unit_tests.acu_log_tests.periodic_log_helper import *
@@ -17,7 +17,7 @@ def main():
     """
     if USE_DUMMY_DATA:
         # Create dummy data
-        ut_ip1 = f"{SSM_IP_PREFIX}.101.97"
+        ut_ip1 = f"{SSM_BASE_IP_PREFIX}.101.97"
         valid_fetch_infos: AcuLogInfo = [
             AcuLogInfo(
                 ip=ut_ip1,
@@ -26,7 +26,7 @@ def main():
             )
         ]
     else:
-        ut_ip1 = f"{SSM_IP_PREFIX}.101.97"
+        ut_ip1 = f"{SSM_BASE_IP_PREFIX}.101.97"
         valid_fetch_infos = batch_fetch_acu_logs_for_days(
             list_ips=[ut_ip1], extra_days_before_today=EXTRA_DAYS_BEFORE_TODAY, log_types=["P"], parent_path=ACU_PLOG_PATH)
 

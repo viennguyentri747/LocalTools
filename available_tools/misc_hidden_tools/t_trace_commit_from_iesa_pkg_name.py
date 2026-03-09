@@ -1,4 +1,4 @@
-#!/home/vien/workspace/intellian_core_repos/local_tools/MyVenvFolder/bin/python
+#!/usr/local/bin/local_python
 """
 trace_commit_from_iesa_pkg_name.py – Locate a record in /version/history by its `version_string`.
 

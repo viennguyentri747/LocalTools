@@ -7,6 +7,7 @@ import sys
 from typing import Dict, Iterable, List, Tuple
 
 from available_tools.test_tools.test_ut_log import t_get_acu_logs
+from available_tools.test_tools.test_ut_log import t_get_ut_live_log
 from available_tools.test_tools.test_ut_log import t_test_pattern_in_logs_local
 from available_tools.test_tools.test_ut_log import t_test_process_plog_local
 from available_tools.test_tools.test_ut_log import t_test_time_sync_plog
@@ -15,10 +16,11 @@ from dev.dev_common import *
 ARG_TEST_MODE = f"{ARGUMENT_LONG_PREFIX}mode"
 
 MODE_GET_ACU_LOGS = "get_acu_logs"
+MODE_GET_UT_LIVE_LOG = "get_ut_live_log"
 MODE_ACU_PATTERN = "acu_log_pattern"
 MODE_COMPACT_PLOG = "compact_plog"
 MODE_TIME_SYNC_PLOG = "time_sync_plog"
-AVAILABLE_TEST_MODES = (MODE_GET_ACU_LOGS, MODE_ACU_PATTERN, MODE_COMPACT_PLOG, MODE_TIME_SYNC_PLOG)
+AVAILABLE_TEST_MODES = (MODE_GET_ACU_LOGS, MODE_GET_UT_LIVE_LOG, MODE_ACU_PATTERN, MODE_COMPACT_PLOG, MODE_TIME_SYNC_PLOG)
 
 FORWARDED_TOOLS: Dict[str, ForwardedTool] = {
     MODE_GET_ACU_LOGS: ForwardedTool(
@@ -26,6 +28,12 @@ FORWARDED_TOOLS: Dict[str, ForwardedTool] = {
         description="Fetch ACU logs from remote UTs into the local log directory.",
         main=t_get_acu_logs.main,
         get_templates=t_get_acu_logs.getToolData,
+    ),
+    MODE_GET_UT_LIVE_LOG: ForwardedTool(
+        mode=MODE_GET_UT_LIVE_LOG,
+        description="Tail a live UT log over SSH, optionally through a jump host.",
+        main=t_get_ut_live_log.main,
+        get_templates=t_get_ut_live_log.getToolData,
     ),
     MODE_ACU_PATTERN: ForwardedTool(
         mode=MODE_ACU_PATTERN,
@@ -86,6 +94,7 @@ def parse_args(argv: List[str]) -> Tuple[argparse.Namespace, List[str]]:
         help=(
             f"Which local log helper to run. "
             f"'{MODE_GET_ACU_LOGS}' forwards to t_get_acu_logs.py. "
+            f"'{MODE_GET_UT_LIVE_LOG}' forwards to t_get_ut_live_log.py. "
             f"'{MODE_ACU_PATTERN}' forwards to t_test_pattern_in_logs_local.py. "
             f"'{MODE_COMPACT_PLOG}' forwards to t_test_process_plog_local.py. "
             f"'{MODE_TIME_SYNC_PLOG}' forwards to t_test_time_sync_plog.py."

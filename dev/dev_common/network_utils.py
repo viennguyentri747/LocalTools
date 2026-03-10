@@ -3,9 +3,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import paramiko
 import shlex
+import time
 import subprocess
 import sys
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 from dev.dev_common.constants import *
 from dev.dev_common.core_utils import LOG, run_shell
 
@@ -13,41 +14,105 @@ SSH_KEY_TYPE_RSA = 'rsa'
 KEY_TYPE_ED25519 = 'ed25519'
 
 
-def run_ssh_command(host_ip: str, user: str, password: str, command: str, timeout: int = 5, jump_host_ip: Optional[str] = None,
-                    jump_user: Optional[str] = None, jump_password: Optional[str] = None) -> Tuple[str, str]:
-    """Run a command over SSH with optional jump-host forwarding and return (stdout, stderr)."""
+def open_ssh_client(host_ip: str, user: str, password: str, timeout: int = 5, jump_host_ip: Optional[str] = None,
+                    jump_user: Optional[str] = None, jump_password: Optional[str] = None) -> Tuple[paramiko.SSHClient, Optional[paramiko.SSHClient], Optional[paramiko.Channel]]:
+    """Open an SSH client, optionally tunneled through a jump host."""
     if not password:
         raise ValueError("SSH password is required.")
 
+    target_client = paramiko.SSHClient()
+    target_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    connect_kwargs = dict(hostname=host_ip, username=user, password=password, look_for_keys=False, allow_agent=False, timeout=timeout)
+    jump_client = None
+    jump_channel = None
+
+    if jump_host_ip:
+        jump_client = paramiko.SSHClient()
+        jump_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        jump_client.connect(jump_host_ip, username=jump_user or user, password=jump_password or password, look_for_keys=False, allow_agent=False, timeout=timeout)
+        jump_transport = jump_client.get_transport()
+        if jump_transport is None:
+            close_ssh_client(target_client, jump_client, jump_channel)
+            raise RuntimeError(f"Jump host transport unavailable: {jump_host_ip}")
+        jump_channel = jump_transport.open_channel('direct-tcpip', (host_ip, 22), ('127.0.0.1', 0))
+        connect_kwargs["sock"] = jump_channel
+
+    try:
+        target_client.connect(**connect_kwargs)
+    except Exception:
+        close_ssh_client(target_client, jump_client, jump_channel)
+        raise
+    return target_client, jump_client, jump_channel
+
+
+def close_ssh_client(target_client: Optional[paramiko.SSHClient], jump_client: Optional[paramiko.SSHClient] = None,
+                     jump_channel: Optional[paramiko.Channel] = None) -> None:
+    if target_client:
+        target_client.close()
+    if jump_channel:
+        jump_channel.close()
+    if jump_client:
+        jump_client.close()
+
+
+def run_ssh_command(host_ip: str, user: str, password: str, command: str, timeout: int = 5, jump_host_ip: Optional[str] = None,
+                    jump_user: Optional[str] = None, jump_password: Optional[str] = None) -> Tuple[str, str]:
+    """Run a command over SSH with optional jump-host forwarding and return (stdout, stderr)."""
     target_client = None
     jump_client = None
     jump_channel = None
     try:
-        target_client = paramiko.SSHClient()
-        target_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        connect_kwargs = dict(hostname=host_ip, username=user, password=password, look_for_keys=False, allow_agent=False, timeout=timeout)
-
-        if jump_host_ip:
-            jump_client = paramiko.SSHClient()
-            jump_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            jump_client.connect(jump_host_ip, username=jump_user or user, password=jump_password or password, look_for_keys=False,
-                                allow_agent=False, timeout=timeout)
-            jump_transport = jump_client.get_transport()
-            if jump_transport is None:
-                raise RuntimeError(f"Jump host transport unavailable: {jump_host_ip}")
-            jump_channel = jump_transport.open_channel('direct-tcpip', (host_ip, 22), ('127.0.0.1', 0))
-            connect_kwargs["sock"] = jump_channel
-
-        target_client.connect(**connect_kwargs)
+        target_client, jump_client, jump_channel = open_ssh_client(host_ip=host_ip, user=user, password=password, timeout=timeout, jump_host_ip=jump_host_ip,
+                                                                   jump_user=jump_user, jump_password=jump_password)
         _, stdout, stderr = target_client.exec_command(command, timeout=timeout)
         return stdout.read().decode('utf-8', errors='replace'), stderr.read().decode('utf-8', errors='replace')
     finally:
-        if target_client:
-            target_client.close()
-        if jump_channel:
-            jump_channel.close()
-        if jump_client:
-            jump_client.close()
+        close_ssh_client(target_client, jump_client, jump_channel)
+
+
+def get_live_remote_log(host_ip: str, user: str, password: str, remote_log_path: str, timeout: int = 5, jump_host_ip: Optional[str] = None,
+                        jump_user: Optional[str] = None, jump_password: Optional[str] = None, tail_lines: int = 0, read_timeout: int = 30,
+                        poll_interval: float = 0.1, stop_event=None, on_line: Optional[Callable[[str], None]] = None) -> None:
+    """Continuously tail a remote log file until interrupted or stop_event is set."""
+    target_client = None
+    jump_client = None
+    jump_channel = None
+    stdout = stderr = None
+    on_line = on_line or (lambda line: print(line, flush=True))
+    tail_cmd = f"tail -F -n {max(0, int(tail_lines))} {shlex.quote(remote_log_path)}"
+    try:
+        target_client, jump_client, jump_channel = open_ssh_client(host_ip=host_ip, user=user, password=password, timeout=timeout, jump_host_ip=jump_host_ip,
+                                                                   jump_user=jump_user, jump_password=jump_password)
+        _, stdout, stderr = target_client.exec_command(tail_cmd)
+        stdout.channel.settimeout(read_timeout)
+        last_output_time = time.time()
+        while not (stop_event and stop_event.is_set()):
+            if target_client.get_transport() is None or not target_client.get_transport().is_active():
+                raise ConnectionError(f"SSH connection lost for {host_ip}")
+            try:
+                line = stdout.readline()
+            except TimeoutError:
+                if time.time() - last_output_time >= read_timeout:
+                    raise TimeoutError(f"No data received from '{remote_log_path}' for {read_timeout} seconds")
+                continue
+            if line:
+                on_line(line.rstrip('\r\n'))
+                last_output_time = time.time()
+                continue
+            if stdout.channel.exit_status_ready():
+                stderr_text = stderr.read().decode('utf-8', errors='replace').strip() if stderr else ""
+                if stderr_text:
+                    raise RuntimeError(stderr_text)
+                return
+            if time.time() - last_output_time >= read_timeout:
+                raise TimeoutError(f"No data received from '{remote_log_path}' for {read_timeout} seconds")
+            time.sleep(max(0.01, poll_interval))
+    finally:
+        if stdout:
+            stdout.close()
+        if stderr:
+            stderr.close()
+        close_ssh_client(target_client, jump_client, jump_channel)
 
 
 @dataclass

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import sys
@@ -33,6 +34,7 @@ ARG_USE_CURRENT_LOCAL_OW_BRANCH = f"{ARGUMENT_LONG_PREFIX}use_current_local_ow_b
 ARG_MAKE_CLEAN = f"{ARGUMENT_LONG_PREFIX}make_clean"
 ARG_IS_DEBUG_BUILD = f"{ARGUMENT_LONG_PREFIX}is_debug_build"
 ARG_OW_BUILD_TYPE = f"{ARGUMENT_LONG_PREFIX}build_type"
+ARG_RUN_VIA_PYTHON = f"{ARGUMENT_LONG_PREFIX}run_via_python"
 PREFIX_OW_BUILD_ARTIFACT = f"iesa_test_"
 WIN_CMD_INVOCATION = get_win_cmd_invocation("available_tools.iesa_tools.t_ow_local_build")
 IESA_TEST_DIFF_PREFIX = f"iesa_test_diff_"
@@ -42,6 +44,8 @@ MANIFEST_OUT_ARTIFACT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTI
 IESA_OUT_ARTIFACT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}build.iesa"
 LOG_OUT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}log.txt"
 IESA_EXEC_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}iesa_exec.sh"
+COPY_TO_UT_RUNNER_PATH = Path(__file__).resolve().parent / "copy_to_ut_runner.py"
+LOCAL_PYTHON_BIN = "/usr/local/bin/local_python"
 
 def get_tool_templates() -> List[ToolTemplate]:
     return [
@@ -51,6 +55,7 @@ def get_tool_templates() -> List[ToolTemplate]:
             args={
                 ARG_INTERACTIVE: False,
                 ARG_OW_BUILD_TYPE: BUILD_TYPE_IESA,
+                ARG_RUN_VIA_PYTHON: True,
                 ARG_MANIFEST_SOURCE: MANIFEST_SOURCE_LOCAL,
                 ARG_USE_CURRENT_LOCAL_OW_BRANCH: True,
                 ARG_TISDK_REF: BRANCH_MANPACK_MASTER,
@@ -66,6 +71,7 @@ def get_tool_templates() -> List[ToolTemplate]:
             args={
                 ARG_INTERACTIVE: False,
                 ARG_OW_BUILD_TYPE: BUILD_TYPE_BINARY,
+                ARG_RUN_VIA_PYTHON: True,
                 ARG_MANIFEST_SOURCE: MANIFEST_SOURCE_LOCAL,
                 ARG_USE_CURRENT_LOCAL_OW_BRANCH: True,
                 ARG_MAKE_CLEAN: True,
@@ -120,6 +126,8 @@ def main() -> None:
                         help="Run make clean before building (true or false). Defaults to true.")
     parser.add_argument(ARG_IS_DEBUG_BUILD, type=lambda x: x.lower() == TRUE_STR_VALUE, default=False,
                         help="Enable debug build (true or false). Defaults to false.")
+    parser.add_argument(ARG_RUN_VIA_PYTHON, type=lambda x: x.lower() == TRUE_STR_VALUE, default=False,
+                        help="Display Python-based UT copy runner command instead of the legacy shell copy command (true or false). Defaults to false.")
     args = parser.parse_args()
     LOG(
         textwrap.dedent(
@@ -137,6 +145,7 @@ def main() -> None:
     use_current_local_ow_branch: bool = get_arg_value(args, ARG_USE_CURRENT_LOCAL_OW_BRANCH)
     make_clean: bool = get_arg_value(args, ARG_MAKE_CLEAN)
     is_debug_build: bool = get_arg_value(args, ARG_IS_DEBUG_BUILD)
+    run_via_python: bool = get_arg_value(args, ARG_RUN_VIA_PYTHON)
     # Update overwrite repos no git suffix
     overwrite_repos = [get_path_no_suffix(r, GIT_SUFFIX) for r in overwrite_repos]
     init_ow_build_log()
@@ -209,7 +218,12 @@ def main() -> None:
         f'echo "SCP copy failed"; '
         f'}}'
     )
-
+    if run_via_python:
+        command_to_display = (
+            f'{LOCAL_PYTHON_BIN} {shlex.quote(str(COPY_TO_UT_RUNNER_PATH))} '
+            f'--mode binary '
+            f'--local_path {shlex.quote(str(OW_SW_BUILD_BINARY_OUTPUT_PATH))}'
+        )
     command_to_display = wrap_cmd_for_bash(command_to_display)
     display_content_to_copy(command_to_display, purpose="Copy BINARY to target IP",
                             is_copy_to_clipboard=(build_type == BUILD_TYPE_BINARY))
@@ -246,6 +260,14 @@ def main() -> None:
                 run_cmd_on_remote=f"iesa_umcmd install pkg {new_iesa_path.name} && tail -F /var/log/upgrade_log",
                 is_prompt_before_execute=True
             )
+            if run_via_python:
+                command_to_display = wrap_cmd_for_bash(
+                    f'{LOCAL_PYTHON_BIN} {shlex.quote(str(COPY_TO_UT_RUNNER_PATH))} '
+                    f'--mode iesa '
+                    f'--local_path {shlex.quote(str(new_iesa_output_abs_path))} '
+                    f'--exec_output_path {shlex.quote(str(IESA_EXEC_PATH))} '
+                    f'--prompt_before_execute true'
+                )
             display_content_to_copy(command_to_display, purpose="Copy IESA to target IP", is_copy_to_clipboard=True)
             append_build_log("Copy IESA command:")
             append_build_log(command_to_display)

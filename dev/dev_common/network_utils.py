@@ -73,17 +73,24 @@ def run_ssh_command(host_ip: str, user: str, password: str, command: str, timeou
 def get_live_remote_log(host_ip: str, user: str, password: str, remote_log_path: str, timeout: int = 5, jump_host_ip: Optional[str] = None,
                         jump_user: Optional[str] = None, jump_password: Optional[str] = None, tail_lines: int = 0, read_timeout: int = 30,
                         poll_interval: float = 0.1, stop_event=None, on_line: Optional[Callable[[str], None]] = None) -> None:
-    """Continuously tail a remote log file until interrupted or stop_event is set."""
+    """Continuously tail a remote log file or read from a serial device until interrupted or stop_event is set."""
     target_client = None
     jump_client = None
     jump_channel = None
     stdout = stderr = None
     on_line = on_line or (lambda line: print(line, flush=True))
-    tail_cmd = f"tail -F -n {max(0, int(tail_lines))} {shlex.quote(remote_log_path)}"
+
+    # /dev/ paths are character devices — use cat instead of tail
+    is_device = remote_log_path.startswith("/dev/")
+    if is_device:
+        remote_cmd = f"cat {shlex.quote(remote_log_path)}"
+    else:
+        remote_cmd = f"tail -F -n {max(0, int(tail_lines))} {shlex.quote(remote_log_path)}"
+
     try:
         target_client, jump_client, jump_channel = open_ssh_client(host_ip=host_ip, user=user, password=password, timeout=timeout, jump_host_ip=jump_host_ip,
                                                                    jump_user=jump_user, jump_password=jump_password)
-        _, stdout, stderr = target_client.exec_command(tail_cmd)
+        _, stdout, stderr = target_client.exec_command(remote_cmd)
         stdout.channel.settimeout(read_timeout)
         last_output_time = time.time()
         while not (stop_event and stop_event.is_set()):
@@ -92,6 +99,10 @@ def get_live_remote_log(host_ip: str, user: str, password: str, remote_log_path:
             try:
                 line = stdout.readline()
             except TimeoutError:
+                if is_device:
+                    # Serial ports can be silent for long periods — don't timeout, just keep waiting
+                    last_output_time = time.time()
+                    continue
                 if time.time() - last_output_time >= read_timeout:
                     raise TimeoutError(f"No data received from '{remote_log_path}' for {read_timeout} seconds")
                 continue
@@ -104,7 +115,7 @@ def get_live_remote_log(host_ip: str, user: str, password: str, remote_log_path:
                 if stderr_text:
                     raise RuntimeError(stderr_text)
                 return
-            if time.time() - last_output_time >= read_timeout:
+            if not is_device and time.time() - last_output_time >= read_timeout:
                 raise TimeoutError(f"No data received from '{remote_log_path}' for {read_timeout} seconds")
             time.sleep(max(0.01, poll_interval))
     finally:
@@ -147,6 +158,44 @@ def ping_host(host: str, total_pings: int = 3, time_out_per_ping: int = 3, mute:
         if not mute:
             LOG(f"[WARNING] Ping to {host} failed: {e}")
         return False
+
+
+def build_scp_copy_to_remote_cmd(local_path: str | Path, remote_host_ip: str, remote_dest_path: str, remote_user: str = ACU_USER,
+                                 jump_host_ip: Optional[str] = None, recursive: Optional[bool] = None,
+                                 strict_host_key_checking: bool = False) -> List[str]:
+    """Build an scp command that can copy to a remote host directly or through a jump host."""
+    local_path_obj = Path(local_path).expanduser().resolve()
+    should_use_recursive = local_path_obj.is_dir() if recursive is None else recursive
+    cmd: List[str] = ["scp"]
+    if should_use_recursive:
+        cmd.append("-r")
+    if jump_host_ip:
+        cmd.extend(["-o", f"ProxyJump={remote_user}@{jump_host_ip}"])
+    if strict_host_key_checking:
+        cmd.extend(["-o", "StrictHostKeyChecking=yes"])
+    else:
+        cmd.extend(["-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"])
+    cmd.extend([str(local_path_obj), f"{remote_user}@{remote_host_ip}:{remote_dest_path}"])
+    return cmd
+
+
+def copy_to_remote(local_path: str | Path, remote_host_ip: str, remote_dest_path: str, remote_user: str = ACU_USER,
+                   recursive: Optional[bool] = None, strict_host_key_checking: bool = False, timeout: Optional[int] = None) -> subprocess.CompletedProcess:
+    """Copy a local file or directory to a remote host via scp."""
+    cmd = build_scp_copy_to_remote_cmd(local_path=local_path, remote_host_ip=remote_host_ip, remote_dest_path=remote_dest_path, remote_user=remote_user,
+                                       recursive=recursive, strict_host_key_checking=strict_host_key_checking)
+    LOG(f"{LOG_PREFIX_MSG_INFO} Copying '{Path(local_path).expanduser()}' to {remote_user}@{remote_host_ip}:{remote_dest_path}")
+    return run_shell(cmd, check_throw_exception_on_exit_code=True, timeout=timeout)
+
+
+def copy_to_remote_via_jump_host(local_path: str | Path, remote_host_ip: str, remote_dest_path: str, jump_host_ip: str,
+                                 remote_user: str = ACU_USER, recursive: Optional[bool] = None, strict_host_key_checking: bool = False,
+                                 timeout: Optional[int] = None) -> subprocess.CompletedProcess:
+    """Copy a local file or directory to a remote host through an SSH jump host via scp."""
+    cmd = build_scp_copy_to_remote_cmd(local_path=local_path, remote_host_ip=remote_host_ip, remote_dest_path=remote_dest_path, remote_user=remote_user,
+                                       jump_host_ip=jump_host_ip, recursive=recursive, strict_host_key_checking=strict_host_key_checking)
+    LOG(f"{LOG_PREFIX_MSG_INFO} Copying '{Path(local_path).expanduser()}' to {remote_user}@{remote_host_ip}:{remote_dest_path} via jump host {jump_host_ip}")
+    return subprocess.run(cmd, check_throw_exception_on_exit_code=True, timeout=timeout)
 
 
 def setup_passwordless_ssh(user: str, jump_host: str, remote_host: str,

@@ -107,6 +107,7 @@ def fetch_acu_logs(ut_ip: str, log_types: List[str], dest_folder_path: str | Pat
             LOG(f"{LOG_PREFIX_MSG_WARNING} Partial fetch for {ut_ip}: copied {len(new_log_paths)} file(s) despite scp errors.")
         else:
             LOG(f"{LOG_PREFIX_MSG_INFO} Scp batch completed for {ut_ip}, logs saved in '{dest_folder_path}'")
+            open_path_in_explorer(dest_folder_path)
     else:
         LOG(f"{LOG_PREFIX_MSG_WARNING} No log files copied for {ut_ip}{' (scp failed)' if scp_cmd_failed else ' despite scp completion'}.")
 

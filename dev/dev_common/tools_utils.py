@@ -273,7 +273,7 @@ def display_content_to_copy(
 #         LOG(f"! An unexpected error occurred during shell paste: {e}", show_time=False)
 
 
-def open_explorer_to_file(file_path: Path) -> None:
+def open_path_in_explorer(file_path: Path) -> None:
     """
     Open Windows Explorer from WSL and highlight the specified file.
     """

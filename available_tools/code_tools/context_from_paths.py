@@ -103,7 +103,7 @@ def main_paths(args: argparse.Namespace) -> None:
             LOG(f"Estimated token count for {filename}: {beautify_number(token_count)}")
 
         if not no_open_explorer:
-            open_explorer_to_file(output_file_path)
+            open_path_in_explorer(output_file_path)
 
     if failures:
         sys.exit(1)

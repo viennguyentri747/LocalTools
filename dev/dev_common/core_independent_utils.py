@@ -1,5 +1,6 @@
 # Avoid broad imports to prevent circular dependencies; keep minimal helpers only.
 import hashlib
+import logging
 import os
 from pathlib import Path
 import re
@@ -25,6 +26,9 @@ class ELogType(IntEnum):
 
 
 _CURRENT_LOG_LEVEL: ELogType = ELogType.NORMAL
+_INTERNAL_LOGGER = logging.getLogger("local_tools.compat")
+_INTERNAL_LOGGER.setLevel(logging.DEBUG)
+_INTERNAL_LOGGER.propagate = False
 
 
 def set_log_level(level: ELogType) -> None:
@@ -245,85 +249,73 @@ def get_cwd_path_str():
     return str(Path.cwd())
 
 
-def LOG(*values: object, sep: str = " ", end: str = "\n", file=None, highlight: bool = False,
-        show_time: bool = True, show_traceback: bool = False, flush: bool = True,
-        log_type: ELogType = ELogType.NORMAL) -> None:
-    if log_type < get_current_log_level():
-        return
-    # Prepare the message
-    message = sep.join(str(value) for value in values)
+def _map_log_type_to_level(log_type: ELogType) -> int:
+    if log_type >= ELogType.CRITICAL:
+        return logging.CRITICAL
+    if log_type >= ELogType.WARNING:
+        return logging.WARNING
+    if log_type >= ELogType.NORMAL:
+        return logging.INFO
+    return logging.DEBUG
 
-    # Add timestamp if requested
-    if show_time:
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        message = f"[{timestamp}] {message}"
 
-    # Add backtrace if requested
-    if show_traceback:
-        tb = traceback.format_stack()
-        print(f"Total stack frames: {len(tb)}")  # Debug line
-        max_frames = 5  # Maximum number of frames to print
-        if len(tb) > max_frames:
-            # Keep only the last 10 frames
-            filtered_tb = tb[-max_frames:]
-        else:
-            filtered_tb = tb  # Keep all frames if stack is shallow
-        message = f"{message}\nBacktrace:\n" + "".join(filtered_tb)
+class _BaseStreamHandler(logging.StreamHandler):
+    HIGHLIGHT_COLOR = "\033[92m"
+    BOLD = "\033[1m"
+    RESET = "\033[0m"
 
-    auto_highlight = False
-    if not highlight and log_type in (ELogType.WARNING, ELogType.CRITICAL):
-        auto_highlight = True
+    def __init__(self, stream=None, *, highlight: bool = False, same_line: bool = False, flush: bool = True, terminator: str = "\n"):
+        super().__init__(stream)
+        self._highlight = highlight
+        self._same_line = same_line
+        self._flush_enabled = flush
+        self.terminator = terminator
 
-    if highlight or auto_highlight:
-        HIGHLIGHT_COLOR = "\033[92m"  # green
-        BOLD = "\033[1m"
-        RESET = "\033[0m"
-        print(f"{BOLD}{HIGHLIGHT_COLOR}", end="", file=file, flush=flush)  # turn to highlight color
-        print(message, end="", file=file, flush=flush)  # print message
-        print(f"{RESET}", end=end, file=file, flush=flush)  # reset
-    else:
-        print(message, end=end, file=file, flush=flush)
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = self.format(record)
+            if self._highlight:
+                msg = f"{self.BOLD}{self.HIGHLIGHT_COLOR}{msg}{self.RESET}"
+            self.stream.write(msg)
+            self.stream.write("\r" if self._same_line else self.terminator)
+            if self._flush_enabled:
+                self.flush()
+        except Exception:
+            self.handleError(record)
+
 
 def LOG(*values: object, sep: str = " ", end: str = "\n", file=None, highlight: bool = False,
         show_time: bool = True, show_traceback: bool = False, flush: bool = True,
-        log_type: ELogType = ELogType.NORMAL, same_line: bool = False) -> None:
+        log_type: ELogType = ELogType.NORMAL, same_line: bool = False,
+        handlers: Optional[Union[logging.Handler, List[logging.Handler], Tuple[logging.Handler, ...]]] = None) -> None:
     if log_type < get_current_log_level():
         return
-    # Prepare the message
     message = sep.join(str(value) for value in values)
-
-    # Add timestamp if requested
     if show_time:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         message = f"[{timestamp}] {message}"
-
-    # Add backtrace if requested
     if show_traceback:
         tb = traceback.format_stack()
-        print(f"Total stack frames: {len(tb)}")  # Debug line
-        max_frames = 5  # Maximum number of frames to print
-        if len(tb) > max_frames:
-            filtered_tb = tb[-max_frames:]
-        else:
-            filtered_tb = tb
+        filtered_tb = tb[-5:] if len(tb) > 5 else tb
         message = f"{message}\nBacktrace:\n" + "".join(filtered_tb)
-
-    auto_highlight = False
-    if not highlight and log_type in (ELogType.WARNING, ELogType.CRITICAL):
-        auto_highlight = True
-
-    # If same_line, overwrite end to keep cursor on the same line
-    effective_end = "\r" if same_line else end
-
-    if highlight or auto_highlight:
-        HIGHLIGHT_COLOR = "\033[92m"  # green
-        BOLD = "\033[1m"
-        RESET = "\033[0m"
-        print(f"{BOLD}{HIGHLIGHT_COLOR}", end="", file=file, flush=flush)
-        print(message, end="", file=file, flush=flush)
-        print(f"{RESET}", end=effective_end, file=file, flush=flush)
+    normalized_handlers: List[logging.Handler]
+    if handlers is None:
+        auto_highlight = highlight or log_type in (ELogType.WARNING, ELogType.CRITICAL)
+        default_handler = _BaseStreamHandler(stream=file or sys.stdout, highlight=auto_highlight, same_line=same_line, flush=flush, terminator=end)
+        default_handler.setFormatter(logging.Formatter("%(message)s"))
+        normalized_handlers = [default_handler]
+    elif isinstance(handlers, logging.Handler):
+        normalized_handlers = [handlers]
     else:
-        print(message, end=effective_end, file=file, flush=flush)
+        normalized_handlers = list(handlers)
+
+    record = _INTERNAL_LOGGER.makeRecord(_INTERNAL_LOGGER.name, _map_log_type_to_level(log_type), fn="", lno=0, msg=message, args=(), exc_info=None)
+    for handler in normalized_handlers:
+        if handler.formatter is None:
+            handler.setFormatter(logging.Formatter("%(message)s"))
+        handler.handle(record)
+        if flush and hasattr(handler, "flush"):
+            handler.flush()
 
 def is_diff_ignore_eol(file1: Path, file2: Path) -> bool:
     if file1.is_dir() or file2.is_dir():

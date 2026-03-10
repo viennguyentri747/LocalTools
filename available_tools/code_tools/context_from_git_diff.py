@@ -87,7 +87,7 @@ def main_git_diff(args: argparse.Namespace) -> None:
             LOG(f"Could not estimate token count: {e}")
 
         if not no_open_explorer:
-            open_explorer_to_file(output_path)
+            open_path_in_explorer(output_path)
 
         LOG(f"{CELEBRATION_EMOJI} Extraction complete! Output directory: {final_output_dir}")
     else:

@@ -143,3 +143,13 @@ def format_float(value, min_decimals=3, max_decimals=10):
         return f"{value:.{min_decimals}f}"
     
     return formatted
+
+
+def format_bytes_human(total_bytes: int) -> str:
+    size = float(max(0, int(total_bytes)))
+    units = ["B", "KiB", "MiB", "GiB", "TiB"]
+    unit_idx = 0
+    while size >= 1024 and unit_idx < len(units) - 1:
+        size /= 1024
+        unit_idx += 1
+    return f"{size:.0f} {units[unit_idx]}" if unit_idx == 0 else f"{size:.1f} {units[unit_idx]}"

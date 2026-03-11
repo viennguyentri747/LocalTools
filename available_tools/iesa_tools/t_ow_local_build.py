@@ -168,7 +168,6 @@ def main() -> None:
     append_build_log(f"Parsed args: {args}")
 
     current_branch = git_get_current_branch(OW_SW_PATH)
-
     manifest_branch: Optional[str] = None  # Can be local or remote
     if use_current_local_ow_branch:
         if manifest_source == MANIFEST_SOURCE_LOCAL:
@@ -191,7 +190,6 @@ def main() -> None:
         use_current_local_ow_branch, current_branch, tisdk_ref_from_ci_yml)
 
     run_build(build_type, get_arg_value(args, ARG_INTERACTIVE), make_clean, is_debug_build)
-
     # Always display binary build finish + command to copy
     LOG(f"{MAIN_STEP_LOG_PREFIX} Binary build finished.")
     LOG(f"Find output binary files in '{OW_SW_BUILD_BINARY_OUTPUT_PATH}'")
@@ -220,11 +218,11 @@ def main() -> None:
     )
     if run_via_python:
         command_to_display = (
-            f'{LOCAL_PYTHON_BIN} {shlex.quote(str(COPY_TO_UT_RUNNER_PATH))} '
-            f'--mode binary '
-            f'--local_path {shlex.quote(str(OW_SW_BUILD_BINARY_OUTPUT_PATH))}'
+            f'sudo chmod -R 755 {OW_SW_BUILD_BINARY_OUTPUT_PATH} && {shlex.quote(str(COPY_TO_UT_RUNNER_PATH))} '
+            f'--mode binary --local_path {shlex.quote(str(OW_SW_BUILD_BINARY_OUTPUT_PATH))}'
         )
-    command_to_display = wrap_cmd_for_bash(command_to_display)
+
+    #command_to_display = wrap_cmd_for_bash(command_to_display)
     display_content_to_copy(command_to_display, purpose="Copy BINARY to target IP",
                             is_copy_to_clipboard=(build_type == BUILD_TYPE_BINARY))
     append_build_log("Copy BINARY command:")
@@ -261,8 +259,8 @@ def main() -> None:
                 is_prompt_before_execute=True
             )
             if run_via_python:
-                command_to_display = wrap_cmd_for_bash(
-                    f'{LOCAL_PYTHON_BIN} {shlex.quote(str(COPY_TO_UT_RUNNER_PATH))} '
+                command_to_display = (
+                    f'sudo chmod -R 755 {shlex.quote(str(new_iesa_output_abs_path))} && {shlex.quote(str(COPY_TO_UT_RUNNER_PATH))} '
                     f'--mode iesa '
                     f'--local_path {shlex.quote(str(new_iesa_output_abs_path))} '
                     f'--exec_output_path {shlex.quote(str(IESA_EXEC_PATH))} '

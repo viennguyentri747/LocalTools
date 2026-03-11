@@ -1,35 +1,39 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import paramiko
+import posixpath
 import shlex
 import time
 import subprocess
 import sys
 from typing import Callable, List, Optional, Tuple
 from dev.dev_common.constants import *
-from dev.dev_common.core_utils import LOG, run_shell
+from dev.dev_common.core_utils import *
+from dev.dev_common.format_utils import format_bytes_human
 
 SSH_KEY_TYPE_RSA = 'rsa'
 KEY_TYPE_ED25519 = 'ed25519'
 
 
-def open_ssh_client(host_ip: str, user: str, password: str, timeout: int = 5, jump_host_ip: Optional[str] = None,
+def open_ssh_client(host_ip: str, user: str, password: Optional[str] = None, timeout: int = 5, jump_host_ip: Optional[str] = None,
                     jump_user: Optional[str] = None, jump_password: Optional[str] = None) -> Tuple[paramiko.SSHClient, Optional[paramiko.SSHClient], Optional[paramiko.Channel]]:
     """Open an SSH client, optionally tunneled through a jump host."""
-    if not password:
-        raise ValueError("SSH password is required.")
-
     target_client = paramiko.SSHClient()
     target_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    connect_kwargs = dict(hostname=host_ip, username=user, password=password, look_for_keys=False, allow_agent=False, timeout=timeout)
+    auth_kwargs = dict(password=password, look_for_keys=not password, allow_agent=not password)
+    connect_kwargs = dict(hostname=host_ip, username=user, timeout=timeout, **auth_kwargs)
     jump_client = None
     jump_channel = None
 
     if jump_host_ip:
         jump_client = paramiko.SSHClient()
         jump_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        jump_client.connect(jump_host_ip, username=jump_user or user, password=jump_password or password, look_for_keys=False, allow_agent=False, timeout=timeout)
+        jump_connect_kwargs = dict(hostname=jump_host_ip, username=jump_user or user, timeout=timeout,
+                                   password=jump_password or password, look_for_keys=not (jump_password or password), allow_agent=not (jump_password or password))
+
+        LOG(f"Connecting with jump arguments: {jump_connect_kwargs}, connect arguments: {connect_kwargs}")
+        jump_client.connect(**jump_connect_kwargs)
         jump_transport = jump_client.get_transport()
         if jump_transport is None:
             close_ssh_client(target_client, jump_client, jump_channel)
@@ -40,6 +44,7 @@ def open_ssh_client(host_ip: str, user: str, password: str, timeout: int = 5, ju
     try:
         target_client.connect(**connect_kwargs)
     except Exception:
+        LOG(f"Failed to connect to {host_ip}")
         close_ssh_client(target_client, jump_client, jump_channel)
         raise
     return target_client, jump_client, jump_channel
@@ -160,42 +165,133 @@ def ping_host(host: str, total_pings: int = 3, time_out_per_ping: int = 3, mute:
         return False
 
 
-def build_scp_copy_to_remote_cmd(local_path: str | Path, remote_host_ip: str, remote_dest_path: str, remote_user: str = ACU_USER,
-                                 jump_host_ip: Optional[str] = None, recursive: Optional[bool] = None,
-                                 strict_host_key_checking: bool = False) -> List[str]:
-    """Build an scp command that can copy to a remote host directly or through a jump host."""
+def _sftp_mkdir_p(sftp: paramiko.SFTPClient, remote_dir: str) -> None:
+    remote_dir = remote_dir.strip()
+    if not remote_dir or remote_dir == ".":
+        return
+    current = "/" if remote_dir.startswith("/") else ""
+    for part in PurePosixPath(remote_dir).parts:
+        if part in ("", "/"):
+            continue
+        current = posixpath.join(current, part) if current not in ("", "/") else (f"/{part}" if current == "/" else part)
+        try:
+            sftp.stat(current)
+        except IOError:
+            sftp.mkdir(current)
+
+
+def _sftp_put_file(sftp: paramiko.SFTPClient, local_file: Path, remote_file_path: str) -> str:
+    _sftp_mkdir_p(sftp, posixpath.dirname(remote_file_path))
+    sftp.put(str(local_file), remote_file_path)
+    return remote_file_path
+
+
+class _TransferProgressReporter:
+    def __init__(self, label: str, total_bytes: int, log_interval_sec: float = 1.0):
+        self.label = label
+        self.total_bytes = max(0, int(total_bytes))
+        self.log_interval_sec = log_interval_sec
+        self.start_time = time.time()
+        self.last_log_time = 0.0
+        self.last_logged_percent = -1
+
+    def report(self, transferred_bytes: int, force: bool = False) -> None:
+        transferred_bytes = max(0, min(int(transferred_bytes), self.total_bytes))
+        elapsed = max(time.time() - self.start_time, 1e-6)
+        percent = 100 if self.total_bytes == 0 else int((transferred_bytes * 100) / self.total_bytes)
+        if not force and percent == self.last_logged_percent and (time.time() - self.last_log_time) < self.log_interval_sec:
+            return
+        rate_mib_s = (transferred_bytes / elapsed) / (1024 * 1024)
+        transferred_h = format_bytes_human(transferred_bytes)
+        total_h = format_bytes_human(self.total_bytes)
+        LOG(f"{LOG_PREFIX_MSG_INFO} {self.label}: {percent}% ({transferred_h}/{total_h}), elapsed {elapsed:.1f}s, rate {rate_mib_s:.2f} MiB/s", same_line=True)
+        self.last_logged_percent = percent
+        self.last_log_time = time.time()
+
+
+def _sftp_put_file_with_progress(sftp: paramiko.SFTPClient, local_file: Path, remote_file_path: str, base_offset: int = 0, total_bytes: Optional[int] = None,
+                                 label: Optional[str] = None) -> str:
+    file_size = local_file.stat().st_size
+    file_uploaded = 0
+    overall_total = file_size if total_bytes is None else max(file_size, int(total_bytes))
+    reporter = _TransferProgressReporter(label=label or f"SFTP upload -> {remote_file_path}", total_bytes=overall_total)
+
+    def _on_progress(transferred: int, total: int) -> None:
+        nonlocal file_uploaded
+        file_uploaded = max(0, min(transferred, file_size if file_size >= 0 else total))
+        reporter.report(base_offset + file_uploaded)
+
+    _sftp_mkdir_p(sftp, posixpath.dirname(remote_file_path))
+    reporter.report(0, force=True)
+    sftp.put(str(local_file), remote_file_path, callback=_on_progress)
+    reporter.report(base_offset + file_size, force=True)
+    return remote_file_path
+
+
+def _sftp_put_directory(sftp: paramiko.SFTPClient, local_dir: Path, remote_dir_path: str) -> str:
+    _sftp_mkdir_p(sftp, remote_dir_path)
+    local_items = sorted(local_dir.rglob("*"))
+    files = [item for item in local_items if item.is_file()]
+    total_bytes = sum(item.stat().st_size for item in files)
+    uploaded_bytes = 0
+    for local_item in local_items:
+        rel_path = local_item.relative_to(local_dir).as_posix()
+        remote_item_path = posixpath.join(remote_dir_path, rel_path)
+        if local_item.is_dir():
+            _sftp_mkdir_p(sftp, remote_item_path)
+        else:
+            _sftp_put_file_with_progress(sftp, local_item, remote_item_path, base_offset=uploaded_bytes, total_bytes=total_bytes,
+                                         label=f"SFTP upload -> {remote_item_path}")
+            uploaded_bytes += local_item.stat().st_size
+    return remote_dir_path
+
+
+def _copy_to_remote_impl(local_path: str | Path, remote_host_ip: str, remote_dest_path: str, remote_user: str = ACU_USER,
+                         password: Optional[str] = None, jump_host_ip: Optional[str] = None, jump_user: Optional[str] = None,
+                         jump_password: Optional[str] = None, recursive: Optional[bool] = None, timeout: Optional[int] = None) -> str:
     local_path_obj = Path(local_path).expanduser().resolve()
     should_use_recursive = local_path_obj.is_dir() if recursive is None else recursive
-    cmd: List[str] = ["scp"]
-    if should_use_recursive:
-        cmd.append("-r")
-    if jump_host_ip:
-        cmd.extend(["-o", f"ProxyJump={remote_user}@{jump_host_ip}"])
-    if strict_host_key_checking:
-        cmd.extend(["-o", "StrictHostKeyChecking=yes"])
-    else:
-        cmd.extend(["-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"])
-    cmd.extend([str(local_path_obj), f"{remote_user}@{remote_host_ip}:{remote_dest_path}"])
-    return cmd
+    if local_path_obj.is_dir() and not should_use_recursive:
+        raise ValueError(f"Local path '{local_path_obj}' is a directory. Set recursive=True to copy it.")
+    target_client = jump_client = jump_channel = None
+    sftp = None
+    try:
+        target_client, jump_client, jump_channel = open_ssh_client(host_ip=remote_host_ip, user=remote_user, password=password, timeout=timeout or 5, jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=jump_password)
+        transport = target_client.get_transport()
+        if transport is None or not transport.is_active():
+            raise RuntimeError(f"SSH transport unavailable for {remote_host_ip}")
+        sftp = paramiko.SFTPClient.from_transport(transport)
+        if should_use_recursive and local_path_obj.is_dir():
+            return _sftp_put_directory(sftp, local_path_obj, remote_dest_path)
+        result = _sftp_put_file_with_progress(sftp, local_path_obj, remote_dest_path)
+        return result
+    finally:
+        if sftp:
+            sftp.close()
+        close_ssh_client(target_client, jump_client, jump_channel)
 
 
 def copy_to_remote(local_path: str | Path, remote_host_ip: str, remote_dest_path: str, remote_user: str = ACU_USER,
-                   recursive: Optional[bool] = None, strict_host_key_checking: bool = False, timeout: Optional[int] = None) -> subprocess.CompletedProcess:
-    """Copy a local file or directory to a remote host via scp."""
-    cmd = build_scp_copy_to_remote_cmd(local_path=local_path, remote_host_ip=remote_host_ip, remote_dest_path=remote_dest_path, remote_user=remote_user,
-                                       recursive=recursive, strict_host_key_checking=strict_host_key_checking)
-    LOG(f"{LOG_PREFIX_MSG_INFO} Copying '{Path(local_path).expanduser()}' to {remote_user}@{remote_host_ip}:{remote_dest_path}")
-    return run_shell(cmd, check_throw_exception_on_exit_code=True, timeout=timeout)
+                   password: Optional[str] = None, recursive: Optional[bool] = None, strict_host_key_checking: bool = False,
+                   timeout: Optional[int] = None) -> str:
+    """Copy a local file or directory to a remote host using Paramiko SFTP."""
+    if strict_host_key_checking:
+        LOG(f"{LOG_PREFIX_MSG_WARNING} strict_host_key_checking is ignored for Paramiko-based copy_to_remote().")
+    LOG(f"{LOG_PREFIX_MSG_INFO} Copying '{Path(local_path).expanduser()}' to {remote_user}@{remote_host_ip}:{remote_dest_path} via Paramiko")
+    return _copy_to_remote_impl(local_path=local_path, remote_host_ip=remote_host_ip, remote_dest_path=remote_dest_path, remote_user=remote_user,
+                                password=password, recursive=recursive, timeout=timeout)
 
 
 def copy_to_remote_via_jump_host(local_path: str | Path, remote_host_ip: str, remote_dest_path: str, jump_host_ip: str,
-                                 remote_user: str = ACU_USER, recursive: Optional[bool] = None, strict_host_key_checking: bool = False,
-                                 timeout: Optional[int] = None) -> subprocess.CompletedProcess:
-    """Copy a local file or directory to a remote host through an SSH jump host via scp."""
-    cmd = build_scp_copy_to_remote_cmd(local_path=local_path, remote_host_ip=remote_host_ip, remote_dest_path=remote_dest_path, remote_user=remote_user,
-                                       jump_host_ip=jump_host_ip, recursive=recursive, strict_host_key_checking=strict_host_key_checking)
-    LOG(f"{LOG_PREFIX_MSG_INFO} Copying '{Path(local_path).expanduser()}' to {remote_user}@{remote_host_ip}:{remote_dest_path} via jump host {jump_host_ip}")
-    return subprocess.run(cmd, check_throw_exception_on_exit_code=True, timeout=timeout)
+                                 remote_user: str = ACU_USER, password: Optional[str] = None, jump_user: Optional[str] = None,
+                                 jump_password: Optional[str] = None, recursive: Optional[bool] = None, strict_host_key_checking: bool = False,
+                                 timeout: Optional[int] = None) -> str:
+    """Copy a local file or directory to a remote host through a jump host using Paramiko SFTP."""
+    if strict_host_key_checking:
+        LOG(f"{LOG_PREFIX_MSG_WARNING} strict_host_key_checking is ignored for Paramiko-based copy_to_remote_via_jump_host().")
+    LOG(f"{LOG_PREFIX_MSG_INFO} Copying '{Path(local_path).expanduser()}' to {remote_user}@{remote_host_ip}:{remote_dest_path} via jump host {jump_user}@{jump_host_ip} using Paramiko")
+    return _copy_to_remote_impl(local_path=local_path, remote_host_ip=remote_host_ip, remote_dest_path=remote_dest_path, remote_user=remote_user,password=password, jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=jump_password,
+recursive=recursive, timeout=timeout)
 
 
 def setup_passwordless_ssh(user: str, jump_host: str, remote_host: str,

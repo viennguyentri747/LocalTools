@@ -86,11 +86,8 @@ def _normalize_message_type(raw_prefix: str) -> str:
 def _parse_pow_timestamp(timestamp_token: str) -> float:
     if len(timestamp_token) < 6 or not timestamp_token.isdigit():
         raise ValueError(f"Invalid POW timestamp token: {timestamp_token}")
-    hh = int(timestamp_token[0:2])
-    mm = int(timestamp_token[2:4])
-    ss = int(timestamp_token[4:6])
-    fractional = float(f"0.{timestamp_token[6:]}") if len(timestamp_token) > 6 else 0.0
-    return hh * 3600 + mm * 60 + ss + fractional
+    # POW logs use a scalar timestamp token where the last 6 digits are fractional seconds.
+    return int(timestamp_token) / 1_000_000.0
 
 
 def _scan_pow_entries(log_path: Path, message_types: Sequence[str]) -> Dict[str, List[PowEntry]]:

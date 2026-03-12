@@ -4,9 +4,9 @@ from dev.dev_common.constants import *
 from dev.dev_common.shell_utils import wrap_cmd_for_bash
 
 
-def create_scp_ut_and_run_cmd(local_path: Union[str, Path], exec_output_path: Optional[Union[str, Path]] = None, remote_host: str = f"{ACU_USER}@{ACU_IP}", remote_dir: str = "/home/root/download/", run_cmd_on_remote: Optional[str] = None, is_prompt_before_execute: bool = True) -> str:
+def create_scp_ut_and_run_cmd(local_path: Union[str, Path], remote_host: str = f"{ACU_USER}@{ACU_IP}", remote_dir: str = "/home/root/download/", run_cmd_on_remote: Optional[str] = None, is_prompt_before_execute: bool = True) -> str:
     """
-    Constructs a one-liner shell command that prompts for a source_ip (jump host), securely copies a local file to a remote host using scp -rJ, prints a ready-to-paste UT-side command that verifies MD5 before executing a specified command, and optionally saves that exec command to a local file.
+    Constructs a one-liner shell command that prompts for a source_ip (jump host), securely copies a local file to a remote host using scp -rJ, and prints a ready-to-paste UT-side command that verifies MD5 before executing a specified command.
     """
     lp = Path(local_path).expanduser().resolve()
     remote_dir_norm = remote_dir.rstrip("/")
@@ -31,7 +31,6 @@ def create_scp_ut_and_run_cmd(local_path: Union[str, Path], exec_output_path: Op
         f"if [ \"%s\" = \"$actual_md5\" ]; then {execution_cmd}; else echo \"MD5 MISMATCH! Not running.\"; fi"
     )
     
-    exec_output_path_str = "" if exec_output_path is None else str(Path(exec_output_path).expanduser().resolve())
     cmd = (
         f"output_path=\"{lp}\" "
         f"&& sudo chmod -R 755 \"$output_path\" "
@@ -42,11 +41,7 @@ def create_scp_ut_and_run_cmd(local_path: Union[str, Path], exec_output_path: Op
         f"&& {{ original_md5=$(md5sum \"$output_path\" | cut -d\" \" -f1); "
         f"noti \"SCP copy completed successfully\"; "
         f"echo -e \"File(s) copied completed. Run on target UT $source_ip with this below command:\\n\"; "
-        f"exec_output_path=\"{exec_output_path_str}\"; "
-        f"if [ -n \"$exec_output_path\" ]; then "
-        f"mkdir -p \"$(dirname \"$exec_output_path\")\" && "
-        f"printf '{exec_cmd}\\n' \"$original_md5\" \"$original_md5\" \"$original_md5\" | tee \"$exec_output_path\"; "
-        f"else printf '{exec_cmd}\\n' \"$original_md5\" \"$original_md5\" \"$original_md5\"; fi; "
+        f"printf '{exec_cmd}\\n' \"$original_md5\" \"$original_md5\" \"$original_md5\"; "
         f"echo; }} "
         f"|| {{ noti \"SCP copy failed\"; }} "
     )

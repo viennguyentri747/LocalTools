@@ -17,7 +17,6 @@ MODE_NO_SETUP = "no_setup"
 ARG_LOCAL_PATH = f"{ARGUMENT_LONG_PREFIX}local_path"
 ARG_TARGET_IP = f"{ARGUMENT_LONG_PREFIX}target_ip"
 ARG_DEST_NAME = f"{ARGUMENT_LONG_PREFIX}dest_name"
-ARG_EXEC_OUTPUT_PATH = f"{ARGUMENT_LONG_PREFIX}exec_output_path"
 ARG_REMOTE_DIR = f"{ARGUMENT_LONG_PREFIX}remote_dir"
 ARG_REMOTE_HOST_IP = f"{ARGUMENT_LONG_PREFIX}remote_host_ip"
 ARG_REMOTE_USER = f"{ARGUMENT_LONG_PREFIX}remote_user"
@@ -119,8 +118,6 @@ def main() -> None:
     parser.add_argument(ARG_LOCAL_PATH, required=True, help="Local file path or binary output directory.")
     parser.add_argument(ARG_TARGET_IP, default=EMPTY_STR_VALUE, help="Target UT IP used as the SSH jump host.")
     parser.add_argument(ARG_DEST_NAME, default=EMPTY_STR_VALUE, help="Optional destination filename on ACU.")
-    parser.add_argument(ARG_EXEC_OUTPUT_PATH, default=EMPTY_STR_VALUE,
-                        help="Optional local file to save the UT-side command.")
     parser.add_argument(ARG_REMOTE_DIR, default=DEFAULT_REMOTE_DIR,
                         help=f"Remote ACU directory. Defaults to {DEFAULT_REMOTE_DIR}.")
     parser.add_argument(ARG_REMOTE_HOST_IP, default=ACU_IP, help=f"Remote ACU IP. Defaults to {ACU_IP}.")

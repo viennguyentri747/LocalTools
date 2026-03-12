@@ -14,6 +14,7 @@ ACU_USER_NAME = ACU_USER
 SSH_PASSWORD = read_value_from_credential_file(CREDENTIALS_FILE_PATH, UT_PWD_KEY_NAME)
 
 SAFE_COMMANDS = ["find", "cat", "ls", "grep", "head", "tail"]
+NOT_SO_SAFE_COMMANDS = ["reboot"]
 
 mcp = FastMCP("SecureSSH")
 
@@ -30,7 +31,7 @@ def is_command_safe(command: str) -> bool:
     if any(char in command for char in forbidden):
         return False
 
-    return base_command in SAFE_COMMANDS
+    return base_command in SAFE_COMMANDS or base_command in NOT_SO_SAFE_COMMANDS
 
 
 def build_ssh_host_ip(last_ip_octet: int) -> str:

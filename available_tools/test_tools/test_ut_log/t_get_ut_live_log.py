@@ -63,8 +63,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(ARG_USER, default=SSM_USER, help="SSH user for the target host.")
     parser.add_argument(ARG_JUMP_USER, default=None, help="SSH user for the jump host. Defaults to the target user.")
     parser.add_argument(ARG_TIMEOUT, type=int, default=5, help="SSH connect timeout in seconds.")
-    parser.add_argument(ARG_READ_TIMEOUT, type=int, default=30,
-                        help="Fail if no log data arrives within this many seconds.")
+    parser.add_argument(ARG_READ_TIMEOUT, type=int, default=600, help="Fail if no log data arrives within this many seconds.")
     parser.add_argument(ARG_TAIL_LINES, type=int, default=0,
                         help="Initial number of historical lines to print before following.")
     parser.add_argument(ARG_CAPTURE_LOG, type=parse_bool_arg, nargs='?', const=True, default=False,
@@ -87,16 +86,14 @@ def build_live_log_handlers(capture_log: bool = False, log_path: Optional[str] =
 
 
 def get_live_remote_log(host_ip: str, remote_log_path: str, user: str = SSM_USER, password: Optional[str] = None, jump_host_ip: Optional[str] = None,
-                        jump_user: Optional[str] = None, jump_password: Optional[str] = None, timeout: int = 5, read_timeout: int = 30, tail_lines: int = 0,
+                        jump_user: Optional[str] = None, jump_password: Optional[str] = None, timeout: int = 5, read_timeout: int = 60, tail_lines: int = 0,
                         capture_log: bool = False, log_path: Optional[str] = None) -> None:
     password = password or read_value_from_credential_file(CREDENTIALS_FILE_PATH, UT_PWD_KEY_NAME)
     if not password:
         raise ValueError(f"Missing UT password in {CREDENTIALS_FILE_PATH} with key {UT_PWD_KEY_NAME}")
     handlers = build_live_log_handlers(capture_log=capture_log, log_path=log_path)
     try:
-        stream_live_remote_log(host_ip=host_ip, user=user, password=password, remote_log_path=remote_log_path, timeout=timeout, jump_host_ip=jump_host_ip,
-                               jump_user=jump_user, jump_password=jump_password or password, tail_lines=tail_lines, read_timeout=read_timeout,
-                               on_line=lambda line: LOG(line, show_time=False, handlers=handlers))
+        stream_live_remote_log(host_ip=host_ip, user=user, password=password, remote_log_path=remote_log_path, timeout=timeout, jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=jump_password or password, tail_lines=tail_lines, read_timeout=read_timeout, on_line=lambda line: LOG(line, show_time=False, handlers=handlers))
     finally:
         for handler in handlers:
             try:
@@ -109,8 +106,7 @@ def get_live_remote_log(host_ip: str, remote_log_path: str, user: str = SSM_USER
 def main() -> int:
     args = parse_args()
     try:
-        get_live_remote_log(host_ip=args.host_ip, remote_log_path=args.remote_path, user=args.user, jump_host_ip=args.jump_host_ip, jump_user=args.jump_user,
-                            timeout=args.timeout, read_timeout=args.read_timeout, tail_lines=args.tail_lines, capture_log=args.capture_log, log_path=args.log_path)
+        get_live_remote_log(host_ip=args.host_ip, remote_log_path=args.remote_path, user=args.user, jump_host_ip=args.jump_host_ip, jump_user=args.jump_user, timeout=args.timeout, read_timeout=args.read_timeout, tail_lines=args.tail_lines, capture_log=args.capture_log, log_path=args.log_path)
     except KeyboardInterrupt:
         LOG(f"{LOG_PREFIX_MSG_WARNING} Stopped by user.")
         return 130

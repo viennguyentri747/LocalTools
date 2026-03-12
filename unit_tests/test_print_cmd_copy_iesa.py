@@ -1,6 +1,6 @@
 #!/usr/local/bin/local_python
 import shutil
-from available_tools.iesa_tools.t_ow_local_build import IESA_EXEC_PATH, IESA_OUT_ARTIFACT_PATH, append_build_log, ensure_temp_build_output_dir, init_ow_build_log
+from available_tools.iesa_tools.t_ow_local_build import IESA_OUT_ARTIFACT_PATH, append_build_log, ensure_temp_build_output_dir, init_ow_build_log
 from dev.dev_common import *
 from dev.dev_iesa import *
 
@@ -24,7 +24,6 @@ def main() -> None:
     append_build_log(f"IESA output path: {new_iesa_output_abs_path}")
     command_to_display = create_scp_ut_and_run_cmd(
         local_path=new_iesa_output_abs_path,
-        exec_output_path=IESA_EXEC_PATH,
         remote_host="root@192.168.100.254",
         remote_dir="/home/root/download/",
         run_cmd_on_remote=f"iesa_umcmd install pkg {new_iesa_path.name} && tail -F /var/log/upgrade_log",
@@ -33,7 +32,6 @@ def main() -> None:
     display_content_to_copy(command_to_display, purpose="Copy IESA to target IP", is_copy_to_clipboard=True)
     append_build_log("Copy IESA command:")
     append_build_log(command_to_display)
-    append_build_log(f"IESA exec command path: {IESA_EXEC_PATH}")
 
 
 if __name__ == "__main__":

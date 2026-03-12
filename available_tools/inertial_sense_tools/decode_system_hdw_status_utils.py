@@ -200,7 +200,6 @@ def decode_system_hdw_status(hdw_status: Union[int, str]) -> SystemHardwareStatu
         system_and_interface=system_and_interface,
         faults_and_warnings=faults_and_warnings,
     )
-    LOG(f"Decoded system hardware status: {system_hdw_status}", highlight=True)
     return system_hdw_status
 
 
@@ -213,4 +212,4 @@ def _format_section_lines(values: Dict[str, object], indent: int = 4) -> List[st
 def print_decoded_status(decoded_status: Union[SystemHardwareStatus, int, str]) -> None:
     """Print a human readable summary of the hardware status."""
     status_obj = decoded_status if isinstance(decoded_status, SystemHardwareStatus) else decode_system_hdw_status(decoded_status)
-    print(str(status_obj))
+    LOG(str(status_obj), highlight=True)

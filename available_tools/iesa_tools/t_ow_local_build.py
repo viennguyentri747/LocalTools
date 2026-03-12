@@ -43,7 +43,6 @@ TEMP_OW_BUILD_OUTPUT_PATH = PERSISTENT_TEMP_PATH / "ow_build_output/"
 MANIFEST_OUT_ARTIFACT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}manifest.xml"
 IESA_OUT_ARTIFACT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}build.iesa"
 LOG_OUT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}log.txt"
-IESA_EXEC_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}iesa_exec.sh"
 COPY_TO_UT_RUNNER_PATH = Path(__file__).resolve().parent / "copy_to_ut_runner.py"
 LOCAL_PYTHON_BIN = "/usr/local/bin/local_python"
 
@@ -252,7 +251,6 @@ def main() -> None:
 
             command_to_display = create_scp_ut_and_run_cmd(
                 local_path=new_iesa_output_abs_path,
-                exec_output_path=IESA_EXEC_PATH,
                 remote_host="root@192.168.100.254",
                 remote_dir="/home/root/download/",
                 run_cmd_on_remote=f"iesa_umcmd install pkg {new_iesa_path.name} && tail -F /var/log/upgrade_log",
@@ -263,13 +261,11 @@ def main() -> None:
                     f'sudo chmod -R 755 {shlex.quote(str(new_iesa_output_abs_path))} && {shlex.quote(str(COPY_TO_UT_RUNNER_PATH))} '
                     f'--mode iesa '
                     f'--local_path {shlex.quote(str(new_iesa_output_abs_path))} '
-                    f'--exec_output_path {shlex.quote(str(IESA_EXEC_PATH))} '
                     f'--prompt_before_execute true'
                 )
             display_content_to_copy(command_to_display, purpose="Copy IESA to target IP", is_copy_to_clipboard=True)
             append_build_log("Copy IESA command:")
             append_build_log(command_to_display)
-            append_build_log(f"IESA exec command path: {IESA_EXEC_PATH}")
         else:
             LOG(
                 f"ERROR: Expected IESA artifact not found at '{OW_SW_OUTPUT_IESA_PATH}' or it's not a file.", file=sys.stderr)

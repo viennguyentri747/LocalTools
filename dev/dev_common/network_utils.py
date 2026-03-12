@@ -76,7 +76,7 @@ def run_ssh_command(host_ip: str, user: str, password: str, command: str, timeou
 
 
 def get_live_remote_log(host_ip: str, user: str, password: str, remote_log_path: str, timeout: int = 5, jump_host_ip: Optional[str] = None,
-                        jump_user: Optional[str] = None, jump_password: Optional[str] = None, tail_lines: int = 0, read_timeout: int = 30,
+                        jump_user: Optional[str] = None, jump_password: Optional[str] = None, tail_lines: int = 0, read_timeout: int = 300,
                         poll_interval: float = 0.1, stop_event=None, on_line: Optional[Callable[[str], None]] = None) -> None:
     """Continuously tail a remote log file or read from a serial device until interrupted or stop_event is set."""
     target_client = None
@@ -93,14 +93,26 @@ def get_live_remote_log(host_ip: str, user: str, password: str, remote_log_path:
         remote_cmd = f"tail -F -n {max(0, int(tail_lines))} {shlex.quote(remote_log_path)}"
 
     try:
-        target_client, jump_client, jump_channel = open_ssh_client(host_ip=host_ip, user=user, password=password, timeout=timeout, jump_host_ip=jump_host_ip,
-                                                                   jump_user=jump_user, jump_password=jump_password)
+        target_client, jump_client, jump_channel = open_ssh_client(host_ip=host_ip, user=user, password=password, timeout=timeout, jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=jump_password)
         _, stdout, stderr = target_client.exec_command(remote_cmd)
-        stdout.channel.settimeout(read_timeout)
+        channel_read_timeout = 1.0
+        stdout.channel.settimeout(channel_read_timeout)
         last_output_time = time.time()
+        waiting_start_time = last_output_time
+        waiting_last_second = -1
+        waiting_last_text_len = 0
+        saw_first_log = False
+        
         while not (stop_event and stop_event.is_set()):
             if target_client.get_transport() is None or not target_client.get_transport().is_active():
                 raise ConnectionError(f"SSH connection lost for {host_ip}")
+            if not saw_first_log:
+                elapsed_seconds = int(time.time() - waiting_start_time)
+                if elapsed_seconds != waiting_last_second:
+                    waiting_text = f"Waiting for log output from '{remote_log_path}'... Elapsed: {elapsed_seconds}/{read_timeout}s"
+                    waiting_last_text_len = max(waiting_last_text_len, len(waiting_text))
+                    LOG(f"{waiting_text}{' ' * (waiting_last_text_len - len(waiting_text))}", same_line=True, show_time=False)
+                    waiting_last_second = elapsed_seconds
             try:
                 line = stdout.readline()
             except TimeoutError:
@@ -112,6 +124,9 @@ def get_live_remote_log(host_ip: str, user: str, password: str, remote_log_path:
                     raise TimeoutError(f"No data received from '{remote_log_path}' for {read_timeout} seconds")
                 continue
             if line:
+                if not saw_first_log:
+                    on_line(line.rstrip() + f"\r\nGET_UT_LIVE_LOG START at {time.strftime('%Y-%m-%d %H:%M:%S')}!!")
+                    saw_first_log = True
                 on_line(line.rstrip('\r\n'))
                 last_output_time = time.time()
                 continue
@@ -120,7 +135,8 @@ def get_live_remote_log(host_ip: str, user: str, password: str, remote_log_path:
                 if stderr_text:
                     raise RuntimeError(stderr_text)
                 return
-            if not is_device and time.time() - last_output_time >= read_timeout:
+            remain_secs = read_timeout - (time.time() - last_output_time)
+            if not is_device and remain_secs < 0:
                 raise TimeoutError(f"No data received from '{remote_log_path}' for {read_timeout} seconds")
             time.sleep(max(0.01, poll_interval))
     finally:

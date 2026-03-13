@@ -140,15 +140,20 @@ def main() -> None:
     copy_to_remote_via_jump_host(local_path=local_file, remote_host_ip=remote_host_ip, remote_dest_path=f"{remote_dir}/{dest_name}",
                                  jump_host_ip=target_ip, remote_user=remote_user, password=ACU_PASSWORD,
                                  jump_user=SSM_USER, jump_password=SSM_PASSWORD, recursive=False)
+    time.sleep(1)
+    LOG_LINE_SEPARATOR()
     LOG("SCP copy completed successfully")
 
     ut_command: Optional[str] = None
+    purpose: str = ""
     if mode == MODE_BINARY:
+        purpose = "Copy binary to target IP"
         ut_command = _build_binary_post_copy_cmd(
             original_md5=original_md5, remote_dir=remote_dir, remote_name=dest_name, binary_name=local_file.name)
         LOG(f"Binary copied. Run on target UT {target_ip}:")
         LOG_LINE_SEPARATOR()
     elif mode == MODE_IESA:
+        purpose = "Copy IESA to target IP"
         ut_command = _build_iesa_post_copy_cmd(original_md5=original_md5, remote_dir=remote_dir, remote_name=dest_name,
                                                prompt_before_execute=get_arg_value(args, ARG_PROMPT_BEFORE_EXECUTE))
         LOG(f"IESA copied. Run on target UT {target_ip}:")
@@ -157,7 +162,7 @@ def main() -> None:
 
     if ut_command:
         LOG_LINE_SEPARATOR()
-        LOG(ut_command)
+        display_content_to_copy(ut_command, purpose=purpose, is_copy_to_clipboard=True)
 
 
 if __name__ == "__main__":

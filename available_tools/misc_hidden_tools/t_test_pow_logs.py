@@ -171,7 +171,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         issues = analyze_pow_entries(entries, expected_seconds_per_message=expected_seconds_per_message, tolerance=tolerance)
         if issues:
             has_issue = True
-            LOG(f"{LOG_PREFIX_MSG_ERROR} {message_type}: found {len(issues)} timing issue(s) across {len(entries)} entries.")
+            LOG(f"{LOG_PREFIX_MSG_ERROR} {message_type}: found {len(issues)} timing issue(s) across {len(entries)} entries of type {message_type}.")
             for issue in issues:
                 LOG(issue)
         else:

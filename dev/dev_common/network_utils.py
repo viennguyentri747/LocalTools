@@ -32,7 +32,7 @@ def open_ssh_client(host_ip: str, user: str, password: Optional[str] = None, tim
         jump_connect_kwargs = dict(hostname=jump_host_ip, username=jump_user or user, timeout=timeout,
                                    password=jump_password or password, look_for_keys=not (jump_password or password), allow_agent=not (jump_password or password))
 
-        LOG(f"Connecting with jump arguments: {jump_connect_kwargs}, connect arguments: {connect_kwargs}")
+        LOG(f"Connecting to jump host {jump_host_ip}")
         jump_client.connect(**jump_connect_kwargs)
         jump_transport = jump_client.get_transport()
         if jump_transport is None:
@@ -42,6 +42,7 @@ def open_ssh_client(host_ip: str, user: str, password: Optional[str] = None, tim
         connect_kwargs["sock"] = jump_channel
 
     try:
+        LOG(f"Connecting to host {host_ip}")
         target_client.connect(**connect_kwargs)
     except Exception:
         LOG(f"Failed to connect to {host_ip}")
@@ -225,12 +226,12 @@ class _TransferProgressReporter:
         self.last_log_time = time.time()
 
 
-def _sftp_put_file_with_progress(sftp: paramiko.SFTPClient, local_file: Path, remote_file_path: str, base_offset: int = 0, total_bytes: Optional[int] = None,
-                                 label: Optional[str] = None) -> str:
+def _sftp_put_file_with_progress(sftp: paramiko.SFTPClient, local_file: Path, remote_file_path: str, base_offset: int = 0, total_bytes: Optional[int] = None, label: Optional[str] = None) -> str:
     file_size = local_file.stat().st_size
     file_uploaded = 0
     overall_total = file_size if total_bytes is None else max(file_size, int(total_bytes))
-    reporter = _TransferProgressReporter(label=label or f"SFTP upload -> {remote_file_path}", total_bytes=overall_total)
+    LOG(f"{LOG_PREFIX_MSG_INFO} Uploading {local_file} to {remote_file_path} ({format_bytes_human(file_size)})")
+    reporter = _TransferProgressReporter(label=label or f"Upload Progress:", total_bytes=overall_total)
 
     def _on_progress(transferred: int, total: int) -> None:
         nonlocal file_uploaded
@@ -256,8 +257,7 @@ def _sftp_put_directory(sftp: paramiko.SFTPClient, local_dir: Path, remote_dir_p
         if local_item.is_dir():
             _sftp_mkdir_p(sftp, remote_item_path)
         else:
-            _sftp_put_file_with_progress(sftp, local_item, remote_item_path, base_offset=uploaded_bytes, total_bytes=total_bytes,
-                                         label=f"SFTP upload -> {remote_item_path}")
+            _sftp_put_file_with_progress(sftp, local_item, remote_item_path, base_offset=uploaded_bytes, total_bytes=total_bytes)
             uploaded_bytes += local_item.stat().st_size
     return remote_dir_path
 

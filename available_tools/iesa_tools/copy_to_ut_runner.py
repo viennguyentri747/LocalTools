@@ -44,7 +44,15 @@ def _resolve_local_file(local_path: Path) -> Path:
     if not local_path.is_dir():
         raise FileNotFoundError(f"Local path '{local_path}' does not exist.")
     while True:
-        selected = Path(_prompt_non_empty("Enter binary path", str(local_path) + "/")).expanduser()
+        default_path = str(local_path) + "/"
+        selected_raw: Optional[str] = None
+        if sys.stdin.isatty():
+            selected_raw = prompt_input_with_path_completion("Enter binary path (Tab to autocomplete):", default_path)
+            if selected_raw is None:
+                raise KeyboardInterrupt()
+        if not selected_raw:
+            selected_raw = _prompt_non_empty("Enter binary path", default_path)
+        selected = Path(selected_raw).expanduser()
         if selected.is_file():
             return selected.resolve()
         LOG(f"{LOG_PREFIX_MSG_WARNING} File '{selected}' does not exist. Please try again.")

@@ -101,6 +101,29 @@ def prompt_input(prompt_message: str, default_input: str = "") -> Optional[str]:
         return None
 
 
+def prompt_input_with_path_completion(
+    prompt_message: str,
+    default_input: str = "",
+    expand_user: bool = True,
+    complete_while_typing: bool = True
+) -> Optional[str]:
+    """Prompt input with file-system path auto-completion."""
+    try:
+        LOG(LINE_SEPARATOR, show_time=False)
+        return prompt(
+            message=f"{prompt_message} ",
+            default=default_input,
+            completer=PathCompleter(expanduser=expand_user),
+            complete_while_typing=complete_while_typing,
+            complete_style=CompleteStyle.COLUMN,
+        ).strip()
+    except KeyboardInterrupt:
+        print("\n❌ Cancelled")
+        return None
+    except EOFError:
+        return None
+
+
 class SimpleCompleter(Completer):
     """A simple completer for a given list of options."""
 

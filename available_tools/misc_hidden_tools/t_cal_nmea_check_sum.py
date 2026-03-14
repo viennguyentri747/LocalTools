@@ -22,9 +22,9 @@ def get_tool_templates() -> List[ToolTemplate]:
     return [
         ToolTemplate(
             name="Checksum for INS Monitor Feed",
-            extra_description="Typical INS monitor sentence with multiple GNSS messages.",
+            extra_description="Typical INS monitor sentence with multiple GNSS messages. Ex: ASCE,4,GXGGA,1,POWGPS,5,POWTLV,1,POSGXGLL,5,GXGSA,5,GXZDA,5,GXVTG,5,GXRMC,5,PASHR,5,INTEL,5,GPGSV_1,5,GAGSV_1,0,GLGSV_1,5 will return 5B",
             args={
-                ARG_SENTENCE: "ASCE,0,PPIMU,1,PINS2,10,GNGGA,1" #Output: 26
+                ARG_SENTENCE: "ASCE,4,GXGGA,1,POWGPS,5,POWTLV,1,POSGXGLL,5,GXGSA,5,GXZDA,5,GXVTG,5,GXRMC,5,PASHR,5,INTEL,5,GPGSV_1,5,GAGSV_1,0,GLGSV_1,5"
             },
         ),
         ToolTemplate(

@@ -211,6 +211,8 @@ class _TransferProgressReporter:
         self.start_time = time.time()
         self.last_log_time = 0.0
         self.last_logged_percent = -1
+        self.use_same_line = bool(getattr(sys.stdout, "isatty", lambda: False)())
+        self.has_rendered = False
 
     def report(self, transferred_bytes: int, force: bool = False) -> None:
         transferred_bytes = max(0, min(int(transferred_bytes), self.total_bytes))
@@ -221,9 +223,15 @@ class _TransferProgressReporter:
         rate_mib_s = (transferred_bytes / elapsed) / (1024 * 1024)
         transferred_h = format_bytes_human(transferred_bytes)
         total_h = format_bytes_human(self.total_bytes)
-        LOG(f"{LOG_PREFIX_MSG_INFO} {self.label}: {percent}% ({transferred_h}/{total_h}), elapsed {elapsed:.1f}s, rate {rate_mib_s:.2f} MiB/s", same_line=True)
+        LOG(f"{LOG_PREFIX_MSG_INFO} {self.label}: {percent}% ({transferred_h}/{total_h}), elapsed {elapsed:.1f}s, rate {rate_mib_s:.2f} MiB/s", same_line=self.use_same_line)
         self.last_logged_percent = percent
         self.last_log_time = time.time()
+        self.has_rendered = True
+
+    def finish_line(self) -> None:
+        if self.use_same_line and self.has_rendered:
+            LOG("", show_time=False)
+            self.has_rendered = False
 
 
 def _sftp_put_file_with_progress(sftp: paramiko.SFTPClient, local_file: Path, remote_file_path: str, base_offset: int = 0, total_bytes: Optional[int] = None, label: Optional[str] = None) -> str:
@@ -240,8 +248,15 @@ def _sftp_put_file_with_progress(sftp: paramiko.SFTPClient, local_file: Path, re
 
     _sftp_mkdir_p(sftp, posixpath.dirname(remote_file_path))
     reporter.report(0, force=True)
-    sftp.put(str(local_file), remote_file_path, callback=_on_progress)
-    reporter.report(base_offset + file_size, force=True)
+    try:
+        sftp.put(str(local_file), remote_file_path, callback=_on_progress)
+        reporter.report(base_offset + file_size, force=True)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Failed to upload '{local_file}' to '{remote_file_path}': {type(exc).__name__}: {exc}"
+        ) from exc
+    finally:
+        reporter.finish_line()
     return remote_file_path
 
 

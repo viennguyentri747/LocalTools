@@ -4,7 +4,7 @@ from dev.dev_common.constants import *
 from dev.dev_common.shell_utils import wrap_cmd_for_bash
 
 
-def create_scp_ut_and_run_cmd(local_path: Union[str, Path], remote_host: str = f"{ACU_USER}@{ACU_IP}", remote_dir: str = "/home/root/download/", run_cmd_on_remote: Optional[str] = None, is_prompt_before_execute: bool = True) -> str:
+def create_scp_ut_and_run_cmd(local_path: Union[str, Path], remote_host: str = f"{ACU_USER}@{ACU_IP}", remote_dir: str = ACU_DOWNLOAD_DIR, run_cmd_on_remote: Optional[str] = None, is_prompt_before_execute: bool = True) -> str:
     """
     Constructs a one-liner shell command that prompts for a source_ip (jump host), securely copies a local file to a remote host using scp -rJ, and prints a ready-to-paste UT-side command that verifies MD5 before executing a specified command.
     """

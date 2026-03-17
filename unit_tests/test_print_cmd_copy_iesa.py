@@ -25,7 +25,7 @@ def main() -> None:
     command_to_display = create_scp_ut_and_run_cmd(
         local_path=new_iesa_output_abs_path,
         remote_host="root@192.168.100.254",
-        remote_dir="/home/root/download/",
+        remote_dir=f"{ACU_DOWNLOAD_DIR}",
         run_cmd_on_remote=f"iesa_umcmd install pkg {new_iesa_path.name} && tail -F /var/log/upgrade_log",
         is_prompt_before_execute=True
     )

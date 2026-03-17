@@ -151,6 +151,7 @@ def main() -> None:
     time.sleep(1)
     LOG_LINE_SEPARATOR()
     LOG("SCP copy completed successfully")
+    show_noti(title="Copy Complete", message=f"File copied to {target_ip}", no_log_on_success=True)
 
     ut_command: Optional[str] = None
     purpose: str = ""

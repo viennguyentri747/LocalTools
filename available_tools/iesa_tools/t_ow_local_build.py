@@ -174,7 +174,7 @@ def main() -> None:
     append_build_log(f"Base manifest branch: {base_manifest_branch}")
     if tisdk_ref:
         append_build_log(f"TISDK ref: {tisdk_ref}")
-    actual_manifest, overridden_repo_changes = setup_prebuild(
+    actual_manifest, repo_change_details = setup_prebuild(
         build_type, manifest_source, ow_manifest_branch, base_manifest_branch, tisdk_ref, overwrite_repos,
         current_branch, tisdk_ref_from_ci_yml)
 
@@ -272,7 +272,8 @@ def main() -> None:
             "manifest_content": actual_manifest.to_serializable_dict(),
             "base_manifest_branch": base_manifest_branch,
             "tisdk_ref": tisdk_ref,
-            "overridden_repos": overridden_repo_changes,
+            "overridden_repos": repo_change_details,
+            "repo_changes": repo_change_details,
         },
         "output_paths": {
             "binary_directory": str(OW_SW_BUILD_BINARY_OUTPUT_PATH),
@@ -351,10 +352,20 @@ def setup_prebuild(build_type: str, manifest_source: str, ow_manifest_branch: st
     actual_manifest: IesaManifest = parse_local_gl_iesa_manifest(manifest_snapshot_path)
     manifest_metadata_path = copy_manifest_for_metadata(manifest_snapshot_path)
     LOG(f"Manifest snapshot copied to '{manifest_metadata_path}' for metadata export.")
-    overridden_repo_change_details: List[Dict[str, Any]] = []
-
+    repo_change_details: List[Dict[str, Any]] = []
+    base_manifest = get_base_manifest_from_remote_branch(base_manifest_branch)
+    ow_base_ref = git_get_remote_branch_ref(base_manifest_branch, DEFAULT_GIT_REMOTE)
+    
+    # Collect OW repo changes
+    ow_change_snapshot = collect_repo_changes(
+        repo_name=IESA_OW_SW_TOOLS_REPO_NAME,
+        repo_path=OW_SW_PATH,
+        base_ref=ow_base_ref,
+        relative_path_vs_tmp_build=EMPTY_STR_VALUE,
+    )
+    repo_change_details.append(ow_change_snapshot)
+    # Collect other repos changes
     if overwrite_repos:
-        ci_repo_refs_map = get_ci_repo_refs_from_ci_yml(GITLAB_CI_YML_PATH)
         # Copy local code to overwrite code from remote before build
         repo_names = [get_path_no_suffix(r, GIT_SUFFIX) for r in overwrite_repos]
         for repo_name in repo_names:
@@ -369,18 +380,29 @@ def setup_prebuild(build_type: str, manifest_source: str, ow_manifest_branch: st
             rel_path = actual_manifest.get_repo_relative_path_vs_tmp_build(repo_name)
             if not rel_path:
                 continue
-            change_snapshot = collect_repo_changes(repo_name, rel_path, ci_repo_refs_map.get(repo_name, []))
+            base_manifest_ref = base_manifest.get_repo_revision(repo_name)
+            if not base_manifest_ref:
+                LOG_EXCEPTION_STR("❌ FATAL: Base manifest ref is unknown for repo: " + repo_name)
+            repo_info = LOCAL_REPO_MAPPING.get_by_name(repo_name)
+            source_repo_path = repo_info.repo_local_path if repo_info else (OW_SW_BUILD_FOLDER_PATH / rel_path)
+            resolved_base_ref = resolve_manifest_base_ref(source_repo_path, base_manifest_ref)
+            change_snapshot = collect_repo_changes(
+                repo_name=repo_name,
+                repo_path=source_repo_path,
+                base_ref=resolved_base_ref,
+                relative_path_vs_tmp_build=rel_path,
+            )
             change_snapshots.append(change_snapshot)
 
         any_changed: bool = any(snapshot.get("has_changes") for snapshot in change_snapshots)
         if not any_changed:
             LOG("WARNING: No files changed in selected repos.")
-        overridden_repo_change_details = [snapshot for snapshot in change_snapshots if snapshot.get("has_changes")]
+        repo_change_details.extend(change_snapshots)
 
     if build_type == BUILD_TYPE_IESA:
         prepare_iesa_bsp(input_tisdk_ref)
 
-    return actual_manifest, overridden_repo_change_details
+    return actual_manifest, repo_change_details
 
 
 def run_build(build_type: str, interactive: bool, make_clean: bool = True, is_debug_build: bool = False) -> None:
@@ -541,6 +563,45 @@ def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, u
     run_shell("repo sync", cwd=OW_SW_BUILD_FOLDER_PATH)
     return manifest_full_path
 
+
+def get_base_manifest_from_remote_branch(base_manifest_branch: str) -> IesaManifest:
+    remote_base_ref = git_get_remote_branch_ref(base_manifest_branch, DEFAULT_GIT_REMOTE)
+    if not git_check_ref(OW_SW_PATH, remote_base_ref, ref_name="base manifest branch on remote"):
+        LOG(f"ERROR: Base manifest branch '{remote_base_ref}' is missing.", file=sys.stderr)
+        sys.exit(1)
+    manifest_git_obj = f"{remote_base_ref}:{IESA_MANIFEST_RELATIVE_PATH}"
+    manifest_show = run_shell(
+        [CMD_GIT, "show", manifest_git_obj],
+        cwd=OW_SW_PATH,
+        capture_output=True,
+        text=True,
+        check_throw_exception_on_exit_code=False,
+    )
+    manifest_content = manifest_show.stdout.strip()
+    if manifest_show.returncode != 0 or not manifest_content:
+        LOG(f"ERROR: Unable to read base manifest '{manifest_git_obj}'.", file=sys.stderr)
+        sys.exit(1)
+    return parse_remote_gl_iesa_manifest(manifest_content)
+
+
+def resolve_manifest_base_ref(repo_path: Path, base_manifest_ref: str) -> str:
+    normalized_ref = (base_manifest_ref or "").strip()
+    if not normalized_ref:
+        LOG(f"ERROR: Empty base manifest ref for repo '{repo_path}'.", file=sys.stderr)
+        sys.exit(1)
+    git_fetch_remote(repo_path, DEFAULT_GIT_REMOTE)
+    remote_branch_ref = git_get_remote_branch_ref(normalized_ref, DEFAULT_GIT_REMOTE)
+    if git_is_ref_or_branch_existing(repo_path, remote_branch_ref):
+        return remote_branch_ref
+    if git_is_ref_or_branch_existing(repo_path, normalized_ref):
+        return normalized_ref
+    LOG(
+        f"ERROR: Cannot resolve required base ref '{normalized_ref}' (or '{remote_branch_ref}') in '{repo_path}'.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
 def override_fetched_repo_with_local_repo(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
     """Overwrite fetched repos from repo command with local code."""
     local_repo_info: Optional[IesaLocalRepoInfo] = LOCAL_REPO_MAPPING.get_by_name(repo_name)
@@ -586,63 +647,65 @@ def override_fetched_repo_with_local_repo(repo_name: str, repo_rel_path_vs_tmp_b
             dest_path.mkdir(parents=True, exist_ok=True)
 
 
-def collect_repo_changes(repo_name: str, rel_path: str, ci_refs: List[str]) -> Dict[str, Any]:
-    repo_path = OW_SW_BUILD_FOLDER_PATH / rel_path
-    repo_info: Optional[IesaLocalRepoInfo] = LOCAL_REPO_MAPPING.get_by_name(repo_name)
-    source_repo_path = repo_info.repo_local_path if repo_info else repo_path
+def collect_repo_changes(repo_name: str, repo_path: Path, base_ref: str, relative_path_vs_tmp_build: str = EMPTY_STR_VALUE) -> Dict[str, Any]:
     if not repo_path.exists():
         LOG(f"WARNING: Repo path '{repo_path}' not found when collecting changes for '{repo_name}'.")
         return {
             "repo_name": repo_name,
-            "relative_path_vs_tmp_build": rel_path,
-            "expected_ci_ref": None,
+            "relative_path_vs_tmp_build": relative_path_vs_tmp_build,
+            "expected_base_ref": base_ref,
             "actual_ref": None,
             "actual_commit": None,
-            "expected_ci_commit": None,
-            "ref_relation_vs_ci_ref": "repo_not_found",
-            "ref_matches_ci_ref": False,
+            "expected_base_commit": None,
+            "ref_relation_vs_base_ref": "repo_not_found",
+            "ref_matches_base_ref": False,
             "status_lines": [],
             "has_changes": False,
             "diff_file_path": None,
         }
 
-    exclude_pattern = "':(exclude)tmp_local_gitlab_ci/'"
-    changes: List[str] = git_get_porcelain_status_lines(repo_path, exclude_pattern)
+    changes: List[str] = git_get_porcelain_status_lines(repo_path)
     if changes:
-        LOG(f"\nChanges in {repo_name} ({rel_path}):")
+        LOG(f"\nChanges in {repo_name}:")
         for line in changes:
             LOG(" ", line)
-        diff_file_path = export_repo_diff_artifact(repo_name, repo_path)
     else:
         LOG(f"\nNo changes detected in {repo_name}.")
-        diff_file_path = None
 
-    expected_ci_ref: Optional[str] = ci_refs[0] if len(ci_refs) == 1 else None
-    if len(ci_refs) > 1:
-        LOG(f"{LOG_PREFIX_MSG_WARNING} Multiple CI refs found for '{repo_name}': {ci_refs}. Skipping strict CI ref comparison.")
-    actual_ref = git_get_current_branch(source_repo_path) or "HEAD"
-    actual_commit = git_resolve_ref_to_commit(source_repo_path, "HEAD")
-    expected_ci_commit = git_resolve_ref_to_commit(source_repo_path, expected_ci_ref) if expected_ci_ref else None
-    ref_relation_vs_ci_ref = git_get_ref_relation(source_repo_path, expected_ci_ref, "HEAD") if expected_ci_ref else "ci_ref_not_found"
-    ref_matches_ci_ref = bool(expected_ci_commit and actual_commit and expected_ci_commit == actual_commit)
-    has_changes = (not ref_matches_ci_ref) if expected_ci_ref else bool(changes)
+    actual_ref = git_get_current_branch(repo_path) or "HEAD"
+    actual_commit = git_resolve_ref_to_commit(repo_path, "HEAD")
+    expected_base_commit = git_resolve_ref_to_commit(repo_path, base_ref)
+    if not expected_base_commit:
+        LOG(f"ERROR: Required base ref '{base_ref}' could not be resolved in '{repo_path}'.", file=sys.stderr)
+        sys.exit(1)
+    ref_relation_vs_base_ref = git_get_ref_relation(repo_path, base_ref, "HEAD")
+    ref_matches_base_ref = bool(expected_base_commit and actual_commit and expected_base_commit == actual_commit)
+
+    changed_files_base_vs_head: List[str] = git_get_changed_files_against_ref(repo_path, f"{base_ref}..HEAD")
+    changed_files_base_vs_worktree: List[str] = git_get_changed_files_against_ref(repo_path, base_ref)
+    LOG(f"Changed files vs {base_ref}..HEAD in '{repo_name}': {len(changed_files_base_vs_head)}")
+    LOG(f"Changed files vs {base_ref} (worktree included) in '{repo_name}': {len(changed_files_base_vs_worktree)}")
+    has_changes = bool(changed_files_base_vs_worktree) or bool(changes) or (ref_relation_vs_base_ref != "same_commit")
+    diff_file_path = export_repo_diff_artifact(repo_name, repo_path, base_ref)
 
     return {
         "repo_name": repo_name,
-        "relative_path_vs_tmp_build": rel_path,
-        "expected_ci_ref": expected_ci_ref,
+        "relative_path_vs_tmp_build": relative_path_vs_tmp_build,
+        "expected_base_ref": base_ref,
         "actual_ref": actual_ref,
         "actual_commit": actual_commit,
-        "expected_ci_commit": expected_ci_commit,
-        "ref_relation_vs_ci_ref": ref_relation_vs_ci_ref,
-        "ref_matches_ci_ref": ref_matches_ci_ref,
+        "expected_base_commit": expected_base_commit,
+        "ref_relation_vs_base_ref": ref_relation_vs_base_ref,
+        "ref_matches_base_ref": ref_matches_base_ref,
         "status_lines": changes,
+        "changed_files_base_vs_head": changed_files_base_vs_head,
+        "changed_files_base_vs_worktree": changed_files_base_vs_worktree,
         "has_changes": has_changes,
         "diff_file_path": str(diff_file_path) if diff_file_path else None,
     }
 
 
-def export_repo_diff_artifact(repo_name: str, repo_path: Path) -> Optional[Path]:
+def export_repo_diff_artifact(repo_name: str, repo_path: Path, base_ref: str) -> Optional[Path]:
     """
     Export the working tree diff for a repo that was overwritten into the temp output folder.
     """
@@ -650,7 +713,7 @@ def export_repo_diff_artifact(repo_name: str, repo_path: Path) -> Optional[Path]
     safe_repo_name = sanitize_str_to_file_name(repo_name) or repo_name
     diff_filename = f"{IESA_TEST_DIFF_PREFIX}{safe_repo_name}"
     diff_path = TEMP_OW_BUILD_OUTPUT_PATH / diff_filename
-    diff_content = build_repo_change_artifact_content(repo_path)
+    diff_content = build_repo_change_artifact_content(repo_path, base_ref)
     if not diff_content:
         if diff_path.exists():
             diff_path.unlink()
@@ -663,8 +726,14 @@ def export_repo_diff_artifact(repo_name: str, repo_path: Path) -> Optional[Path]
     return diff_path
 
 
-def build_repo_change_artifact_content(repo_path: Path) -> str:
+def build_repo_change_artifact_content(repo_path: Path, base_ref: str) -> str:
     sections: List[str] = []
+    base_to_head_result = run_shell([CMD_GIT, "diff", "--patch-with-stat", f"{base_ref}..HEAD"], cwd=repo_path, capture_output=True, text=True, check_throw_exception_on_exit_code=False)
+    if base_to_head_result.returncode == 0 and base_to_head_result.stdout.strip():
+        sections.append(f"### git diff --patch-with-stat {base_ref}..HEAD\n{base_to_head_result.stdout.strip()}")
+    base_to_worktree_result = run_shell([CMD_GIT, "diff", "--patch-with-stat", base_ref], cwd=repo_path, capture_output=True, text=True, check_throw_exception_on_exit_code=False)
+    if base_to_worktree_result.returncode == 0 and base_to_worktree_result.stdout.strip():
+        sections.append(f"### git diff --patch-with-stat {base_ref}\n{base_to_worktree_result.stdout.strip()}")
     unstaged_diff = git_diff_worktree(repo_path).strip()
     if unstaged_diff:
         sections.append(f"### git diff (unstaged)\n{unstaged_diff}")
@@ -679,6 +748,20 @@ def build_repo_change_artifact_content(repo_path: Path) -> str:
     else:
         LOG(f"WARNING: Unable to list untracked files in '{repo_path}', git returned {untracked_result.returncode}.", file=sys.stderr)
     return "\n\n".join(sections).strip()
+
+
+def git_get_changed_files_against_ref(repo_path: Path, diff_ref: str) -> List[str]:
+    result = run_shell(
+        [CMD_GIT, "diff", "--name-status", diff_ref],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check_throw_exception_on_exit_code=False,
+    )
+    if result.returncode != 0:
+        LOG(f"WARNING: git diff --name-status {diff_ref} failed in '{repo_path}' with code {result.returncode}.", file=sys.stderr)
+        return []
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
 def ensure_temp_build_output_dir() -> None:

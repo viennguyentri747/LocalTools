@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from dev.dev_common.core_utils import *
+from dev.dev_common.constants import DEFAULT_GIT_REMOTE
 from dev.dev_common.input_utils import prompt_confirmation
 from subprocess import DEVNULL
 
@@ -232,6 +233,40 @@ def git_fetch(repo_path: Path) -> bool:
     except Exception as e:
         LOG(f"'git fetch' failed for '{repo_path}' with error: {e}", file=sys.stderr)
         return False
+
+
+def git_fetch_remote(repo_path: Path | str, remote_name: str = DEFAULT_GIT_REMOTE) -> bool:
+    command = [CMD_GIT, 'fetch', '--prune', remote_name]
+    try:
+        LOG(f"Fetching latest changes from remote '{remote_name}' in '{Path(repo_path).name}'...")
+        run_shell(command, cwd=repo_path, capture_output=True, text=True, encoding='utf-8', check_throw_exception_on_exit_code=True)
+        LOG("Remote fetch completed successfully.")
+        return True
+    except Exception as e:
+        LOG(f"'git fetch {remote_name}' failed for '{repo_path}' with error: {e}", file=sys.stderr)
+        return False
+
+
+def git_get_remote_branch_ref(branch_name: str, remote_name: str = DEFAULT_GIT_REMOTE) -> str:
+    return f"{remote_name}/{branch_name}"
+
+
+def git_is_local_branch_descendant_of_remote_branch(repo_path: Path | str, local_branch: str, base_remote_branch: str, remote_name: str = DEFAULT_GIT_REMOTE, fetch_remote: bool = True) -> bool:
+    normalized_local_branch = (local_branch or "").strip()
+    normalized_base_remote_branch = (base_remote_branch or "").strip()
+    if not normalized_local_branch or not normalized_base_remote_branch:
+        LOG(f"ERROR: Invalid branch input local='{local_branch}', base='{base_remote_branch}'.", file=sys.stderr)
+        return False
+
+    if fetch_remote and not git_fetch_remote(repo_path, remote_name):
+        LOG("WARNING: Failed to refresh remote refs. Continuing with existing local refs.")
+
+    remote_base_ref = git_get_remote_branch_ref(normalized_base_remote_branch, remote_name)
+    if not git_check_ref(repo_path, normalized_local_branch, ref_name="current local branch"):
+        return False
+    if not git_check_ref(repo_path, remote_base_ref, ref_name="remote base branch"):
+        return False
+    return git_is_ancestor(remote_base_ref, normalized_local_branch, cwd=repo_path)
 
 
 def git_pull(repo_path: Path, remote_name: str, branch_name: str) -> bool:

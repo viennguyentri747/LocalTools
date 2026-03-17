@@ -30,7 +30,6 @@ ARG_MANIFEST_SOURCE = f"{ARGUMENT_LONG_PREFIX}manifest_source"
 ARG_TISDK_REF = f"{ARGUMENT_LONG_PREFIX}tisdk_ref"
 ARG_OVERWRITE_REPOS = f"{ARGUMENT_LONG_PREFIX}overwrite_repos"
 ARG_INTERACTIVE_SHORT = f"{ARGUMENT_SHORT_PREFIX}i"
-ARG_USE_CURRENT_LOCAL_OW_BRANCH = f"{ARGUMENT_LONG_PREFIX}use_current_local_ow_branch"
 ARG_MAKE_CLEAN = f"{ARGUMENT_LONG_PREFIX}make_clean"
 ARG_IS_DEBUG_BUILD = f"{ARGUMENT_LONG_PREFIX}is_debug_build"
 ARG_OW_BUILD_TYPE = f"{ARGUMENT_LONG_PREFIX}build_type"
@@ -56,7 +55,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_OW_BUILD_TYPE: BUILD_TYPE_IESA,
                 ARG_RUN_VIA_PYTHON: True,
                 ARG_MANIFEST_SOURCE: MANIFEST_SOURCE_LOCAL,
-                ARG_USE_CURRENT_LOCAL_OW_BRANCH: True,
+                ARG_BASE_MANIFEST_BRANCH: BRANCH_MANPACK_MASTER,
                 ARG_TISDK_REF: BRANCH_MANPACK_MASTER,
                 ARG_MAKE_CLEAN: True,
                 ARG_IS_DEBUG_BUILD: True,
@@ -72,7 +71,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_OW_BUILD_TYPE: BUILD_TYPE_BINARY,
                 ARG_RUN_VIA_PYTHON: True,
                 ARG_MANIFEST_SOURCE: MANIFEST_SOURCE_LOCAL,
-                ARG_USE_CURRENT_LOCAL_OW_BRANCH: True,
+                ARG_BASE_MANIFEST_BRANCH: BRANCH_MANPACK_MASTER,
                 ARG_MAKE_CLEAN: True,
                 ARG_IS_DEBUG_BUILD: True,
                 ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME],
@@ -80,13 +79,13 @@ def get_tool_templates() -> List[ToolTemplate]:
             # override_cmd_invocation=WIN_CMD_INVOCATION,
         ),
         ToolTemplate(
-            name="Build IESA using specified branch in remote manifest",
+            name="Build IESA using current branch in remote manifest",
             extra_description=f"{NOTE_AVAILABLE_LOCAL_COMPONENT_REPO_NAMES}",
             args={
                 ARG_INTERACTIVE: False,
                 ARG_OW_BUILD_TYPE: BUILD_TYPE_IESA,
                 ARG_MANIFEST_SOURCE: MANIFEST_SOURCE_REMOTE,
-                ARG_DEFAULT_OW_MANIFEST_BRANCH: BRANCH_MANPACK_MASTER,
+                ARG_BASE_MANIFEST_BRANCH: BRANCH_MANPACK_MASTER,
                 ARG_TISDK_REF: BRANCH_MANPACK_MASTER,
                 ARG_MAKE_CLEAN: True,
                 ARG_IS_DEBUG_BUILD: True,
@@ -111,16 +110,14 @@ def main() -> None:
                         help="Build type (binary or iesa). Defaults to binary.")
     parser.add_argument(ARG_MANIFEST_SOURCE, choices=[MANIFEST_SOURCE_LOCAL, MANIFEST_SOURCE_REMOTE], default=MANIFEST_SOURCE_LOCAL,
                         help=F"Source for the manifest repository URL ({MANIFEST_SOURCE_LOCAL} or {MANIFEST_SOURCE_REMOTE}). Defaults to {MANIFEST_SOURCE_LOCAL}. Note that although it is local manifest, the source of sync is still remote so will need to push branch of dependent local repos specified in local manifest (not ow_sw_tools).")
-    parser.add_argument(ARG_DEFAULT_OW_MANIFEST_BRANCH, default=EMPTY_STR_VALUE,
-                        help=f"Branch of oneweb_project_sw_tools for manifest (either local or remote branch, depend on --manifest_source). Ex: {BRANCH_MANPACK_MASTER}")
+    parser.add_argument(ARG_BASE_MANIFEST_BRANCH, default=BRANCH_MANPACK_MASTER,
+                        help=f"Base branch to validate current OW branch against on remote '{DEFAULT_GIT_REMOTE}'. Current OW branch must be ahead/descendant of this base branch. Ex: {BRANCH_MANPACK_MASTER}")
     parser.add_argument(ARG_TISDK_REF, type=str, default=EMPTY_STR_VALUE,
                         help=f"TISDK Ref for BSP (for creating .iesa). Ex: {BRANCH_MANPACK_MASTER}")
     parser.add_argument(ARG_OVERWRITE_REPOS, nargs='*', default=[],
                         help="List of repository names to overwrite from local")
     parser.add_argument(ARG_INTERACTIVE_SHORT, ARG_INTERACTIVE, type=lambda x: x.lower() == TRUE_STR_VALUE, default=False,
                         help="Run in interactive mode (true or false). Defaults to false.")
-    parser.add_argument(ARG_USE_CURRENT_LOCAL_OW_BRANCH, type=lambda x: x.lower() == TRUE_STR_VALUE, default=False,
-                        help="Use the current branch of ow_sw_tools repo (true or false). Defaults to false.")
     parser.add_argument(ARG_MAKE_CLEAN, type=lambda x: x.lower() == TRUE_STR_VALUE, default=True,
                         help="Run make clean before building (true or false). Defaults to true.")
     parser.add_argument(ARG_IS_DEBUG_BUILD, type=lambda x: x.lower() == TRUE_STR_VALUE, default=False,
@@ -141,7 +138,7 @@ def main() -> None:
     manifest_source: str = get_arg_value(args, ARG_MANIFEST_SOURCE)
     tisdk_ref: Optional[str] = get_arg_value(args, ARG_TISDK_REF)
     overwrite_repos: List[str] = get_arg_value(args, ARG_OVERWRITE_REPOS)
-    use_current_local_ow_branch: bool = get_arg_value(args, ARG_USE_CURRENT_LOCAL_OW_BRANCH)
+    base_manifest_branch: str = get_arg_value(args, ARG_BASE_MANIFEST_BRANCH)
     make_clean: bool = get_arg_value(args, ARG_MAKE_CLEAN)
     is_debug_build: bool = get_arg_value(args, ARG_IS_DEBUG_BUILD)
     run_via_python: bool = get_arg_value(args, ARG_RUN_VIA_PYTHON)
@@ -167,26 +164,19 @@ def main() -> None:
     append_build_log(f"Parsed args: {args}")
 
     current_branch = git_get_current_branch(OW_SW_PATH)
-    ow_manifest_branch: Optional[str] = None  # Can be local or remote
-    if use_current_local_ow_branch:
-        if manifest_source == MANIFEST_SOURCE_LOCAL:
-            LOG(f"Using current branch '{current_branch}' as manifest branch.")
-            ow_manifest_branch = current_branch
-        else:
-            LOG(f"ERROR: {ARG_USE_CURRENT_LOCAL_OW_BRANCH} is only valid when {ARG_MANIFEST_SOURCE} is local.", file=sys.stderr)
-            sys.exit(1)
-    else:
-        ow_manifest_branch = get_arg_value(args, ARG_DEFAULT_OW_MANIFEST_BRANCH)
-        if ow_manifest_branch is None:
-            LOG(f"ERROR: {ARG_DEFAULT_OW_MANIFEST_BRANCH} is required when not using {ARG_USE_CURRENT_LOCAL_OW_BRANCH}.", file=sys.stderr)
-            sys.exit(1)
+    if not current_branch:
+        LOG(f"ERROR: Unable to determine current branch in '{OW_SW_PATH}'.", file=sys.stderr)
+        sys.exit(1)
+    ow_manifest_branch = current_branch
 
+    LOG(f"Using current OW branch '{ow_manifest_branch}' as manifest branch.")
     append_build_log(f"Manifest branch: {ow_manifest_branch}")
+    append_build_log(f"Base manifest branch: {base_manifest_branch}")
     if tisdk_ref:
         append_build_log(f"TISDK ref: {tisdk_ref}")
     actual_manifest, overridden_repo_changes = setup_prebuild(
-        build_type, manifest_source, ow_manifest_branch, tisdk_ref, overwrite_repos,
-        use_current_local_ow_branch, current_branch, tisdk_ref_from_ci_yml)
+        build_type, manifest_source, ow_manifest_branch, base_manifest_branch, tisdk_ref, overwrite_repos,
+        current_branch, tisdk_ref_from_ci_yml)
 
     run_build(build_type, get_arg_value(args, ARG_INTERACTIVE), make_clean, is_debug_build)
     # Always display binary build finish + command to copy
@@ -280,6 +270,7 @@ def main() -> None:
         "raw_arg_inputs": {k: v for k, v in vars(args).items()},
         "finalized_params": {
             "manifest_content": actual_manifest.to_serializable_dict(),
+            "base_manifest_branch": base_manifest_branch,
             "tisdk_ref": tisdk_ref,
             "overridden_repos": overridden_repo_changes,
         },
@@ -296,37 +287,30 @@ def main() -> None:
 # ───────────────────────────  helpers / actions  ─────────────────────── #
 
 
-def setup_prebuild(build_type: str, manifest_source: str, ow_manifest_branch: str, input_tisdk_ref: Optional[str], overwrite_repos: List[str], use_current_ow_branch: bool, current_local_branch: str, tisdk_ref_from_ci_yml: Optional[str] = None) -> Tuple[IesaManifest, List[Dict[str, Any]]]:
+def setup_prebuild(build_type: str, manifest_source: str, ow_manifest_branch: str, base_manifest_branch: str, input_tisdk_ref: Optional[str], overwrite_repos: List[str], current_local_branch: str, tisdk_ref_from_ci_yml: Optional[str] = None) -> Tuple[IesaManifest, List[Dict[str, Any]]]:
     remove_tmp_build()
     
     ow_sw_path_str = str(OW_SW_PATH)
     # PRE-BUILD CHECK
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build check...")
-    LOG(f"Check OW branch matches with manifest branch. This is because we use some OW folders from the build like ./external/, ... ")
-    if not use_current_ow_branch:
-        base_manifest_branch = ow_manifest_branch
-        LOG(f"Checking if manifest branch '{base_manifest_branch}' exists in '{ow_sw_path_str}'...")
-        is_branch_exists = git_is_ref_or_branch_existing(OW_SW_PATH, base_manifest_branch)
-        if not is_branch_exists:
-            LOG(f"ERROR: Manifest branch '{base_manifest_branch}' does not exist in '{ow_sw_path_str}'. Please ensure the branch is available.", file=sys.stderr)
-            sys.exit(1)
-        LOG(f"Manifest branch '{base_manifest_branch}' exists.")
-
-        if current_local_branch != base_manifest_branch:
-            is_branch_ok: bool = False
-            if manifest_source == MANIFEST_SOURCE_LOCAL:
-                if git_is_ancestor(f"{base_manifest_branch}", current_local_branch, cwd=ow_sw_path_str):
-                    is_branch_ok = True
-                else:
-                    LOG(f"ERROR: Local branch '{current_local_branch}' is not a descendant of '{base_manifest_branch}' (or its remote tracking branch if applicable).", file=sys.stderr)
-                    is_branch_ok = False
-            else:
-                LOG(f"ERROR: OW_SW_PATH ({ow_sw_path_str}) is on branch '{current_local_branch}', but manifest branch is '{base_manifest_branch}'.)")
-                LOG(f"This requirement is weird but because we run docker command and mount OW_SW_PATH into the container (docker run -it --rm -v $(pwd):$(pwd) <image>), we need to checkout correct branch and need OW branch to be in sync.", file=sys.stderr)
-                LOG(
-                    f"Do either 1 of these to fix this issue:\n- Checkout correct OW_SW_PATH branch: cd {ow_sw_path_str} && git checkout {base_manifest_branch}\n- Update manifest branch argument: {ARG_DEFAULT_OW_MANIFEST_BRANCH} {current_local_branch}")
-            if not is_branch_ok:
-                sys.exit(1)
+    LOG("Checking OW branch is ahead/descendant of remote base manifest branch.")
+    branch_is_descendant = git_is_local_branch_descendant_of_remote_branch(
+        OW_SW_PATH, current_local_branch, base_manifest_branch, remote_name=DEFAULT_GIT_REMOTE, fetch_remote=True)
+    if not branch_is_descendant:
+        LOG(
+            f"ERROR: Current OW branch '{current_local_branch}' is not a descendant of '{DEFAULT_GIT_REMOTE}/{base_manifest_branch}'.",
+            file=sys.stderr,
+        )
+        LOG(
+            f"This requirement is weird but because we run docker command and mount OW_SW_PATH into the container (docker run -it --rm -v $(pwd):$(pwd) <image>), we need to checkout correct branch and need OW branch to be in sync.",
+            file=sys.stderr,
+        )
+        LOG(
+            f"Fix suggestions:\n- Rebase current branch: cd {ow_sw_path_str} && git fetch {DEFAULT_GIT_REMOTE} && git rebase {DEFAULT_GIT_REMOTE}/{base_manifest_branch}\n- Or checkout a branch that already descends from {DEFAULT_GIT_REMOTE}/{base_manifest_branch}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    LOG(f"Current OW branch '{current_local_branch}' is descendant of '{DEFAULT_GIT_REMOTE}/{base_manifest_branch}'.")
 
     if build_type == BUILD_TYPE_IESA:
         if not input_tisdk_ref:
@@ -361,7 +345,7 @@ def setup_prebuild(build_type: str, manifest_source: str, ow_manifest_branch: st
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build setup...")
     # Sync other repos from manifest of REMOTE OW_SW
     manifest_snapshot_path = init_and_sync_from_remote(ow_manifest_branch, manifest_source=manifest_source,
-                                                       use_current_ow_branch=use_current_ow_branch)
+                                                       use_current_ow_branch=True)
 
     # {repo → relative path from build folder}, use local as they should be the same
     actual_manifest: IesaManifest = parse_local_gl_iesa_manifest(manifest_snapshot_path)
@@ -378,7 +362,7 @@ def setup_prebuild(build_type: str, manifest_source: str, ow_manifest_branch: st
             if repo_name not in actual_manifest.get_all_repo_names():
                 LOG(f"ERROR: Specified repo \"{repo_name}\" not found in manifest.", file=sys.stderr)
                 sys.exit(1)
-            sync_local_code(repo_name, repo_rel_path_vs_tmp_build)
+            override_fetched_repo_with_local_repo(repo_name, repo_rel_path_vs_tmp_build)
 
         change_snapshots: List[Dict[str, Any]] = []
         for repo_name in repo_names:
@@ -557,21 +541,22 @@ def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, u
     run_shell("repo sync", cwd=OW_SW_BUILD_FOLDER_PATH)
     return manifest_full_path
 
-def sync_local_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
+def override_fetched_repo_with_local_repo(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
+    """Overwrite fetched repos from repo command with local code."""
     local_repo_info: Optional[IesaLocalRepoInfo] = LOCAL_REPO_MAPPING.get_by_name(repo_name)
     if not local_repo_info:
         LOG(f"ERROR: Could not find repo info for '{repo_name}'", file=sys.stderr)
         LOG_EXCEPTION_STR(f"Could not find repo info for '{repo_name}'")
 
-    src_path = local_repo_info.repo_local_path
+    fetched_src_path = local_repo_info.repo_local_path
     dest_root_path = OW_SW_BUILD_FOLDER_PATH / repo_rel_path_vs_tmp_build
 
-    if not src_path.is_dir() or not dest_root_path.is_dir():
-        LOG(f"ERROR: Source or destination not found at {src_path} or {dest_root_path}", file=sys.stderr)
-        LOG_EXCEPTION_STR(f"Source or destination not found at {src_path} or {dest_root_path}")
+    if not fetched_src_path.is_dir() or not dest_root_path.is_dir():
+        LOG(f"ERROR: Source or destination not found at {fetched_src_path} or {dest_root_path}", file=sys.stderr)
+        LOG_EXCEPTION_STR(f"Source or destination not found at {fetched_src_path} or {dest_root_path}")
 
     LOG(f"Verifying git history for '{repo_name}'...")
-    src_overwrite_commit = git_get_sha1_of_head_commit(src_path)
+    src_overwrite_commit = git_get_sha1_of_head_commit(fetched_src_path)
     LOG(f"Source commit to overwrite: {src_overwrite_commit}")
     dest_orig_commit = git_get_sha1_of_head_commit(dest_root_path)  # Fetch remotely via repo sync
     LOG(f"Destination (to be overwritten) commit: {dest_orig_commit}")
@@ -582,15 +567,15 @@ def sync_local_code(repo_name: str, repo_rel_path_vs_tmp_build: str) -> None:
     else:
         LOG(f"Common ancestor for '{repo_name}' found. Proceeding with sync.")
 
-    LOG(f"Copying from \"{src_path}\" to \"{dest_root_path}\"")
+    LOG(f"Copying from \"{fetched_src_path}\" to \"{dest_root_path}\"")
 
     EXCLUDE_DIRS = {".git", ".vscode"}
-    for file_or_dir in src_path.rglob("*"):
+    for file_or_dir in fetched_src_path.rglob("*"):
         # parts = [part1, part2, part3] if path is "part1/part2/part3"
         if any(part in EXCLUDE_DIRS for part in file_or_dir.parts):
             continue
 
-        file_rel_path = file_or_dir.relative_to(src_path)
+        file_rel_path = file_or_dir.relative_to(fetched_src_path)
         dest_path = dest_root_path / file_rel_path
         if file_or_dir.is_file():
             dest_path.parent.mkdir(parents=True, exist_ok=True)

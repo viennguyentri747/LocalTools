@@ -167,25 +167,25 @@ def main() -> None:
     append_build_log(f"Parsed args: {args}")
 
     current_branch = git_get_current_branch(OW_SW_PATH)
-    manifest_branch: Optional[str] = None  # Can be local or remote
+    ow_manifest_branch: Optional[str] = None  # Can be local or remote
     if use_current_local_ow_branch:
         if manifest_source == MANIFEST_SOURCE_LOCAL:
             LOG(f"Using current branch '{current_branch}' as manifest branch.")
-            manifest_branch = current_branch
+            ow_manifest_branch = current_branch
         else:
             LOG(f"ERROR: {ARG_USE_CURRENT_LOCAL_OW_BRANCH} is only valid when {ARG_MANIFEST_SOURCE} is local.", file=sys.stderr)
             sys.exit(1)
     else:
-        manifest_branch = get_arg_value(args, ARG_DEFAULT_OW_MANIFEST_BRANCH)
-        if manifest_branch is None:
+        ow_manifest_branch = get_arg_value(args, ARG_DEFAULT_OW_MANIFEST_BRANCH)
+        if ow_manifest_branch is None:
             LOG(f"ERROR: {ARG_DEFAULT_OW_MANIFEST_BRANCH} is required when not using {ARG_USE_CURRENT_LOCAL_OW_BRANCH}.", file=sys.stderr)
             sys.exit(1)
 
-    append_build_log(f"Manifest branch: {manifest_branch}")
+    append_build_log(f"Manifest branch: {ow_manifest_branch}")
     if tisdk_ref:
         append_build_log(f"TISDK ref: {tisdk_ref}")
     actual_manifest, overridden_repo_changes = setup_prebuild(
-        build_type, manifest_source, manifest_branch, tisdk_ref, overwrite_repos,
+        build_type, manifest_source, ow_manifest_branch, tisdk_ref, overwrite_repos,
         use_current_local_ow_branch, current_branch, tisdk_ref_from_ci_yml)
 
     run_build(build_type, get_arg_value(args, ARG_INTERACTIVE), make_clean, is_debug_build)
@@ -275,7 +275,7 @@ def main() -> None:
         "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
         "timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "build_type": build_type,
-        "manifest_branch": manifest_branch,
+        "manifest_branch": ow_manifest_branch,
         # "original_iesa_md5": iesa_original_md5,
         "raw_arg_inputs": {k: v for k, v in vars(args).items()},
         "finalized_params": {

@@ -83,16 +83,7 @@ def create_note_with_uri(vault_name: str, filepath: str, content: str, mode: str
         return False
 
 
-def execute_obsidian_command(
-    vault_name: str,
-    command: str,
-    filepath: str = None,
-    line: int = None,
-    mode: str = None,
-    confirm: bool = False,
-    use_command_id: bool = True,
-    **kwargs
-) -> bool:
+def execute_obsidian_command( vault_name: str, command: str, filepath: str = None, line: int = None, mode: str = None, confirm: bool = False, use_command_id: bool = True, **kwargs ) -> bool:
     """
     Execute an Obsidian command via Advanced URI and wait for the handler to close.
     Args:
@@ -177,7 +168,8 @@ def create_obsidian_note_with_template(
             use_command_id=True,
             mode="overwrite"
         )
-
+        sleep_secs = 1
+        print(f"⏳ Waiting {sleep_secs} seconds for the note to be created...")
         # Append provided markdown content
         create_note_with_uri(
             vault_name=vault_name,

@@ -28,6 +28,35 @@ clean_trash() {
     fi
 }
 
+dos2unix_dir() {
+    local dir="$1"
+    
+    # Validation
+    if [[ -z "$dir" ]]; then echo "Usage: dos2unix_dir <dir_path>"; return 1; fi
+    if [[ ! -d "$dir" ]]; then echo "Directory not found: $dir"; return 1; fi
+    if ! command -v dos2unix >/dev/null 2>&1; then echo "Error: dos2unix not installed."; return 1; fi
+
+    local total=0 ok=0 fail=0
+    
+    echo "--- Starting targeted conversion in: $dir ---"
+    local total=0 ok=0 fail=0
+    while IFS= read -r -d '' file; do
+        ((total++))
+        
+        # Running dos2unix
+        if dos2unix "$file"; then
+            ((ok++))
+        else
+            ((fail++))
+        fi
+        # Define targeted extensions (case-insensitive)
+    done < <(find "$dir" -type f -not -path "*/.git/*" \
+            \( -name "*.sh" -o -name "*.py" -o -name "*.bash" -o -name "*.pl" \) -print0)
+            
+    echo "------------------------------------------"
+    echo "Finished: Total=$total | OK=$ok | Failed=$fail"
+}
+
 # rm() {
 #     local files_to_remove=()
 #     local permanent_delete=false

@@ -172,6 +172,10 @@ def create_obsidian_default_note(
             use_command_id=True,
             mode="overwrite"
         )
+        sleep_secs = 2
+        print(f"⏳ Waiting {sleep_secs} seconds for the note to be created...")
+        time.sleep(sleep_secs)
+        # Appending extra markdown content to the note
         create_note_with_uri(
             vault_name=OBSIDIAN_VAULT_NAME,
             filepath=full_note_path,

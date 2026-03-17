@@ -32,7 +32,7 @@ def open_ssh_client(host_ip: str, user: str, password: Optional[str] = None, tim
         jump_connect_kwargs = dict(hostname=jump_host_ip, username=jump_user or user, timeout=timeout,
                                    password=jump_password or password, look_for_keys=not (jump_password or password), allow_agent=not (jump_password or password))
 
-        LOG(f"Connecting to jump host {jump_host_ip}")
+        LOG(f"Connecting to jump host {jump_host_ip}", file=sys.stderr)
         jump_client.connect(**jump_connect_kwargs)
         jump_transport = jump_client.get_transport()
         if jump_transport is None:
@@ -42,10 +42,10 @@ def open_ssh_client(host_ip: str, user: str, password: Optional[str] = None, tim
         connect_kwargs["sock"] = jump_channel
 
     try:
-        LOG(f"Connecting to host {host_ip}")
+        LOG(f"Connecting to host {host_ip}", file=sys.stderr)
         target_client.connect(**connect_kwargs)
     except Exception:
-        LOG(f"Failed to connect to {host_ip}")
+        LOG(f"Failed to connect to {host_ip}", file=sys.stderr)
         close_ssh_client(target_client, jump_client, jump_channel)
         raise
     return target_client, jump_client, jump_channel

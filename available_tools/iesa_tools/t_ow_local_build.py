@@ -243,7 +243,7 @@ def main() -> None:
                 local_path=new_iesa_output_abs_path,
                 remote_host="root@192.168.100.254",
                 remote_dir="/home/root/download/",
-                run_cmd_on_remote=f"iesa_umcmd install pkg {new_iesa_path.name} && tail -F /var/log/upgrade_log",
+                run_cmd_on_remote=create_install_iesa_cmd(new_iesa_path.name),
                 is_prompt_before_execute=True
             )
             if run_via_python:

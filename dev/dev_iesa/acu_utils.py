@@ -1,7 +1,13 @@
 from pathlib import Path
+import shlex
 from typing import Optional, Union
 from dev.dev_common.constants import *
 from dev.dev_common.shell_utils import wrap_cmd_for_bash
+
+def create_install_iesa_cmd(iesa_name: str, download_dir: str = ACU_DOWNLOAD_DIR, upgrade_log_path: str = "/var/log/upgrade_log") -> str:
+    download_dir_norm = download_dir.rstrip("/")
+    upgrade_log_out_path = f"{download_dir_norm}/upgrade_log.txt"
+    return f"iesa_umcmd install pkg {shlex.quote(iesa_name)} && tail -F {shlex.quote(upgrade_log_path)} | tee {shlex.quote(upgrade_log_out_path)}"
 
 
 def create_scp_ut_and_run_cmd(local_path: Union[str, Path], remote_host: str = f"{ACU_USER}@{ACU_IP}", remote_dir: str = ACU_DOWNLOAD_DIR, run_cmd_on_remote: Optional[str] = None, is_prompt_before_execute: bool = True) -> str:

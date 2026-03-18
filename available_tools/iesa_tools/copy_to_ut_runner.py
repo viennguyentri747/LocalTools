@@ -1,6 +1,9 @@
 #!/usr/local/bin/local_python
 """
 Copy build artifacts to ACU via UT jump host, then print the UT-side command to validate and apply them.
+Benefits of using this script vs bash
+- Shorter command line (just run python)
+- When rerun use latest python code here 
 """
 import argparse
 import os
@@ -10,6 +13,7 @@ import stat
 import sys
 from typing import Optional
 from dev.dev_common import *
+from dev.dev_iesa.acu_utils import create_install_iesa_cmd
 
 MODE_BINARY = "binary"
 MODE_IESA = "iesa"
@@ -107,7 +111,7 @@ def _build_binary_post_copy_cmd(original_md5: str, remote_dir: str, remote_name:
 
 def _build_iesa_post_copy_cmd(original_md5: str, remote_dir: str, remote_name: str, prompt_before_execute: bool) -> str:
     remote_abs_path = f"{remote_dir.rstrip('/')}/{remote_name}"
-    install_cmd = f"iesa_umcmd install pkg {shlex.quote(remote_name)} && tail -F /var/log/upgrade_log"
+    install_cmd = create_install_iesa_cmd(remote_name, download_dir=remote_dir)
     if prompt_before_execute:
         proceed_cmd = f"read -r -p \"MD5 match! Install (y/n)?: \" confirm; [ \"$confirm\" = \"y\" -o \"$confirm\" = \"Y\" ] && {install_cmd}"
     else:

@@ -14,7 +14,7 @@ POWGPS_MESSAGE_TYPE = "POWGPS"
 POWTLV_MESSAGE_TYPE = "POWTLV"
 DEFAULT_POW_LOG_PATH = PERSISTENT_TEMP_PATH / "live_logs" / "ttymxc0_56.log"
 DEFAULT_POW_MESSAGE_TYPES = [POWTLV_MESSAGE_TYPE]
-DEFAULT_SECONDS_PER_MESSAGE = 0.2
+DEFAULT_POWTLV_SECONDS_PER_MESSAGE = 0.2
 DEFAULT_POWGPS_SECONDS_PER_MESSAGE = 1.0
 DEFAULT_MAX_DRIFT_BETWEEN_MSG_SEC = 1e-6
 DEFAULT_CHECK_TIMESTAMP = True
@@ -49,7 +49,7 @@ def get_tool_templates() -> List[ToolTemplate]:
             args={
                 ARG_LOG_PATHS: [str(DEFAULT_POW_LOG_PATH)],
                 ARG_MESSAGE_TYPES: list(DEFAULT_POW_MESSAGE_TYPES),
-                ARG_SECONDS_PER_MESSAGE: DEFAULT_SECONDS_PER_MESSAGE,
+                ARG_SECONDS_PER_MESSAGE: DEFAULT_POWTLV_SECONDS_PER_MESSAGE,
                 ARG_MAX_DRIFT_BETWEEN_MSG: DEFAULT_MAX_DRIFT_BETWEEN_MSG_SEC,
                 ARG_CHECK_TIMESTAMP: DEFAULT_CHECK_TIMESTAMP,
                 ARG_MAX_DRIFT_BETWEEN_MSG_TIME: DEFAULT_MAX_DRIFT_BETWEEN_MSG_SECONDS,
@@ -93,7 +93,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(ARG_LOG_PATHS, nargs="+", type=Path, required=True, help="One or more local log files to scan.")
     parser.add_argument(ARG_MESSAGE_TYPES, nargs="+", default=list(DEFAULT_POW_MESSAGE_TYPES),
                         help=f"POW sentence types to validate, e.g. {POWTLV_MESSAGE_TYPE} {POWGPS_MESSAGE_TYPE}.")
-    parser.add_argument(ARG_SECONDS_PER_MESSAGE, type=float, default=DEFAULT_SECONDS_PER_MESSAGE,
+    parser.add_argument(ARG_SECONDS_PER_MESSAGE, type=float, default=DEFAULT_POWTLV_SECONDS_PER_MESSAGE,
                         help="Expected timestamp delta in seconds between consecutive messages of the same type.")
     parser.add_argument(ARG_MAX_DRIFT_BETWEEN_MSG, type=float, default=DEFAULT_MAX_DRIFT_BETWEEN_MSG_SEC,
                         help="Allowed absolute drift in seconds between consecutive POW message timestamps.")

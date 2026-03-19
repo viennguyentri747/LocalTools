@@ -39,7 +39,7 @@ GL_BASE_URL = "https://gitlab.com"
 INTELLIAN_ADC_GROUP = "intellian_adc"
 PROTOTYPING_SUB_GROUP = "prototyping"
 GERRIT_OW = "gerrit_mirror/oneweb"
-DEFAULT_GIT_REMOTE = "origin"
+DEFAULT_OW_GIT_REMOTE = "origin"
 
 # IESA REPO_NAMES
 IESA_OW_SW_TOOLS_REPO_NAME = "oneweb_project_sw_tools"

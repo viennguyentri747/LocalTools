@@ -160,18 +160,16 @@ def main() -> None:
     ut_command: Optional[str] = None
     purpose: str = ""
     if mode == MODE_BINARY:
-        purpose = "Copy binary to target IP"
+        purpose = f"Setup binary on target IP {target_ip}"
         ut_command = _build_binary_post_copy_cmd(
             original_md5=original_md5, remote_dir=remote_dir, remote_name=dest_name, binary_name=local_file.name)
-        LOG(f"Binary copied. Run on target UT {target_ip}:")
         LOG_LINE_SEPARATOR()
     elif mode == MODE_IESA:
-        purpose = "Copy IESA to target IP"
+        purpose = f"Setup IESA on target IP {target_ip}"
         ut_command = _build_iesa_post_copy_cmd(original_md5=original_md5, remote_dir=remote_dir, remote_name=dest_name,
                                                prompt_before_execute=get_arg_value(args, ARG_PROMPT_BEFORE_EXECUTE))
-        LOG(f"IESA copied. Run on target UT {target_ip}:")
     else:
-        LOG(f"File copied. Run on target UT {target_ip}:")
+        LOG(f"File copied. Run on target UT {target_ip}!!")
 
     if ut_command:
         LOG_LINE_SEPARATOR()

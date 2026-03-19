@@ -106,14 +106,15 @@ _git_qpush() {
     echo "Quick push completed with one or more failures."
   fi
 }
-
 _git_qlog() {
-  # One-line log; forwards any extra args (e.g., -n 10, pathspec)
-  command git log \
-    --pretty=format:"%h %s %ad %an" \
-    --date=format:"%Y-%m-%d %H:%M" \
-    "$@"
+  #Ref: https://stackoverflow.com/questions/1838873/visualizing-branch-topology-in-git/34467298#34467298
+  command git log --graph --abbrev-commit --decorate --format=format:'%C(bold blue)%h%C(reset) - %C(bold cyan)%aD%C(reset) %C(bold green)(%ar)%C(reset) %C(bold cyan)(committed: %cD)%C(reset) %C(auto)%d%C(reset)%n''          %C(white)%s%C(reset)%n''          %C(dim white)- %an <%ae> %C(reset) %C(dim white)(committer: %cn <%ce>)%C(reset)' "$@"
 }
+
+_git_qlog_all() {
+  _git_qlog --all "$@"
+}
+
 
 _git_qdiff() {
   # Clean diff (no safecrlf warnings); forwards args
@@ -131,6 +132,7 @@ git() {
     qhelp) shift; _git_qhelp "$@"; return ;;
     qpush) shift; _git_qpush "$@"; return ;;
     qlog)  shift; _git_qlog  "$@"; return ;;
+    qlog_all) shift; _git_qlog_all "$@"; return ;;
     qdiff) shift; _git_qdiff "$@"; return ;;
   esac
 

@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import List, Optional
 
 from dev.dev_common.core_utils import *
-from dev.dev_common.constants import DEFAULT_GIT_REMOTE
 from dev.dev_common.input_utils import prompt_confirmation
 from subprocess import DEVNULL
 
@@ -235,7 +234,7 @@ def git_fetch(repo_path: Path) -> bool:
         return False
 
 
-def git_fetch_remote(repo_path: Path | str, remote_name: str = DEFAULT_GIT_REMOTE) -> bool:
+def git_fetch_remote(repo_path: Path | str, remote_name: str) -> bool:
     command = [CMD_GIT, 'fetch', '--prune', remote_name]
     try:
         LOG(f"Fetching latest changes from remote '{remote_name}' in '{Path(repo_path).name}'...")
@@ -247,11 +246,11 @@ def git_fetch_remote(repo_path: Path | str, remote_name: str = DEFAULT_GIT_REMOT
         return False
 
 
-def git_get_remote_branch_ref(branch_name: str, remote_name: str = DEFAULT_GIT_REMOTE) -> str:
+def git_get_remote_branch_ref(branch_name: str, remote_name: str) -> str:
     return f"{remote_name}/{branch_name}"
 
 
-def git_is_local_branch_descendant_of_remote_branch(repo_path: Path | str, local_branch: str, base_remote_branch: str, remote_name: str = DEFAULT_GIT_REMOTE, fetch_remote: bool = True) -> bool:
+def git_is_local_branch_descendant_of_remote_branch(repo_path: Path | str, local_branch: str, base_remote_branch: str, remote_name: str, fetch_remote: bool = True) -> bool:
     normalized_local_branch = (local_branch or "").strip()
     normalized_base_remote_branch = (base_remote_branch or "").strip()
     if not normalized_local_branch or not normalized_base_remote_branch:

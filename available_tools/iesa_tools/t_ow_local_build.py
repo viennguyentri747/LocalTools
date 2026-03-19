@@ -111,7 +111,7 @@ def main() -> None:
     parser.add_argument(ARG_MANIFEST_SOURCE, choices=[MANIFEST_SOURCE_LOCAL, MANIFEST_SOURCE_REMOTE], default=MANIFEST_SOURCE_LOCAL,
                         help=F"Source for the manifest repository URL ({MANIFEST_SOURCE_LOCAL} or {MANIFEST_SOURCE_REMOTE}). Defaults to {MANIFEST_SOURCE_LOCAL}. Note that although it is local manifest, the source of sync is still remote so will need to push branch of dependent local repos specified in local manifest (not ow_sw_tools).")
     parser.add_argument(ARG_BASE_MANIFEST_BRANCH, default=BRANCH_MANPACK_MASTER,
-                        help=f"Base branch to validate current OW branch against on remote '{DEFAULT_GIT_REMOTE}'. Current OW branch must be ahead/descendant of this base branch. Ex: {BRANCH_MANPACK_MASTER}")
+                        help=f"Base branch to validate current OW branch against on remote '{DEFAULT_OW_GIT_REMOTE}'. Current OW branch must be ahead/descendant of this base branch. Ex: {BRANCH_MANPACK_MASTER}")
     parser.add_argument(ARG_TISDK_REF, type=str, default=EMPTY_STR_VALUE,
                         help=f"TISDK Ref for BSP (for creating .iesa). Ex: {BRANCH_MANPACK_MASTER}")
     parser.add_argument(ARG_OVERWRITE_REPOS, nargs='*', default=[],
@@ -295,23 +295,20 @@ def setup_prebuild(build_type: str, manifest_source: str, ow_manifest_branch: st
     # PRE-BUILD CHECK
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build check...")
     LOG("Checking OW branch is ahead/descendant of remote base manifest branch.")
-    branch_is_descendant = git_is_local_branch_descendant_of_remote_branch(
-        OW_SW_PATH, current_local_branch, base_manifest_branch, remote_name=DEFAULT_GIT_REMOTE, fetch_remote=True)
-    if not branch_is_descendant:
-        LOG(
-            f"ERROR: Current OW branch '{current_local_branch}' is not a descendant of '{DEFAULT_GIT_REMOTE}/{base_manifest_branch}'.",
-            file=sys.stderr,
+    ow_git_remote = DEFAULT_OW_GIT_REMOTE
+    ow_branch_is_descendant = git_is_local_branch_descendant_of_remote_branch(
+        OW_SW_PATH, current_local_branch, base_manifest_branch, remote_name=ow_git_remote, fetch_remote=True)
+    if not ow_branch_is_descendant:
+        LOG_EXCEPTION_STR(
+            f"ERROR: Current OW branch '{current_local_branch}' is not a descendant of '{ow_git_remote}/{base_manifest_branch}'.\n\n"
+            f"This requirement is weird but exists because we run a docker command and mount OW_SW_PATH into the container "
+            f"(docker run -it --rm -v $(pwd):$(pwd) <image>), so the OW branch must be in sync.\n\n"
+            f"Fix suggestions:\n"
+            f"- Rebase current branch: cd {ow_sw_path_str} && git fetch {ow_git_remote} && git rebase {ow_git_remote}/{base_manifest_branch}\n"
+            f"- Or checkout a branch that already descends from {ow_git_remote}/{base_manifest_branch}"
         )
-        LOG(
-            f"This requirement is weird but because we run docker command and mount OW_SW_PATH into the container (docker run -it --rm -v $(pwd):$(pwd) <image>), we need to checkout correct branch and need OW branch to be in sync.",
-            file=sys.stderr,
-        )
-        LOG(
-            f"Fix suggestions:\n- Rebase current branch: cd {ow_sw_path_str} && git fetch {DEFAULT_GIT_REMOTE} && git rebase {DEFAULT_GIT_REMOTE}/{base_manifest_branch}\n- Or checkout a branch that already descends from {DEFAULT_GIT_REMOTE}/{base_manifest_branch}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    LOG(f"Current OW branch '{current_local_branch}' is descendant of '{DEFAULT_GIT_REMOTE}/{base_manifest_branch}'.")
+       
+    LOG(f"Current OW branch '{current_local_branch}' is descendant of '{ow_git_remote}/{base_manifest_branch}'.")
 
     if build_type == BUILD_TYPE_IESA:
         if not input_tisdk_ref:
@@ -354,7 +351,7 @@ def setup_prebuild(build_type: str, manifest_source: str, ow_manifest_branch: st
     LOG(f"Manifest snapshot copied to '{manifest_metadata_path}' for metadata export.")
     repo_change_details: List[Dict[str, Any]] = []
     base_manifest = get_base_manifest_from_remote_branch(base_manifest_branch)
-    ow_base_ref = git_get_remote_branch_ref(base_manifest_branch, DEFAULT_GIT_REMOTE)
+    ow_base_ref = git_get_remote_branch_ref(base_manifest_branch, ow_git_remote)
     
     # Collect OW repo changes
     ow_change_snapshot = collect_repo_changes(
@@ -565,7 +562,7 @@ def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, u
 
 
 def get_base_manifest_from_remote_branch(base_manifest_branch: str) -> IesaManifest:
-    remote_base_ref = git_get_remote_branch_ref(base_manifest_branch, DEFAULT_GIT_REMOTE)
+    remote_base_ref = git_get_remote_branch_ref(base_manifest_branch, DEFAULT_OW_GIT_REMOTE)
     if not git_check_ref(OW_SW_PATH, remote_base_ref, ref_name="base manifest branch on remote"):
         LOG(f"ERROR: Base manifest branch '{remote_base_ref}' is missing.", file=sys.stderr)
         sys.exit(1)
@@ -589,8 +586,8 @@ def resolve_manifest_base_ref(repo_path: Path, base_manifest_ref: str) -> str:
     if not normalized_ref:
         LOG(f"ERROR: Empty base manifest ref for repo '{repo_path}'.", file=sys.stderr)
         sys.exit(1)
-    git_fetch_remote(repo_path, DEFAULT_GIT_REMOTE)
-    remote_branch_ref = git_get_remote_branch_ref(normalized_ref, DEFAULT_GIT_REMOTE)
+    git_fetch_remote(repo_path, DEFAULT_OW_GIT_REMOTE)
+    remote_branch_ref = git_get_remote_branch_ref(normalized_ref, DEFAULT_OW_GIT_REMOTE)
     if git_is_ref_or_branch_existing(repo_path, remote_branch_ref):
         return remote_branch_ref
     if git_is_ref_or_branch_existing(repo_path, normalized_ref):

@@ -7,3 +7,4 @@ alias cb='tee >(xclip -selection clipboard -in >/dev/null) | wc -l | xargs -I{} 
 alias pb='xclip -selection clipboard -out' # Paste from clipboard
 alias subl='/mnt/c/Program\ Files/Sublime\ Text/subl.exe'
 alias stock-alert='~/stock_alert/MyVenvFolder/bin/python ~/stock_alert/stock_alert/main.py'
+alias win-git='/mnt/c/Program\ Files/Git/bin/git.exe'

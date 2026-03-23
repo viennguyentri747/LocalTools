@@ -22,20 +22,20 @@ def get_tool_templates() -> List[ToolTemplate]:
     return [
         ToolTemplate(
             name="Checksum for INS Monitor Feed",
-            extra_description="Typical INS monitor sentence with multiple GNSS messages. Ex: ASCE,4,GXGGA,1,POWGPS,5,POWTLV,1,POSGXGLL,5,GXGSA,5,GXZDA,5,GXVTG,5,GXRMC,5,PASHR,5,INTEL,5,GPGSV_1,5,GAGSV_1,0,GLGSV_1,5 will return 5B",
+            extra_description="Typical INS monitor sentence with multiple GNSS messages. Ex: $ASCE,4,GXGGA,1,POWGPS,5,POWTLV,1,POSGXGLL,5,GXGSA,5,GXZDA,5,GXVTG,5,GXRMC,5,PASHR,5,INTEL,5,GPGSV_1,5,GAGSV_1,0,GLGSV_1,5 will return 5B",
             args={
-                ARG_SENTENCE: "ASCE,4,GXGGA,1,POWGPS,5,POWTLV,1,POSGXGLL,5,GXGSA,5,GXZDA,5,GXVTG,5,GXRMC,5,PASHR,5,INTEL,5,GPGSV_1,5,GAGSV_1,0,GLGSV_1,5"
+                ARG_SENTENCE: "$ASCE,4,GXGGA,1,POWGPS,5,POWTLV,1,POSGXGLL,5,GXGSA,5,GXZDA,5,GXVTG,5,GXRMC,5,PASHR,5,INTEL,5,GPGSV_1,5,GAGSV_1,0,GLGSV_1,5"
             },
         ),
         ToolTemplate(
             name="Checksum for IMU/INS Snapshot",
             extra_description="Minimal sentence containing IMU and INS fields.",
-            args={ARG_SENTENCE: "ASCE,0,PPIMU,1,PINS2,10,GNGGA,1"},
+            args={ARG_SENTENCE: "$ASCE,0,PPIMU,1,PINS2,10,GNGGA,1"},
         ),
         ToolTemplate(
             name="Checksum for GNSS Idle State",
             extra_description="Example GNSS sentence when GNSS updates are disabled.",
-            args={ARG_SENTENCE: "ASCE,0,GNGGA,0,GNRMC,0,GNVTG,0"},
+            args={ARG_SENTENCE: "$ASCE,0,GNGGA,0,GNRMC,0,GNVTG,0"},
         ),
     ]
 

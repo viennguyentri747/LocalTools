@@ -65,6 +65,7 @@ class PowMessage:
 
     @property
     def utc_seconds(self) -> Optional[float]:
+        # Convert GPS week/TOW plus leap-second offset into UTC epoch seconds.
         if self.gps_week is None or self.gps_tow_us is None or self.leap_seconds is None:
             return None
         return GPS_EPOCH_UTC_SECONDS + (self.gps_week * 7 * 86400) + (self.gps_tow_us / 1_000_000.0) - self.leap_seconds
@@ -81,6 +82,7 @@ class ReferenceMessage:
 
 
 def get_tool_templates() -> List[ToolTemplate]:
+    # Define reusable CLI template metadata for this validation tool.
     return [
         ToolTemplate(
             name="Comprehensive POW timing + GNZDA correlation check",
@@ -103,10 +105,12 @@ def get_tool_templates() -> List[ToolTemplate]:
 
 
 def getToolData() -> ToolData:
+    # Expose tool metadata in the common wrapper format.
     return ToolData(tool_template=get_tool_templates())
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+    # Parse and validate command-line arguments for thresholds and inputs.
     parser = argparse.ArgumentParser(
         description="Run comprehensive POW timing validation and optional correlation with reference ZDA sentences.",
         formatter_class=argparse.RawTextHelpFormatter,
@@ -133,10 +137,12 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
 
 
 def _normalize_message_type(token: str) -> str:
+    # Strip NMEA-style prefix/surrounding spaces to normalize message IDs.
     return token.lstrip("$").strip()
 
 
 def _parse_line(raw_line: str, line_number: int, source_path: Path) -> Optional[ParsedLine]:
+    # Parse one raw log line into timestamped payload parts used downstream.
     stripped = raw_line.strip()
     if not stripped:
         return None
@@ -160,6 +166,7 @@ def _parse_line(raw_line: str, line_number: int, source_path: Path) -> Optional[
 
 
 def _to_int(raw: str) -> Optional[int]:
+    # Safely parse a signed integer field, returning None for invalid values.
     value = raw.strip()
     if value.startswith("-"):
         return int(value) if value[1:].isdigit() else None
@@ -167,6 +174,7 @@ def _to_int(raw: str) -> Optional[int]:
 
 
 def _parse_pow_message(line: ParsedLine) -> Optional[PowMessage]:
+    # Convert a parsed CSV-like line into a POWGPS/POWTLV structured message.
     if line.message_type not in {POWGPS_MESSAGE_TYPE, POWTLV_MESSAGE_TYPE}:
         return None
     if len(line.parts) < 7:
@@ -180,6 +188,7 @@ def _parse_pow_message(line: ParsedLine) -> Optional[PowMessage]:
 
 
 def _parse_reference_message(line: ParsedLine, reference_types: Sequence[str]) -> Optional[ReferenceMessage]:
+    # Convert a reference sentence (e.g., ZDA) into a UTC timestamped record.
     if line.message_type not in set(reference_types):
         return None
     if len(line.parts) < 5:
@@ -200,6 +209,7 @@ def _parse_reference_message(line: ParsedLine, reference_types: Sequence[str]) -
 
 
 def _scan_messages(log_paths: Sequence[Path], reference_types: Sequence[str]) -> Tuple[Dict[str, List[PowMessage]], List[ReferenceMessage]]:
+    # Read all logs and split recognized POW and reference messages into lists.
     pow_by_type: Dict[str, List[PowMessage]] = {POWGPS_MESSAGE_TYPE: [], POWTLV_MESSAGE_TYPE: []}
     refs: List[ReferenceMessage] = []
     normalized_refs = [_normalize_message_type(t) for t in reference_types]
@@ -223,10 +233,12 @@ def _scan_messages(log_paths: Sequence[Path], reference_types: Sequence[str]) ->
 
 
 def _format_msg(msg: PowMessage | ReferenceMessage) -> str:
+    # Build a compact source/location label for diagnostics.
     return f"{msg.source_path}:{msg.line_number} {msg.message_type}"
 
 
 def _calc_delta_with_week_rollover(previous: PowMessage, current: PowMessage) -> Optional[float]:
+    # Compute elapsed GPS seconds between two messages using week+TOW fields.
     if previous.gps_week is None or current.gps_week is None or previous.gps_tow_us is None or current.gps_tow_us is None:
         return None
     prev_total = (previous.gps_week * 7 * 86400) + (previous.gps_tow_us / 1_000_000.0)
@@ -236,6 +248,7 @@ def _calc_delta_with_week_rollover(previous: PowMessage, current: PowMessage) ->
 
 def _check_cadence(entries: Sequence[PowMessage], expected_delta: float, max_pow_delta_drift: float,
                    max_host_delta_drift: float) -> List[str]:
+    # Validate message interval consistency in both embedded POW time and host time.
     issues: List[str] = []
     if len(entries) < 2:
         return issues
@@ -255,6 +268,7 @@ def _check_cadence(entries: Sequence[PowMessage], expected_delta: float, max_pow
 
 
 def _check_pow_header_consistency(entries: Sequence[PowMessage], message_type: str) -> List[str]:
+    # Ensure status/header fields stay in expected healthy values across captures.
     issues: List[str] = []
     if not entries:
         return issues
@@ -277,6 +291,7 @@ def _check_pow_header_consistency(entries: Sequence[PowMessage], message_type: s
 
 
 def _check_host_offset_stability(entries: Sequence[PowMessage], message_type: str, max_offset_jitter: float) -> List[str]:
+    # Check spread of host_time minus POW UTC offset for jitter anomalies.
     offsets = [entry.host_time_seconds - entry.utc_seconds for entry in entries
                if entry.host_time_seconds is not None and entry.utc_seconds is not None]
     if not offsets:
@@ -290,6 +305,7 @@ def _check_host_offset_stability(entries: Sequence[PowMessage], message_type: st
 
 
 def _check_powgps_powtlv_pairing(powgps_entries: Sequence[PowMessage], powtlv_entries: Sequence[PowMessage]) -> List[str]:
+    # Verify POWTLV stream coheres with POWGPS in timestamp pairing and density.
     issues: List[str] = []
     if not powgps_entries or not powtlv_entries:
         return issues
@@ -338,6 +354,7 @@ def _check_powgps_powtlv_pairing(powgps_entries: Sequence[PowMessage], powtlv_en
 
 def _check_powgps_reference_alignment(powgps_entries: Sequence[PowMessage], references: Sequence[ReferenceMessage],
                                       max_ref_utc_drift: float, max_ref_host_delta: float) -> List[str]:
+    # Compare each POWGPS UTC+host timing to the nearest external UTC reference (like ZDA).
     issues: List[str] = []
     valid_refs = [ref for ref in references if ref.utc_seconds is not None]
     valid_powgps = [msg for msg in powgps_entries if msg.utc_seconds is not None]
@@ -363,17 +380,17 @@ def _check_powgps_reference_alignment(powgps_entries: Sequence[PowMessage], refe
         if not candidates:
             continue
         # Only two candidates are needed: nearest on the right and nearest on the left.
-        nearest = min(candidates, key=lambda ref: abs((ref.utc_seconds or 0.0) - gps_utc))
-        drift = abs((nearest.utc_seconds or 0.0) - gps_utc)
+        nearest_ref = min(candidates, key=lambda ref: abs((ref.utc_seconds or 0.0) - gps_utc))
+        drift = abs((nearest_ref.utc_seconds or 0.0) - gps_utc)
         utc_drifts.append(drift)
         if drift > max_ref_utc_drift:
-            bad_utc.append(f"{_format_msg(gps)} vs {_format_msg(nearest)} utc_drift={drift:.6f}s")
-        if gps.host_time_seconds is not None and nearest.host_time_seconds is not None:
+            bad_utc.append(f"{_format_msg(gps)} vs {_format_msg(nearest_ref)} utc_drift={drift:.6f}s")
+        if gps.host_time_seconds is not None and nearest_ref.host_time_seconds is not None:
             # Host delta is the queue/phase difference seen by the logger for equivalent UTC epochs.
-            host_delta = abs(gps.host_time_seconds - nearest.host_time_seconds)
+            host_delta = abs(gps.host_time_seconds - nearest_ref.host_time_seconds)
             host_deltas.append(host_delta)
             if host_delta > max_ref_host_delta:
-                bad_host.append(f"{_format_msg(gps)} vs {_format_msg(nearest)} host_delta={host_delta:.6f}s")
+                bad_host.append(f"{_format_msg(gps)} vs {_format_msg(nearest_ref)} host_delta={host_delta:.6f}s")
     if bad_utc:
         issues.append(f"POWGPS vs reference UTC mismatch count={len(bad_utc)}; sample={bad_utc[:3]}")
     if bad_host:
@@ -386,6 +403,7 @@ def _check_powgps_reference_alignment(powgps_entries: Sequence[PowMessage], refe
 
 
 def _log_basic_stats(pow_by_type: Dict[str, List[PowMessage]], references: Sequence[ReferenceMessage]) -> None:
+    # Emit summary counts and host-vs-UTC offset stats for quick operator context.
     for message_type in [POWGPS_MESSAGE_TYPE, POWTLV_MESSAGE_TYPE]:
         entries = pow_by_type.get(message_type, [])
         if not entries:
@@ -407,6 +425,7 @@ def _log_basic_stats(pow_by_type: Dict[str, List[PowMessage]], references: Seque
 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
+    # Run end-to-end log scan, validation checks, reporting, and exit status.
     args = parse_args(argv)
     log_paths = [Path(path).expanduser() for path in get_arg_value(args, ARG_LOG_PATHS)]
     reference_types = [_normalize_message_type(t) for t in get_arg_value(args, ARG_REFERENCE_TYPES)]

@@ -6,6 +6,7 @@ lab_ip_prefix="172.16.20"
 target_acu_ip="$nor_ip_prefix.254"
 ut_pass='use4Tst!'
 NOTE_PERMANENT_COMMAND='May need to copy key to UT (for permanent login) before running this command first time. Try to run login_permanent OR login_permanent_lab'
+LEGACY_RSA_SSH_OPTS=(-o HostKeyAlgorithms=+ssh-rsa)
 
 # Default area if not provided explicitly
 DEFAULT_AREA="nor"
@@ -98,7 +99,7 @@ ssh_acu_ip() {
     fi
     local full_ip="$ip"
     SSH_OPTS=(-o ConnectTimeout=0 -o ConnectionAttempts=1 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
-    sshpass -p "$ut_pass" ssh -t "${SSH_OPTS[@]}" "root@$full_ip" ssh "${SSH_OPTS[@]}" "root@$target_acu_ip"
+    sshpass -p "$ut_pass" ssh -t "${SSH_OPTS[@]}" "root@$full_ip" ssh "${SSH_OPTS[@]}" "${LEGACY_RSA_SSH_OPTS[@]}" "root@$target_acu_ip"
 }
 
 run_acu_cmd() {
@@ -129,7 +130,7 @@ run_acu_cmd() {
     echo "Running command on ACU $target_acu_ip via UT $full_ip: $quoted_run_cmd"
     sshpass -p "$ut_pass" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
         "root@$full_ip" \
-        ssh -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+        ssh -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "${LEGACY_RSA_SSH_OPTS[@]}" \
         "root@$target_acu_ip" "$quoted_run_cmd"
     
     local ssh_status=$?
@@ -446,5 +447,3 @@ search_ip() {
 
 # unset ut_pass
 # unset NOTE_PERMANENT_COMMAND
-
-

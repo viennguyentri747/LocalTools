@@ -417,7 +417,7 @@ def _combine_patch_and_stat(patch_text: str, stat_text: str) -> str:
     return patch_text + stat_text
 
 
-def extract_git_diff(repo_local_path: Path, base_ref: str, target_ref: str, binary_extensions: Optional[List[str]] = None) -> Optional[str]:
+def extract_git_diff(repo_local_path: Path, base_ref: str, target_ref: str, should_full_change: bool = False, binary_extensions: Optional[List[str]] = None) -> Optional[str]:
     """
     Extracts a git diff between two references using --patch-with-stat.
 

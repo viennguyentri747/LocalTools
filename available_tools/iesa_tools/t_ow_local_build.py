@@ -621,7 +621,7 @@ def override_fetched_repo_with_local_repo(repo_name: str, repo_rel_path_vs_tmp_b
     if src_overwrite_commit == dest_orig_commit:
         LOG("Source and destination are at the same commit. No history check needed.")
     elif not git_is_ancestor(dest_orig_commit, src_overwrite_commit, cwd=local_repo_info.repo_local_path):
-        LOG_EXCEPTION_STR(f"Overwrite commit ({str(local_repo_info.repo_local_path)}: {src_overwrite_commit}) is not a descendant of original commit ({str(dest_root_path)}: {dest_orig_commit}).\nMake sure check out correct branch + force push local branch to remote (as it fetched dest remotely via repo sync)!")
+        LOG_EXCEPTION_STR(f"Overwrite commit ({str(local_repo_info.repo_local_path)}: {src_overwrite_commit}) is not a descendant of original commit ({str(dest_root_path)}: {dest_orig_commit}).\nMake sure to rebase the branch on top of dest branch (+ force push if need) in manifest fetched remotely via repo sync!")
     else:
         LOG(f"Common ancestor for '{repo_name}' found. Proceeding with sync.")
 

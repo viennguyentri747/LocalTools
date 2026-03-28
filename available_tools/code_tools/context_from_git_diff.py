@@ -47,7 +47,7 @@ def main_git_diff(args: argparse.Namespace) -> None:
     final_output_dir = output_dir / final_output_dir_name
     final_output_dir.mkdir(parents=True, exist_ok=True)
 
-    diff_content = extract_git_diff(repo_path, base, target)
+    diff_content = extract_git_diff(repo_path, base, target, show_full_file=True)
     is_success = diff_content is not None
     output_path = None
 

@@ -417,7 +417,7 @@ def _combine_patch_and_stat(patch_text: str, stat_text: str) -> str:
     return patch_text + stat_text
 
 
-def extract_git_diff(repo_local_path: Path, base_ref: str, target_ref: str, should_full_change: bool = False, binary_extensions: Optional[List[str]] = None) -> Optional[str]:
+def extract_git_diff(repo_local_path: Path, base_ref: str, target_ref: str, show_full_file: bool = False, binary_extensions: Optional[List[str]] = None) -> Optional[str]:
     """
     Extracts a git diff between two references using --patch-with-stat.
 
@@ -425,6 +425,7 @@ def extract_git_diff(repo_local_path: Path, base_ref: str, target_ref: str, shou
         repo_path: The local path to the git repository.
         base_ref: The base ref for the diff.
         target_ref: The target ref for the diff.
+        show_full_file: When True, force large unified context so changed files are shown in full.
         binary_extensions: File extensions to treat as binary (e.g., ['.png', 'bin']).
 
     Returns:
@@ -437,14 +438,15 @@ def extract_git_diff(repo_local_path: Path, base_ref: str, target_ref: str, shou
         return None
 
     try:
+        full_file_args = ['--unified=999999'] if show_full_file else []
         cleaned_binary_exts = _normalize_binary_extensions(binary_extensions)
         if not cleaned_binary_exts:
-            command = [CMD_GIT, 'diff', '--patch-with-stat', f"{base_ref}..{target_ref}"]
+            command = [CMD_GIT, 'diff', '--patch-with-stat', *full_file_args, f"{base_ref}..{target_ref}"]
             LOG(f"Running git diff in '{repo_local_path}'... Command:\n{' '.join(command)}")
             process = run_shell(command, cwd=repo_local_path, check_throw_exception_on_exit_code=True,
                                 capture_output=True, text=True, encoding='utf-8')
             return process.stdout
-        patch_cmd = [CMD_GIT, 'diff', '--patch', f"{base_ref}..{target_ref}"]
+        patch_cmd = [CMD_GIT, 'diff', '--patch', *full_file_args, f"{base_ref}..{target_ref}"]
         stat_cmd = [CMD_GIT, 'diff', '--stat', f"{base_ref}..{target_ref}"]
         LOG(f"Running git diff in '{repo_local_path}'... Command:\n{' '.join(patch_cmd)}")
         patch_process = run_shell(patch_cmd, cwd=repo_local_path, check_throw_exception_on_exit_code=True,

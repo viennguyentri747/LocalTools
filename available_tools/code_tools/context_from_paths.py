@@ -23,6 +23,7 @@ def get_paths_tool_templates():
                 ARG_EXTRACT_MODE: EXTRACT_MODE_PATHS,
                 ARG_INCLUDE_PATHS_PATTERN: ["*"],
                 ARG_EXCLUDE_PATHS_PATTERN: [".git", ".vscode", "__pycache__", "MyVenvFolder"],
+                ARG_IGNORE_PATHS: [],
                 ARG_PATHS_LONG: ["~/path1", "~/path2"],
             }
         )
@@ -38,7 +39,8 @@ def main_paths(args: argparse.Namespace) -> None:
     max_workers = get_arg_value(args, ARG_MAX_WORKERS)
     file_include_paths_pattern = get_arg_value(args, ARG_INCLUDE_PATHS_PATTERN)
     exclude_paths_pattern = get_arg_value(args, ARG_EXCLUDE_PATHS_PATTERN)
-    LOG(f"Include patterns: {file_include_paths_pattern}, Exclude patterns: {exclude_paths_pattern}")
+    ignore_paths = get_arg_value(args, ARG_IGNORE_PATHS)
+    LOG(f"Include patterns: {file_include_paths_pattern}, Exclude patterns: {exclude_paths_pattern}, Ignore paths: {ignore_paths}")
 
     no_open_explorer = get_arg_value(args, ARG_NO_OPEN_EXPLORER)
 
@@ -59,7 +61,7 @@ def main_paths(args: argparse.Namespace) -> None:
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_path: dict[Future[Tuple[bool, str, Path]], str] = {
-            executor.submit(run_custom_ingest, Path(path), final_output_dir, file_include_paths_pattern, exclude_paths_pattern): path
+            executor.submit(run_custom_ingest, Path(path), final_output_dir, file_include_paths_pattern, exclude_paths_pattern, ignore_paths): path
             for path in paths
         }
 
@@ -139,7 +141,7 @@ def merge_output_files(output_files: List[Path], original_abs_paths: List[str], 
     return merged_path
 
 
-def run_custom_ingest(input_path: Path, output_dir: Path, file_include_pattern_list: List[str], exclude_pattern_list: List[str]) -> Tuple[bool, str, Path]:
+def run_custom_ingest(input_path: Path, output_dir: Path, file_include_pattern_list: List[str], exclude_pattern_list: List[str], ignore_paths: List[str]) -> Tuple[bool, str, Path]:
     """
     Build a context file for the provided path using the local custom gitingest implementation.
     Returns: (success, message, output_path)
@@ -160,6 +162,7 @@ def run_custom_ingest(input_path: Path, output_dir: Path, file_include_pattern_l
                 output_path=output_path,
                 file_include_patterns=file_include_pattern_list,
                 file_or_folder_exclude_patterns=exclude_pattern_list,
+                ignore_paths=ignore_paths,
             )
         )
     except Exception as exc:

@@ -5,7 +5,7 @@ import re
 import sys
 from enum import Enum, auto
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 from dev.dev_common.core_utils import *
 from dev.dev_common.input_utils import prompt_confirmation
@@ -49,7 +49,8 @@ def git_resolve_ref_to_commit(repo_path: Path | str, git_ref: str) -> Optional[s
     normalized_ref = (git_ref or "").strip()
     if not normalized_ref:
         return None
-    result = run_shell([CMD_GIT, "rev-parse", f"{normalized_ref}^{{commit}}"], cwd=repo_path, capture_output=True, text=True, check_throw_exception_on_exit_code=False)
+    result = run_shell([CMD_GIT, "rev-parse", f"{normalized_ref}^{{commit}}"], cwd=repo_path,
+                       capture_output=True, text=True, check_throw_exception_on_exit_code=False)
     resolved_sha = result.stdout.strip()
     if result.returncode != 0 or not resolved_sha:
         return None
@@ -93,24 +94,26 @@ def git_is_ancestor(ancestor_ref: str, descentdant_ref: str, cwd: Union[str, Pat
 def git_get_ref_type(repo_path: Path, git_ref: str) -> Optional[str]:
     """Returns ref type: branch, tag, commit, tree, blob, or None if not found."""
     ref = git_ref.strip()
-    
+
     # Check branch
     if run_shell(["git", "show-ref", "--verify", "--quiet", f"refs/heads/{ref}"],
-           cwd=repo_path, stdout=DEVNULL, stderr=DEVNULL, check_throw_exception_on_exit_code=False).returncode == 0:
+                 cwd=repo_path, stdout=DEVNULL, stderr=DEVNULL, check_throw_exception_on_exit_code=False).returncode == 0:
         return "branch"
-    
+
     # Check tag
     if run_shell(["git", "show-ref", "--verify", "--quiet", f"refs/tags/{ref}"],
-           cwd=repo_path, stdout=DEVNULL, stderr=DEVNULL, check_throw_exception_on_exit_code=False).returncode == 0:
+                 cwd=repo_path, stdout=DEVNULL, stderr=DEVNULL, check_throw_exception_on_exit_code=False).returncode == 0:
         return "tag"
-    
+
     # Check object type (commit/tree/blob)
     result = run_shell(["git", "cat-file", "-t", ref],
-                 cwd=repo_path, capture_output=True, text=True, check_throw_exception_on_exit_code=False)
+                       cwd=repo_path, capture_output=True, text=True, check_throw_exception_on_exit_code=False)
     return result.stdout.strip() if result.returncode == 0 else None
+
 
 def git_is_ref_or_branch_existing(repo_path: Path, git_ref: str) -> bool:
     return git_get_ref_type(repo_path, git_ref) is not None
+
 
 def git_check_ref(
     repo_path: Path | str,
@@ -120,12 +123,12 @@ def git_check_ref(
 ) -> bool:
     ref_type = git_get_ref_type(Path(repo_path), ref.strip())
     label = f"{ref_name} " if ref_name else ""
-    
+
     if not ref_type:
         msg = f"Git ref {label}'{ref.strip()}' does not exist in '{repo_path}'."
         (LOG_EXCEPTION_STR if log_exception_on_failure else LOG)(msg)
         return False
-    
+
     LOG(f"Git ref {label}'{ref.strip()}' exists in '{repo_path}' (type: {ref_type}).")
     return True
 
@@ -238,7 +241,8 @@ def git_fetch_remote(repo_path: Path | str, remote_name: str) -> bool:
     command = [CMD_GIT, 'fetch', '--prune', remote_name]
     try:
         LOG(f"Fetching latest changes from remote '{remote_name}' in '{Path(repo_path).name}'...")
-        run_shell(command, cwd=repo_path, capture_output=True, text=True, encoding='utf-8', check_throw_exception_on_exit_code=True)
+        run_shell(command, cwd=repo_path, capture_output=True, text=True,
+                  encoding='utf-8', check_throw_exception_on_exit_code=True)
         LOG("Remote fetch completed successfully.")
         return True
     except Exception as e:
@@ -417,7 +421,40 @@ def _combine_patch_and_stat(patch_text: str, stat_text: str) -> str:
     return patch_text + stat_text
 
 
-def extract_git_diff(repo_local_path: Path, base_ref: str, target_ref: str, show_full_file: bool = False, binary_extensions: Optional[List[str]] = None) -> Optional[str]:
+def _normalize_git_ignore_rel_paths(repo_local_path: Path, ignore_paths: Sequence[str] | None) -> List[str]:
+    rel_paths: List[str] = []
+    for raw_path in (ignore_paths or []):
+        normalized = (raw_path or "").strip()
+        if not normalized:
+            continue
+        expanded = Path(normalized).expanduser()
+        if expanded.is_absolute():
+            try:
+                rel = expanded.resolve().relative_to(repo_local_path.resolve())
+            except ValueError:
+                LOG(f"Warning: Ignoring path '{raw_path}' as it is not within the repository '{repo_local_path}'.", highlight=True)
+                continue
+            rel_value = rel.as_posix().strip()
+        else:
+            rel_value = expanded.as_posix().strip()
+            repo_name = repo_local_path.name
+            if repo_name and rel_value.startswith(f"{repo_name}/"):
+                rel_value = rel_value[len(repo_name) + 1:]
+        if rel_value == ".":
+            LOG(f"Warning: Ignoring path '{raw_path}' as it resolves to the repository root '{repo_local_path}'.", highlight=True)
+        elif rel_value and rel_value != ".":
+            rel_paths.append(rel_value)
+
+    return rel_paths
+
+
+def build_git_exclude_pathspecs(repo_local_path: Path, ignore_paths: Sequence[str] | None) -> List[str]:
+    normalized_rel_paths = _normalize_git_ignore_rel_paths(repo_local_path, ignore_paths)
+    #LOG(f"Normalized ignore paths: {normalized_rel_paths}, input ignore paths: {ignore_paths}")
+    return [f":(exclude){rel_path}" for rel_path in normalized_rel_paths]
+
+
+def extract_git_diff(repo_local_path: Path, base_ref: str, target_ref: str, show_full_file: bool = False, binary_extensions: Optional[List[str]] = None, ignore_paths: Sequence[str] | None = None) -> Optional[str]:
     """
     Extracts a git diff between two references using --patch-with-stat.
 
@@ -439,15 +476,18 @@ def extract_git_diff(repo_local_path: Path, base_ref: str, target_ref: str, show
 
     try:
         full_file_args = ['--unified=999999'] if show_full_file else []
+        exclude_pathspecs = build_git_exclude_pathspecs(repo_local_path, ignore_paths)
+        pathspec_args = ["--", ".", *exclude_pathspecs] if exclude_pathspecs else []
         cleaned_binary_exts = _normalize_binary_extensions(binary_extensions)
         if not cleaned_binary_exts:
-            command = [CMD_GIT, 'diff', '--patch-with-stat', *full_file_args, f"{base_ref}..{target_ref}"]
+            command = [CMD_GIT, 'diff', '--patch-with-stat', *
+                       full_file_args, f"{base_ref}..{target_ref}", *pathspec_args]
             LOG(f"Running git diff in '{repo_local_path}'... Command:\n{' '.join(command)}")
             process = run_shell(command, cwd=repo_local_path, check_throw_exception_on_exit_code=True,
                                 capture_output=True, text=True, encoding='utf-8')
             return process.stdout
-        patch_cmd = [CMD_GIT, 'diff', '--patch', *full_file_args, f"{base_ref}..{target_ref}"]
-        stat_cmd = [CMD_GIT, 'diff', '--stat', f"{base_ref}..{target_ref}"]
+        patch_cmd = [CMD_GIT, 'diff', '--patch', *full_file_args, f"{base_ref}..{target_ref}", *pathspec_args]
+        stat_cmd = [CMD_GIT, 'diff', '--stat', f"{base_ref}..{target_ref}", *pathspec_args]
         LOG(f"Running git diff in '{repo_local_path}'... Command:\n{' '.join(patch_cmd)}")
         patch_process = run_shell(patch_cmd, cwd=repo_local_path, check_throw_exception_on_exit_code=True,
                                   capture_output=True, text=True, encoding='utf-8')

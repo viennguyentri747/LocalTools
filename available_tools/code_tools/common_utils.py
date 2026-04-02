@@ -13,8 +13,10 @@ ARG_EXTRACT_MODE = '--extract-mode'
 ARG_BASE_REF_LONG = '--base'
 ARG_TARGET_REF_LONG = '--target'
 ARG_GITLAB_MR_URL_LONG = '--mr-url'
+ARG_SHOW_FULL_FILE = '--show-full-file'
 ARG_INCLUDE_PATHS_PATTERN = '--include-paths-pattern'
 ARG_EXCLUDE_PATHS_PATTERN = '--exclude-paths-pattern'
+ARG_IGNORE_PATHS = '--ignore-paths'
 ARG_MAX_WORKERS = '--max-workers'
 
 GIT_INGEST_OUTPUT_FLAG = '--output'
@@ -65,18 +67,21 @@ def create_log_file_paths(args: argparse.Namespace, output_dir: Path, timestamp:
         log_file.write(f"  Output directory: {get_arg_value(args, ARG_OUTPUT_DIR)}\n")
         log_file.write(f"  Include patterns: {get_arg_value(args, ARG_INCLUDE_PATHS_PATTERN)}\n")
         log_file.write(f"  Exclude patterns: {get_arg_value(args, ARG_EXCLUDE_PATHS_PATTERN)}\n")
+        log_file.write(f"  Ignore paths: {get_arg_value(args, ARG_IGNORE_PATHS)}\n")
         log_file.write(f"  Max workers: {get_arg_value(args, ARG_MAX_WORKERS)}\n")
         log_file.write(f"  Max folders: {get_arg_value(args, ARG_MAX_FOLDERS)}\n")
         log_file.write(f"  No open explorer: {get_arg_value(args, ARG_NO_OPEN_EXPLORER)}\n")
     return log_path
 
 
-def save_changed_files(repo_path: Path, base: str, target: str, output_dir: Path) -> bool:
+def save_changed_files(repo_path: Path, base: str, target: str, output_dir: Path, ignore_paths: List[str] | None = None) -> bool:
     """
     Saves the content of changed files from the base ref to a subdirectory.
     """
     try:
-        diff_files_cmd = [CMD_GIT, '-C', str(repo_path), 'diff', '--name-only', base, target]
+        exclude_pathspecs = build_git_exclude_pathspecs(repo_path, ignore_paths)
+        pathspec_args = ['--', '.', *exclude_pathspecs] if exclude_pathspecs else []
+        diff_files_cmd = [CMD_GIT, '-C', str(repo_path), 'diff', '--name-only', base, target, *pathspec_args]
         result = run_shell(diff_files_cmd, capture_output=True, text=True,
                            check_throw_exception_on_exit_code=True, encoding='utf-8')
         changed_files = result.stdout.strip().split('\n')

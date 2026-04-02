@@ -129,10 +129,10 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
         want_shell = False
     else:
         if want_shell and isinstance(cmd, List):
-            LOG(f"Shell mode but cmd is a list -> Converting to string...")
+            #LOG(f"Shell mode but cmd is a list -> Converting to string...")
             cmd = _stringify_cmd_list(cmd)
         elif not want_shell and isinstance(cmd, str):
-            LOG(f"Non-shell mode but cmd is a string -> Converting to list...")
+            #LOG(f"Non-shell mode but cmd is a string -> Converting to list...")
             cmd = shlex.split(cmd)
 
     if show_cmd:

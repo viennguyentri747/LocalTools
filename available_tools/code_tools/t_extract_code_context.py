@@ -120,6 +120,12 @@ def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
         default=[],
         help='[paths mode] Additional patterns to exclude (e.g., "build" "*.log").',
     )
+    parser.add_argument(
+        ARG_IGNORE_PATHS,
+        nargs="*",
+        default=[],
+        help="[paths mode] Exact file/folder paths to ignore (absolute or relative to each input path).",
+    )
 
     # git diff mode options
     parser.add_argument(
@@ -134,6 +140,12 @@ def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         ARG_TARGET_REF_LONG,
         help="[git_diff mode] The target git ref to compare against the base (Ex: origin/feat_branch).",
+    )
+    parser.add_argument(
+        ARG_SHOW_FULL_FILE,
+        type=lambda x: x.lower() == TRUE_STR_VALUE,
+        default=True,
+        help="[git_diff mode] Show full file content around changes (true or false). Defaults to true.",
     )
 
     # gitlab MR mode options

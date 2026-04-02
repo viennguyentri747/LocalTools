@@ -15,8 +15,10 @@ def get_diff_tool_templates() -> List[ToolTemplate]:
             args={
                 ARG_EXTRACT_MODE: EXTRACT_MODE_GIT_DIFF,
                 ARG_PATH_LONG: f"{CORE_REPOS_PATH}/intellian_pkg",
-                ARG_BASE_REF_LONG: "origin/manpack_master",
+                ARG_BASE_REF_LONG: f"origin/{BRANCH_AERO_MASTER}",
                 ARG_TARGET_REF_LONG: "origin/feat_branch",
+                ARG_SHOW_FULL_FILE: True,
+                ARG_IGNORE_PATHS: [f"{INSENSE_SDK_REPO_PATH}/InsenseSDK"],
             }
         ),
     ]
@@ -30,6 +32,8 @@ def main_git_diff(args: argparse.Namespace) -> None:
     output_dir = get_arg_value(args, ARG_OUTPUT_DIR)
     no_open_explorer = get_arg_value(args, ARG_NO_OPEN_EXPLORER)
     max_folders = get_arg_value(args, ARG_MAX_FOLDERS)
+    show_full_file = get_arg_value(args, ARG_SHOW_FULL_FILE)
+    ignore_paths = get_arg_value(args, ARG_IGNORE_PATHS)
 
     if not repo_path or not base or not target:
         LOG(f"Error: --path, --base, and --target arguments are required for 'git_diff' mode.", file=sys.stderr)
@@ -47,7 +51,7 @@ def main_git_diff(args: argparse.Namespace) -> None:
     final_output_dir = output_dir / final_output_dir_name
     final_output_dir.mkdir(parents=True, exist_ok=True)
 
-    diff_content = extract_git_diff(repo_path, base, target, show_full_file=True)
+    diff_content = extract_git_diff(repo_path, base, target, show_full_file=show_full_file, ignore_paths=ignore_paths)
     is_success = diff_content is not None
     output_path = None
 
@@ -67,7 +71,7 @@ def main_git_diff(args: argparse.Namespace) -> None:
             LOG(f"Diff content saved to '{output_path}'.")
 
             LOG()
-            save_changed_files(repo_path, base, target, final_output_dir)
+            save_changed_files(repo_path, base, target, final_output_dir, ignore_paths=ignore_paths)
 
         except IOError as e:
             LOG(f"Failed to write to output file '{output_path}': {e}", file=sys.stderr)

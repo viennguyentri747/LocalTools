@@ -3,7 +3,7 @@ from __future__ import annotations
 import fnmatch
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Sequence, Tuple, TextIO
+from typing import Dict, List, Sequence, Set, Tuple, TextIO
 import tiktoken
 from dev.dev_common.constants import LINE_SEPARATOR_NO_ENDLINE
 from dev.dev_common.format_utils import beautify_number
@@ -28,6 +28,7 @@ class IngestConfig:
     output_path: Path
     file_include_patterns: Sequence[str] | None = None  # None = ["*"]
     file_or_folder_exclude_patterns: Sequence[str] | None = None
+    ignore_paths: Sequence[str] | None = None
     ignore_files_in_gitignore: bool = True
     max_file_size_mb: float = 1  # 2 MB ~ 26k lines of code
     skip_binary_files: bool = True
@@ -129,6 +130,7 @@ def run_ingest(config: IngestConfig) -> CustomIngestResult:
     exclude_patterns = _normalize_patterns(config.file_or_folder_exclude_patterns, default_all=False)
 
     resolved_input_path = config.input_path.resolve()
+    absolute_ignore_paths, relative_ignore_paths = _normalize_ignore_paths(config.ignore_paths, resolved_input_path)
     is_directory = resolved_input_path.is_dir()
 
     # 1. Collect files (metadata only, no content reading yet)
@@ -136,6 +138,8 @@ def run_ingest(config: IngestConfig) -> CustomIngestResult:
         resolved_input_path,
         include_patterns,
         exclude_patterns,
+        absolute_ignore_paths=absolute_ignore_paths,
+        relative_ignore_paths=relative_ignore_paths,
         ignore_files_in_gitignore=config.ignore_files_in_gitignore,
         max_file_size_bytes=config.max_file_size_bytes,
         skip_binary_files=config.skip_binary_files,
@@ -191,6 +195,8 @@ def collect_file_entries(
     path: Path,
     file_include_patterns: Sequence[str],
     exclude_patterns: Sequence[str],
+    absolute_ignore_paths: Set[Path] | None = None,
+    relative_ignore_paths: Set[str] | None = None,
     ignore_files_in_gitignore: bool = True,
     max_file_size_bytes: int | None = None,
     skip_binary_files: bool = True,
@@ -202,6 +208,10 @@ def collect_file_entries(
     def is_valid_path(file_path: Path, rel_path: Path, gitignore_scopes: Sequence[GitIgnoreScope], is_directory: bool = False, ) -> bool:
         """Check if a file or directory should be processed."""
         rel_path_str = rel_path.as_posix()
+
+        if _should_ignore_path(file_path, rel_path_str, absolute_ignore_paths or set(), relative_ignore_paths or set()):
+            print(f"SKIP {'DIRECTORY' if is_directory else 'FILE'} REASON: Matched ignore path, path = {file_path}")
+            return False
 
         # Check exclude patterns (applies to both files and directories)
         if _matches_exclude(rel_path_str, exclude_patterns):
@@ -371,6 +381,46 @@ def _normalize_patterns(patterns: Sequence[str] | None, default_all: bool) -> Li
     if not normalized and default_all:
         return ["*"]
     return normalized
+
+
+def _normalize_ignore_paths(ignore_paths: Sequence[str] | None, root_path: Path) -> Tuple[Set[Path], Set[str]]:
+    absolute_paths: Set[Path] = set()
+    relative_paths: Set[str] = set()
+    root_name = root_path.name
+    for raw_path in (ignore_paths or []):
+        normalized_path = (raw_path or "").strip()
+        if not normalized_path:
+            continue
+        candidate = Path(normalized_path).expanduser()
+        if candidate.is_absolute():
+            absolute_paths.add(candidate.resolve())
+            continue
+        rel_str = candidate.as_posix().strip("/")
+        if not rel_str or rel_str == ".":
+            continue
+        relative_paths.add(rel_str)
+        if root_name and rel_str.startswith(f"{root_name}/"):
+            relative_paths.add(rel_str[len(root_name) + 1:])
+    return absolute_paths, relative_paths
+
+
+def _should_ignore_path(candidate_abs_path: Path, candidate_rel_path_str: str, absolute_ignore_paths: Set[Path], relative_ignore_paths: Set[str]) -> bool:
+    resolved_candidate = candidate_abs_path.resolve()
+    for ignore_path in absolute_ignore_paths:
+        if resolved_candidate == ignore_path or _is_sub_path(resolved_candidate, ignore_path):
+            return True
+    for ignore_rel in relative_ignore_paths:
+        if candidate_rel_path_str == ignore_rel or candidate_rel_path_str.startswith(f"{ignore_rel}/"):
+            return True
+    return False
+
+
+def _is_sub_path(candidate: Path, parent: Path) -> bool:
+    try:
+        candidate.relative_to(parent)
+        return True
+    except ValueError:
+        return False
 
 
 def _matches_include(candidate: str, include_patterns: Sequence[str]) -> bool:

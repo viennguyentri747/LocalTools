@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 import paramiko
 import posixpath
+import re
 import shlex
 import time
 import subprocess
@@ -74,6 +75,35 @@ def run_ssh_command(host_ip: str, user: str, password: str, command: str, timeou
         return stdout.read().decode('utf-8', errors='replace'), stderr.read().decode('utf-8', errors='replace')
     finally:
         close_ssh_client(target_client, jump_client, jump_channel)
+
+
+def get_remote_file_checksum(remote_host_ip: str, remote_path: str, remote_user: str = ACU_USER, password: Optional[str] = None,
+                             checksum_type: str = CHECKSUM_TYPE_MD5, timeout: int = 10, jump_host_ip: Optional[str] = None,
+                             jump_user: Optional[str] = None, jump_password: Optional[str] = None) -> Optional[str]:
+    """Return remote file checksum string, or None when file is missing."""
+    checksum_cmd = "md5sum" if checksum_type == CHECKSUM_TYPE_MD5 else "sha256sum" if checksum_type == CHECKSUM_TYPE_SHA256 else EMPTY_STR_VALUE
+    if not checksum_cmd:
+        raise ValueError(f"Unsupported checksum_type='{checksum_type}'. Use '{CHECKSUM_TYPE_MD5}' or '{CHECKSUM_TYPE_SHA256}'.")
+    remote_path_quoted = shlex.quote(remote_path)
+    remote_cmd = (
+        f'if [ -f {remote_path_quoted} ]; then '
+        f'{checksum_cmd} {remote_path_quoted} | cut -d" " -f1; '
+        f'else echo {shlex.quote(REMOTE_CHECKSUM_FILE_MISSING)}; fi'
+    )
+    stdout, stderr = run_ssh_command(host_ip=remote_host_ip, user=remote_user, password=password or EMPTY_STR_VALUE, command=remote_cmd,
+                                     timeout=timeout, jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=jump_password)
+    if stderr.strip():
+        LOG(f"{LOG_PREFIX_MSG_WARNING} Remote checksum stderr from {remote_host_ip}: {stderr.strip()}")
+    for line in reversed((stdout or EMPTY_STR_VALUE).splitlines()):
+        candidate = line.strip()
+        if not candidate:
+            continue
+        if candidate == REMOTE_CHECKSUM_FILE_MISSING:
+            return None
+        if re.fullmatch(r"[a-fA-F0-9]{32}", candidate) or re.fullmatch(r"[a-fA-F0-9]{64}", candidate):
+            return candidate.lower()
+        break
+    raise RuntimeError(f"Could not parse remote checksum output for '{remote_path}' on {remote_host_ip}. Raw stdout='{stdout.strip()}' stderr='{stderr.strip()}'")
 
 
 def get_live_remote_log(host_ip: str, user: str, password: str, remote_log_path: str, timeout: int = 5, jump_host_ip: Optional[str] = None,

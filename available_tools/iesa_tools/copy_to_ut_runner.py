@@ -124,6 +124,11 @@ def _build_iesa_post_copy_cmd(original_md5: str, remote_dir: str, remote_name: s
     )
 
 
+def _log_checksums(local_md5: str, remote_md5: Optional[str], remote_abs_path: str, stage: str) -> None:
+    LOG(f"{LOG_PREFIX_MSG_INFO} Local md5 ({stage}): {local_md5}")
+    LOG(f"{LOG_PREFIX_MSG_INFO} Remote md5 ({stage}) {remote_abs_path}: {remote_md5 or 'MISSING'}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Copy binary or IESA artifact to ACU through a UT jump host.")
     parser.add_argument(ARG_MODE, choices=[MODE_BINARY, MODE_IESA, MODE_NO_SETUP], required=True, help="Copy mode.")
@@ -146,16 +151,33 @@ def main() -> None:
     remote_user = get_arg_value(args, ARG_REMOTE_USER)
     target_ip = _get_target_ip(get_arg_value(args, ARG_TARGET_IP))
     dest_name = get_arg_value(args, ARG_DEST_NAME) or local_file.name
+    remote_abs_path = f"{remote_dir}/{dest_name}"
 
     _ensure_local_file_accessible(local_file)
-    original_md5 = get_file_md5sum(str(local_file))
-    copy_to_remote_via_jump_host(local_path=local_file, remote_host_ip=remote_host_ip, remote_dest_path=f"{remote_dir}/{dest_name}",
-                                 jump_host_ip=target_ip, remote_user=remote_user, password=ACU_PASSWORD,
-                                 jump_user=SSM_USER, jump_password=SSM_PASSWORD, recursive=False)
-    time.sleep(1)
-    LOG_LINE_SEPARATOR()
-    LOG("SCP copy completed successfully")
-    show_noti(title="Copy Complete", message=f"File copied to {target_ip}", no_log_on_success=True)
+    original_md5 = get_file_md5sum(str(local_file)).lower()
+    remote_md5_before = get_remote_file_checksum(remote_host_ip=remote_host_ip, remote_path=remote_abs_path, remote_user=remote_user,
+                                                 password=ACU_PASSWORD, checksum_type=CHECKSUM_TYPE_MD5, jump_host_ip=target_ip,
+                                                 jump_user=SSM_USER, jump_password=SSM_PASSWORD)
+    _log_checksums(local_md5=original_md5, remote_md5=remote_md5_before, remote_abs_path=remote_abs_path, stage="before copy")
+
+    is_copied = False
+    if remote_md5_before == original_md5:
+        LOG(f"{LOG_PREFIX_MSG_INFO} Remote file already matches local file. Skipping copy: {remote_abs_path}")
+    else:
+        copy_to_remote_via_jump_host(local_path=local_file, remote_host_ip=remote_host_ip, remote_dest_path=remote_abs_path,
+                                     jump_host_ip=target_ip, remote_user=remote_user, password=ACU_PASSWORD,
+                                     jump_user=SSM_USER, jump_password=SSM_PASSWORD, recursive=False)
+        time.sleep(1)
+        remote_md5_after = get_remote_file_checksum(remote_host_ip=remote_host_ip, remote_path=remote_abs_path, remote_user=remote_user,
+                                                    password=ACU_PASSWORD, checksum_type=CHECKSUM_TYPE_MD5, jump_host_ip=target_ip,
+                                                    jump_user=SSM_USER, jump_password=SSM_PASSWORD)
+        _log_checksums(local_md5=original_md5, remote_md5=remote_md5_after, remote_abs_path=remote_abs_path, stage="after copy")
+        if remote_md5_after != original_md5:
+            raise RuntimeError(f"Checksum mismatch after copy. local={original_md5}, remote={remote_md5_after or 'MISSING'}, path={remote_abs_path}")
+        is_copied = True
+        LOG_LINE_SEPARATOR()
+        LOG("SCP copy completed successfully")
+        show_noti(title="Copy Complete", message=f"File copied to {target_ip}", no_log_on_success=True)
 
     ut_command: Optional[str] = None
     purpose: str = ""
@@ -169,7 +191,8 @@ def main() -> None:
         ut_command = _build_iesa_post_copy_cmd(original_md5=original_md5, remote_dir=remote_dir, remote_name=dest_name,
                                                prompt_before_execute=get_arg_value(args, ARG_PROMPT_BEFORE_EXECUTE))
     else:
-        LOG(f"File copied. Run on target UT {target_ip}!!")
+        action = "copied" if is_copied else "already up to date (copy skipped)"
+        LOG(f"File {action}. Run on target UT {target_ip}!!")
 
     if ut_command:
         LOG_LINE_SEPARATOR()

@@ -14,11 +14,11 @@ def get_diff_tool_templates() -> List[ToolTemplate]:
             name="[git_diff] Context from Git Diff between 2 refs (commits, branchs, tags ...)",
             args={
                 ARG_EXTRACT_MODE: EXTRACT_MODE_GIT_DIFF,
+                ARG_SHOW_FULL_FILE: True,
+                ARG_IGNORE_PATHS: [f"{INSENSE_SDK_REPO_PATH}/InsenseSDK"],
                 ARG_PATH_LONG: f"{CORE_REPOS_PATH}/intellian_pkg",
                 ARG_BASE_REF_LONG: f"origin/{BRANCH_AERO_MASTER}",
                 ARG_TARGET_REF_LONG: "origin/feat_branch",
-                ARG_SHOW_FULL_FILE: True,
-                ARG_IGNORE_PATHS: [f"{INSENSE_SDK_REPO_PATH}/InsenseSDK"],
             }
         ),
     ]

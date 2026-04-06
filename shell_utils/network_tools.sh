@@ -431,18 +431,40 @@ scp_acu_to_local() {
 
 
 search_ip() {
-    #setopt LOCAL_OPTIONS NO_NOTIFY NO_MONITOR 2>/dev/null
+    # Usage:
+    #   search_ip                  # defaults to nor prefix
+    #   search_ip 172.16.20        # scan custom prefix
+    local input_prefix="$1"
+    local ip_prefix="$nor_ip_prefix"
     local ips=()
-    echo "Scanning ${nor_ip_prefix}.1-${ip_range}..."
-    for ((i=1; i<=ip_range; i++)); do
-        (ping -c1 -W1 "${nor_ip_prefix}.${i}" >/dev/null 2>&1 && echo "${nor_ip_prefix}.${i}") &
-    done | while read -r ip; do
+
+    if [[ -n "$input_prefix" ]]; then
+        if [[ "$input_prefix" =~ ^([0-9]{1,3}\.){2}[0-9]{1,3}$ ]]; then
+            ip_prefix="$input_prefix"
+        else
+            echo "Usage: search_ip [<ip-prefix>]"
+            echo "Ex: search_ip            # scans ${nor_ip_prefix}.1-${ip_range}"
+            echo "    search_ip ${lab_ip_prefix}"
+            return 1
+        fi
+    fi
+
+    echo "Scanning ${ip_prefix}.1-${ip_range}..."
+    while read -r ip; do
         ips+=("$ip")
-    done
+    done < <(
+        for ((i=1; i<=ip_range; i++)); do
+            (ping -c1 -W1 "${ip_prefix}.${i}" >/dev/null 2>&1 && echo "${ip_prefix}.${i}") &
+        done
+        wait
+    )
 
-    wait
+    if [[ ${#ips[@]} -eq 0 ]]; then
+        echo "No reachable IPs found in ${ip_prefix}.1-${ip_range}."
+        return 0
+    fi
 
-    echo -e "Reachable IPs:\n${(j:\n:)ips}"
+    printf "Reachable IPs:\n%s\n" "${ips[@]}"
 }
 
 # unset ut_pass

@@ -11,6 +11,7 @@ Prerequisites:
 
 import re
 import subprocess
+import time
 from typing import Optional
 import urllib.parse
 from pathlib import Path
@@ -126,7 +127,7 @@ def execute_obsidian_command( vault_name: str, command: str, filepath: str = Non
 
         LOG(f"⏳ Executing blocking Obsidian Command URI for WSL: {uri[:150]}...")
         escaped_uri = uri.replace('&', '^&')
-        # The /wait flag tells cmd.exe to wait for the new process to terminate.
+        # The /wait flag tells cmd.exe to wait for the new process to terminate. Note: seems not very reliable
         cmd = f'cmd.exe /c start /wait "" "{escaped_uri}"'
         # LOG(f"🚀 Running command: {cmd} at {datetime.now()}")
         subprocess.run(cmd, shell=True, check=True)
@@ -168,8 +169,9 @@ def create_obsidian_note_with_template(
             use_command_id=True,
             mode="overwrite"
         )
-        sleep_secs = 1
-        print(f"⏳ Waiting {sleep_secs} seconds for the note to be created...")
+        #sleep_secs = 1.5
+        #print(f"⏳ Waiting {sleep_secs} seconds for the note to be created...")
+        #time.sleep(sleep_secs)
         # Append provided markdown content
         create_note_with_uri(
             vault_name=vault_name,

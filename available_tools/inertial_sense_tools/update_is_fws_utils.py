@@ -112,7 +112,7 @@ def extract_version_from_fpkg(fpkg_path: Path) -> Optional[str]:
     return extract_version_from_filename(entry) if entry else None
 
 
-def get_fw_pair(fpkg_fw_path: str, *, fpkg_only: bool = False) -> Optional[KimFwSet]:
+def get_fw_pair(fpkg_fw_path: str, *, extract_imx: bool = True) -> Optional[KimFwSet]:
     """Locate a firmware pair based on an explicit fpkg path."""
     input_path = Path(fpkg_fw_path).expanduser()
     if input_path.suffix != GPX_EXTENSION or not input_path.is_file():
@@ -130,7 +130,7 @@ def get_fw_pair(fpkg_fw_path: str, *, fpkg_only: bool = False) -> Optional[KimFw
         LOG(f"❌ FATAL: Could not determine version from fpkg: {gpx_path} -> Returning None.")
         return None
 
-    imx_from_fpkg, rcvr_version = _extract_fpkg_data(gpx_path, extract_imx=not fpkg_only)
+    imx_from_fpkg, rcvr_version = _extract_fpkg_data(gpx_path, extract_imx=extract_imx)
     return KimFwSet(
         imx_full_path=imx_from_fpkg,
         gpx_full_path=gpx_path,
@@ -144,7 +144,7 @@ def extract_timestamp_from_fw_filename(filename: str) -> Optional[str]:
     return match.group(1) if match else None
 
 
-def update_firmwares(fw_set: KimFwSet) -> None:
+def update_firmwares(fw_set: KimFwSet, *, update_imx_fw: bool = True, update_gpx_fw: bool = True) -> None:
     LOG(f"\n🚀 Starting firmware update process in: {OW_SW_KIM_FTM_FW_PATH}")
     os.chdir(OW_SW_KIM_FTM_FW_PATH)
 
@@ -159,16 +159,27 @@ def update_firmwares(fw_set: KimFwSet) -> None:
         Path(symlink).symlink_to(new_path)
         return new_path.name
 
-    new_imx_name = copy_firmware(fw_set.imx_full_path, IMX_SYMLINK)
-    new_gpx_name = copy_firmware(fw_set.gpx_full_path, GPX_SYMLINK)
+    if update_imx_fw:
+        new_imx_name = copy_firmware(fw_set.imx_full_path, IMX_SYMLINK)
+    else:
+        LOG("⏭️ Skipping IMX firmware update (--update_imx_fw=false).")
+        new_imx_name = ""
+    if update_gpx_fw:
+        new_gpx_name = copy_firmware(fw_set.gpx_full_path, GPX_SYMLINK)
+    else:
+        LOG("⏭️ Skipping GPX firmware update (--update_gpx_fw=false).")
+        new_gpx_name = ""
 
     LOG("\n✅ Seeds updated successfully:")
     symlinks_to_list = []
-    if fw_set.imx_full_path:
+    if update_imx_fw and fw_set.imx_full_path:
         symlinks_to_list.append(IMX_SYMLINK)
-    if fw_set.gpx_full_path:
+    if update_gpx_fw and fw_set.gpx_full_path:
         symlinks_to_list.append(GPX_SYMLINK)
-    os.system(f"ls -l {' '.join(symlinks_to_list)}")
+    if symlinks_to_list:
+        os.system(f"ls -l {' '.join(symlinks_to_list)}")
+    else:
+        LOG("No firmware symlink updates requested.")
 
     LOG("\n🧹 Scanning for OLD firmwares files to remove...")
     # Only remove imx if there is new_imx, only remove gpx if there is new_gpx
@@ -176,8 +187,8 @@ def update_firmwares(fw_set: KimFwSet) -> None:
         path
         for path in OW_SW_KIM_FTM_FW_PATH.iterdir()
         if (
-            (path.name.startswith(IMX_PREFIX) and new_imx_name and path.name != new_imx_name)
-            or (path.name.startswith(GPX_PREFIX) and new_gpx_name and path.name != new_gpx_name)
+            (update_imx_fw and path.name.startswith(IMX_PREFIX) and new_imx_name and path.name != new_imx_name)
+            or (update_gpx_fw and path.name.startswith(GPX_PREFIX) and new_gpx_name and path.name != new_gpx_name)
         )
     ]
 
@@ -202,31 +213,33 @@ def update_firmwares(fw_set: KimFwSet) -> None:
     LOG("\n✅ Firmware update complete!")
 
     LOG(LINE_SEPARATOR)
-    # Interactive receiver version update and commit
-    current_rcvr_version = ""
-    try:
-        if OW_SW_KIM_RCVR_VERSION_FILE_PATH.exists():
-            current_rcvr_version = OW_SW_KIM_RCVR_VERSION_FILE_PATH.read_text(encoding="utf-8").strip()
-    except Exception as exc:
-        LOG(f"⚠️ WARNING: Failed to read current receiver version: {exc}")
-
-    LOG("Change receiver version interactively:")
-    detected_rcvr_version = fw_set.rcvr_version or "N/A"
-    # current_rcvr_display = current_rcvr_version or "N/A"
-    prompt_msg = (
-        "Edit or press Enter to use current RCVR version "
-        f"(Detected = {detected_rcvr_version}):"
-    )
-    user_input_opt = prompt_input(prompt_msg, default_input=current_rcvr_version)
-    user_input = (user_input_opt or "").strip()
-
-    new_rcvr_version = user_input if user_input else current_rcvr_version
-    if new_rcvr_version != current_rcvr_version:
+    # Receiver version generally follows GPX package content.
+    if update_gpx_fw:
+        current_rcvr_version = ""
         try:
-            OW_SW_KIM_RCVR_VERSION_FILE_PATH.write_text(new_rcvr_version + "\n", encoding="utf-8")
-            LOG(f"Version updated to {new_rcvr_version}!")
+            if OW_SW_KIM_RCVR_VERSION_FILE_PATH.exists():
+                current_rcvr_version = OW_SW_KIM_RCVR_VERSION_FILE_PATH.read_text(encoding="utf-8").strip()
         except Exception as exc:
-            LOG(f"❌ ERROR: Failed to write receiver version file: {exc}")
+            LOG(f"⚠️ WARNING: Failed to read current receiver version: {exc}")
+
+        LOG("Change receiver version interactively:")
+        detected_rcvr_version = fw_set.rcvr_version or "N/A"
+        prompt_msg = (
+            "Edit or press Enter to use current RCVR version "
+            f"(Detected = {detected_rcvr_version}):"
+        )
+        user_input_opt = prompt_input(prompt_msg, default_input=current_rcvr_version)
+        user_input = (user_input_opt or "").strip()
+
+        new_rcvr_version = user_input if user_input else current_rcvr_version
+        if new_rcvr_version != current_rcvr_version:
+            try:
+                OW_SW_KIM_RCVR_VERSION_FILE_PATH.write_text(new_rcvr_version + "\n", encoding="utf-8")
+                LOG(f"Version updated to {new_rcvr_version}!")
+            except Exception as exc:
+                LOG(f"❌ ERROR: Failed to write receiver version file: {exc}")
+    else:
+        LOG("⏭️ Skipping receiver version prompt/write because GPX update is disabled.")
 
     # Stage and commit changes in OW_SW_PATH
     try:
@@ -241,7 +254,14 @@ def update_firmwares(fw_set: KimFwSet) -> None:
                          rel_fw_dir, rel_rcvr_file], auto_confirm=NO_PROMPT, )
 
 
-def run_fw_update(fpkg_fw_path: str, *, no_prompt: bool = False, base_branch: Optional[str] = None, fpkg_only: bool = False) -> None:
+def run_fw_update(
+    fpkg_fw_path: str,
+    *,
+    no_prompt: bool = False,
+    base_branch: Optional[str] = None,
+    update_imx_fw: bool = True,
+    update_gpx_fw: bool = True,
+) -> None:
     global NO_PROMPT
     NO_PROMPT = no_prompt
 
@@ -250,10 +270,13 @@ def run_fw_update(fpkg_fw_path: str, *, no_prompt: bool = False, base_branch: Op
     if staged_files:
         LOG_EXCEPTION_STR(f"Staging area already contains files. Staged before add: {', '.join(staged_files)}")
 
-    pair = get_fw_pair(fpkg_fw_path, fpkg_only=fpkg_only)
+    if not update_imx_fw and not update_gpx_fw:
+        LOG_EXCEPTION_STR("❌ FATAL: Both --update_imx_fw and --update_gpx_fw are false -> nothing to update.")
+
+    pair = get_fw_pair(fpkg_fw_path, extract_imx=update_imx_fw)
     if not pair:
         LOG_EXCEPTION_STR("❌ FATAL: Failed to build firmware set -> Aborting update.")
-    if not fpkg_only and pair.imx_full_path is None:
+    if update_imx_fw and pair.imx_full_path is None:
         LOG_EXCEPTION_STR("❌ FATAL: No firmware pair available (no IMX) -> Aborting update.")
 
     version = pair.version or extract_version_from_fpkg(fpkg_fw_path)
@@ -274,4 +297,4 @@ def run_fw_update(fpkg_fw_path: str, *, no_prompt: bool = False, base_branch: Op
         LOG("❌ FATAL: Could not switch/create branch -> Aborting update.")
         return
 
-    update_firmwares(pair)
+    update_firmwares(pair, update_imx_fw=update_imx_fw, update_gpx_fw=update_gpx_fw)

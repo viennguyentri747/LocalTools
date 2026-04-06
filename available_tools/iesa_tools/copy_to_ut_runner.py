@@ -15,8 +15,9 @@ from typing import Optional
 from dev.dev_common import *
 from dev.dev_iesa.acu_utils import create_install_iesa_cmd
 
-MODE_BINARY = "binary"
-MODE_IESA = "iesa"
+MODE_BINARY_SHELL_CMD = "binary_shell_cmd"
+MODE_IESA_SHELL_CMD = "iesa_shell_cmd"
+MODE_IESA_AUTO = "iesa_auto"
 MODE_NO_SETUP = "no_setup"
 ARG_LOCAL_PATH = f"{ARGUMENT_LONG_PREFIX}local_path"
 ARG_TARGET_IP = f"{ARGUMENT_LONG_PREFIX}target_ip"
@@ -131,7 +132,7 @@ def _log_checksums(local_md5: str, remote_md5: Optional[str], remote_abs_path: s
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Copy binary or IESA artifact to ACU through a UT jump host.")
-    parser.add_argument(ARG_MODE, choices=[MODE_BINARY, MODE_IESA, MODE_NO_SETUP], required=True, help="Copy mode.")
+    parser.add_argument(ARG_MODE, choices=[MODE_BINARY_SHELL_CMD, MODE_IESA_SHELL_CMD, MODE_NO_SETUP], required=True, help="Copy mode.")
     parser.add_argument(ARG_LOCAL_PATH, required=True, help="Local file path or binary output directory.")
     parser.add_argument(ARG_TARGET_IP, default=EMPTY_STR_VALUE, help="Target UT IP used as the SSH jump host.")
     parser.add_argument(ARG_DEST_NAME, default=EMPTY_STR_VALUE, help="Optional destination filename on ACU.")
@@ -181,12 +182,12 @@ def main() -> None:
 
     ut_command: Optional[str] = None
     purpose: str = ""
-    if mode == MODE_BINARY:
+    if mode == MODE_BINARY_SHELL_CMD:
         purpose = f"Setup binary on target IP {target_ip}"
         ut_command = _build_binary_post_copy_cmd(
             original_md5=original_md5, remote_dir=remote_dir, remote_name=dest_name, binary_name=local_file.name)
         LOG_LINE_SEPARATOR()
-    elif mode == MODE_IESA:
+    elif mode == MODE_IESA_SHELL_CMD:
         purpose = f"Setup IESA on target IP {target_ip}"
         ut_command = _build_iesa_post_copy_cmd(original_md5=original_md5, remote_dir=remote_dir, remote_name=dest_name,
                                                prompt_before_execute=get_arg_value(args, ARG_PROMPT_BEFORE_EXECUTE))

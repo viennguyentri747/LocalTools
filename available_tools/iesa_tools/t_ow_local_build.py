@@ -19,6 +19,8 @@ from dev.dev_iesa import *
 import yaml
 import traceback
 
+from local_tools.available_tools.iesa_tools.copy_to_ut_runner import MODE_BINARY_SHELL_CMD, MODE_IESA_SHELL_CMD
+
 GITLAB_CI_YML_PATH = OW_SW_PATH / ".gitlab-ci.yml"
 # Need to put this here because we will go into docker environment from OW_SW_PATH
 BSP_ARTIFACT_FOLDER_PATH = OW_SW_PATH / "custom_artifacts_bsp/"
@@ -208,7 +210,7 @@ def main() -> None:
     if run_via_python:
         command_to_display = (
             f'sudo chmod -R 755 {OW_SW_BUILD_BINARY_OUTPUT_PATH} && {shlex.quote(str(COPY_TO_UT_RUNNER_PATH))} '
-            f'--mode binary --local_path {shlex.quote(str(OW_SW_BUILD_BINARY_OUTPUT_PATH))}'
+            f'--mode {MODE_BINARY_SHELL_CMD} --local_path {shlex.quote(str(OW_SW_BUILD_BINARY_OUTPUT_PATH))}'
         )
 
     #command_to_display = wrap_cmd_for_bash(command_to_display)
@@ -249,7 +251,7 @@ def main() -> None:
             if run_via_python:
                 command_to_display = (
                     f'sudo chmod -R 755 {shlex.quote(str(new_iesa_output_abs_path))} && {shlex.quote(str(COPY_TO_UT_RUNNER_PATH))} '
-                    f'--mode iesa '
+                    f'--mode {MODE_IESA_SHELL_CMD} '
                     f'--local_path {shlex.quote(str(new_iesa_output_abs_path))} '
                     f'--prompt_before_execute true'
                 )

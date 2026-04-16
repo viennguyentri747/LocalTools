@@ -214,7 +214,7 @@ if __name__ == "__main__":
 
     # Save the generated markdown content to a file
     file_prefix = f"{ticket.key} "
-    file_name = f"{sanitize_str_to_file_name(file_prefix + ticket.title)}.md"
+    file_name = f"{sanitize_obsidian_md_file_name(file_prefix + ticket.title)}.md"
     file_path = PERSISTENT_TEMP_PATH / file_name
     if vault_dir_str and rel_note_dir:
         should_create_note = True

@@ -41,6 +41,17 @@ def sanitize_str_to_file_name(s: str):
     return sanitize_filename(s.strip())
 
 
+def sanitize_obsidian_md_file_name(s: str):
+    """
+    Sanitize markdown filename text for Obsidian wikilink compatibility.
+    Removes characters that can interfere with link parsing.
+    """
+    sanitized = sanitize_str_to_file_name(s)
+    sanitized = re.sub(r"[\[\]\|&#]", "", sanitized)
+    sanitized = re.sub(r"\s{2,}", " ", sanitized).strip()
+    return sanitized
+
+
 def get_path_no_suffix(path: str, suffix: str) -> str:
     if path.endswith(suffix):
         path = path[:-len(suffix)]

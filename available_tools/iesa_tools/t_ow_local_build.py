@@ -19,7 +19,7 @@ from dev.dev_iesa import *
 import yaml
 import traceback
 
-from local_tools.available_tools.iesa_tools.copy_to_ut_runner import MODE_BINARY_SHELL_CMD, MODE_IESA_SHELL_CMD
+from available_tools.iesa_tools.copy_to_ut_runner import MODE_BINARY_SHELL_CMD, MODE_IESA_PYTHON, MODE_IESA_SHELL_CMD
 
 GITLAB_CI_YML_PATH = OW_SW_PATH / ".gitlab-ci.yml"
 # Need to put this here because we will go into docker environment from OW_SW_PATH
@@ -251,7 +251,7 @@ def main() -> None:
             if run_via_python:
                 command_to_display = (
                     f'sudo chmod -R 755 {shlex.quote(str(new_iesa_output_abs_path))} && {shlex.quote(str(COPY_TO_UT_RUNNER_PATH))} '
-                    f'--mode {MODE_IESA_SHELL_CMD} '
+                    f'--mode {MODE_IESA_PYTHON} '
                     f'--local_path {shlex.quote(str(new_iesa_output_abs_path))} '
                     f'--prompt_before_execute true'
                 )

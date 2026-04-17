@@ -19,7 +19,7 @@ from dev.dev_iesa import *
 import yaml
 import traceback
 
-from available_tools.iesa_tools.copy_to_ut_runner import MODE_BINARY_SHELL_CMD, MODE_IESA_PYTHON, MODE_IESA_SHELL_CMD
+from available_tools.iesa_tools.copy_to_ut_runner import MODE_BINARY_SHELL_CMD, MODE_IESA_PYTHON, MODE_IESA_SHELL_CMD, build_binary_post_copy_cmd_for_shell_echo
 
 GITLAB_CI_YML_PATH = OW_SW_PATH / ".gitlab-ci.yml"
 # Need to put this here because we will go into docker environment from OW_SW_PATH
@@ -187,6 +187,7 @@ def main() -> None:
     LOG(f"{LINE_SEPARATOR}")
     append_build_log("Binary build finished.")
     append_build_log(f"Binary output directory: {OW_SW_BUILD_BINARY_OUTPUT_PATH}")
+    binary_post_copy_cmd = build_binary_post_copy_cmd_for_shell_echo(remote_dir="/home/root/download")
     command_to_display = (
         f'sudo chmod -R 755 {OW_SW_BUILD_BINARY_OUTPUT_PATH} && '
         f'while true; do '
@@ -202,7 +203,7 @@ def main() -> None:
         f'{{ '
         f'echo "SCP copy completed successfully"; '
         f'echo -e "Binary copied completed. Setup symlink on target UT $TARGET_IP with this below command:\\n"; '
-        f'echo "actual_md5=\\$(md5sum /home/root/download/$DEST_NAME | cut -d\\" \\" -f1) && if [ \\"$original_md5\\" = \\"\\$actual_md5\\" ]; then echo \\"MD5 match! Proceeding...\\" && cp /opt/bin/$BIN_NAME /home/root/download/backup_$BIN_NAME; ln -sf /home/root/download/$DEST_NAME /opt/bin/$BIN_NAME && echo \\"Backup created and symlink updated: /opt/bin/$BIN_NAME -> /home/root/download/$DEST_NAME\\"; else echo \\"MD5 MISMATCH! Aborting.\\"; fi"; '
+        f'echo "{binary_post_copy_cmd}"; '
         f'}} || {{ '
         f'echo "SCP copy failed"; '
         f'}}'
@@ -296,13 +297,13 @@ def setup_prebuild(build_type: str, manifest_source: str, ow_manifest_branch: st
     ow_sw_path_str = str(OW_SW_PATH)
     # PRE-BUILD CHECK
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build check...")
-    LOG("Checking OW branch is ahead/descendant of remote base manifest branch.")
+    LOG("Checking OW branch is ahead/descendant of base manifest branch that we fetched from remote. If it is not ahead then something is wrong and require manual intervention!")
     ow_git_remote = DEFAULT_OW_GIT_REMOTE
     ow_branch_is_descendant = git_is_local_branch_descendant_of_remote_branch(
         OW_SW_PATH, current_local_branch, base_manifest_branch, remote_name=ow_git_remote, fetch_remote=True)
     if not ow_branch_is_descendant:
         LOG_EXCEPTION_STR(
-            f"ERROR: Current OW branch '{current_local_branch}' is not a descendant of '{ow_git_remote}/{base_manifest_branch}'.\n\n"
+            f"ERROR: Current OW branch '{current_local_branch}' is not a descendant of remote '{ow_git_remote}/{base_manifest_branch}'.\n\n"
             f"This requirement is weird but exists because we run a docker command and mount OW_SW_PATH into the container "
             f"(docker run -it --rm -v $(pwd):$(pwd) <image>), so the OW branch must be in sync.\n\n"
             f"Fix suggestions:\n"
@@ -547,8 +548,8 @@ def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, u
                     # Check for uncommitted changes in the local manifest
                     git_diff_output = git_diff_on_file(OW_SW_PATH, "HEAD", IESA_MANIFEST_RELATIVE_PATH)
                     any_unstaged_manifest_change = bool(git_diff_output.strip())
-                    LOG_EXCEPTION_STR(f"Actual manifest at {manifest_full_path} does not match with local manifest at {manifest_local_path}" + (
-                        f', and there are uncommitted changes in local manifest below:\n{git_diff_output}\nCommit these changes with below command:\n cd {OW_SW_PATH} && git add {IESA_MANIFEST_RELATIVE_PATH} && git commit -m "Update manifest" ' if any_unstaged_manifest_change else f', check push lastet local branch {manifest_repo_branch} to remote if needed.'), exit=True)
+                    LOG_EXCEPTION_STR(f"Actual fetched manifest at {manifest_full_path} does not match with local desired manifest at {manifest_local_path}" + (
+                        f', and there are uncommitted changes in local manifest below:\n{git_diff_output}\nCommit these changes with below command:\n cd {OW_SW_PATH} && git checkout {manifest_repo_branch} && git add {IESA_MANIFEST_RELATIVE_PATH} && git commit -m "Update manifest" ' if any_unstaged_manifest_change else f', check push lastet local branch {manifest_repo_branch} to remote if needed.'), exit=True)
             else:
                 LOG_EXCEPTION_STR(f"Expected local manifest file not found at {manifest_local_path}.", exit=True)
             LOG("Local manifest content matches the synced manifest.")

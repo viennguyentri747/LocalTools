@@ -18,9 +18,10 @@ def create_scp_ut_and_run_cmd(local_path: Union[str, Path], remote_host: str = f
     remote_dir_norm = remote_dir.rstrip("/")
     remote_filename = lp.name
     remote_abs_path = f"{remote_dir_norm}/{remote_filename}"
+    from available_tools.iesa_tools.copy_to_ut_runner import build_md5_verified_post_copy_cmd
 
     # Default remote run command
-    run_cmd_on_remote_expr = f"" if run_cmd_on_remote is None else f"&& {run_cmd_on_remote}"
+    run_cmd_on_remote_expr = EMPTY_STR_VALUE if run_cmd_on_remote is None else f"&& {run_cmd_on_remote}"
 
     # Build the execution part with or without confirmation prompt
     if is_prompt_before_execute:
@@ -31,11 +32,9 @@ def create_scp_ut_and_run_cmd(local_path: Union[str, Path], remote_host: str = f
     else:
         execution_cmd = f"echo \"MD5 match! Proceeding...\" {run_cmd_on_remote_expr}"
 
-    exec_cmd = (
-        f"original_md5=\"%s\"; actual_md5=$(md5sum {remote_abs_path} | cut -d\" \" -f1); "
-        f"echo \"original md5sum: %s\"; echo \"actual md5sum: $actual_md5\"; "
-        f"if [ \"%s\" = \"$actual_md5\" ]; then {execution_cmd}; else echo \"MD5 MISMATCH! Not running.\"; fi"
-    )
+    original_md5_expr = "\"$original_md5\""
+    exec_cmd_body = build_md5_verified_post_copy_cmd(original_md5=original_md5_expr, remote_abs_path=remote_abs_path, on_match_cmd=execution_cmd, quote_values=False, show_md5_details=True, original_md5_display="$original_md5", mismatch_message="MD5 MISMATCH! Not running.")
+    exec_cmd = f"original_md5=\"%s\"; {exec_cmd_body}"
     
     cmd = (
         f"output_path=\"{lp}\" "
@@ -47,7 +46,7 @@ def create_scp_ut_and_run_cmd(local_path: Union[str, Path], remote_host: str = f
         f"&& {{ original_md5=$(md5sum \"$output_path\" | cut -d\" \" -f1); "
         f"noti \"SCP copy completed successfully\"; "
         f"echo -e \"File(s) copied completed. Run on target UT $source_ip with this below command:\\n\"; "
-        f"printf '{exec_cmd}\\n' \"$original_md5\" \"$original_md5\" \"$original_md5\"; "
+        f"printf '{exec_cmd}\\n' \"$original_md5\"; "
         f"echo; }} "
         f"|| {{ noti \"SCP copy failed\"; }} "
     )

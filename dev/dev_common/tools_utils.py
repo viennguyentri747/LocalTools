@@ -321,6 +321,8 @@ def get_win_cmd_invocation(module_path: str, package_root: str = f"{LOCAL_TOOL_R
     :param module_path: Dotted module path to invoke (e.g. 'available_tools.iesa_tools.t_ow_local_build')
     :return: Full Windows CLI command string
     """
+
+    #Note: need to make win python's pip to install local_tools package first by: cd ~/local_tools && <win_python_wsl_path> -m pip install -e .; otherwise the win_cmd_invocation won't work as it can't find the module to run.
     win_cmd = F"cd {package_root} && {get_win_python_executable_path()} -m {module_path}"
     return win_cmd
 

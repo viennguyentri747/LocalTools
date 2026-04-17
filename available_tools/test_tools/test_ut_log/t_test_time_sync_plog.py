@@ -27,7 +27,6 @@ ARG_MAX_SECS_PER_SYNC = f"{ARGUMENT_LONG_PREFIX}max_secs_per_sync"
 DRIFT_ISSUE_NAME = "DRIFT"
 SYNC_ZERO_ISSUE_NAME = "SYNC_ZERO"
 ALL_TIME_SYNC_ISSUES: List[str] = [DRIFT_ISSUE_NAME, SYNC_ZERO_ISSUE_NAME]
-#Note: need to make win python's pip to install local_tools package first by: cd ~/local_tools && <win_python_wsl_path> -m pip install -e .; otherwise the win_cmd_invocation won't work as it can't find the module to run.
 WIN_CMD_INVOCATION = get_win_cmd_invocation("available_tools.test_tools.test_ut_log.t_test_time_sync_plog")
 
 def get_tool_templates() -> List[ToolTemplate]:

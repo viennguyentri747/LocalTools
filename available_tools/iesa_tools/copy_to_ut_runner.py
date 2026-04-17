@@ -96,36 +96,59 @@ def _ensure_local_file_accessible(local_file: Path) -> None:
         )
 
 
-def _build_binary_post_copy_cmd(original_md5: str, remote_dir: str, remote_name: str, binary_name: str) -> str:
-    remote_abs_path = f"{remote_dir.rstrip('/')}/{remote_name}"
-    backup_name = f"backup_{binary_name}"
+def _shell_value(value: str, quote_values: bool) -> str:
+    return shlex.quote(value) if quote_values else value
+
+
+def build_md5_verified_post_copy_cmd(original_md5: str, remote_abs_path: str, on_match_cmd: str, quote_values: bool = True, show_md5_details: bool = False, original_md5_display: Optional[str] = None, mismatch_message: str = "MD5 MISMATCH! Not running.") -> str:
+    quoted_remote_abs_path = _shell_value(remote_abs_path, quote_values)
+    quoted_original_md5 = _shell_value(original_md5, quote_values)
+    md5_details_cmd = EMPTY_STR_VALUE
+    if show_md5_details:
+        md5_value_to_show = original_md5 if original_md5_display is None else original_md5_display
+        md5_details_cmd = f"echo \"original md5sum: {md5_value_to_show}\"; echo \"actual md5sum: $actual_md5\"; "
     return (
-        f"actual_md5=$(md5sum {shlex.quote(remote_abs_path)} | cut -d\" \" -f1) && "
-        f"if [ {shlex.quote(original_md5)} = \"$actual_md5\" ]; then "
-        f"echo \"MD5 match! Proceeding...\" && "
-        #Add executable bits to binary
-        f"chmod +x {shlex.quote(remote_abs_path)} && "
-        f"cp /opt/bin/{shlex.quote(binary_name)} {shlex.quote(remote_dir.rstrip('/') + '/' + backup_name)} && "
-        f"ln -sf {shlex.quote(remote_abs_path)} /opt/bin/{shlex.quote(binary_name)} && "
-        f"echo \"Backup created and symlink updated: /opt/bin/{binary_name} -> {remote_abs_path}\"; "
-        f"else echo \"MD5 MISMATCH! Aborting.\"; fi"
+        f"actual_md5=$(md5sum {quoted_remote_abs_path} | cut -d\" \" -f1) && "
+        f"{md5_details_cmd}if [ {quoted_original_md5} = \"$actual_md5\" ]; then {on_match_cmd}; "
+        f"else echo \"{mismatch_message}\"; fi"
     )
+
+
+def build_binary_post_copy_cmd(original_md5: str, remote_dir: str, remote_name: str, binary_name: str, quote_values: bool = True) -> str:
+    remote_dir_norm = remote_dir.rstrip("/")
+    remote_abs_path = f"{remote_dir_norm}/{remote_name}"
+    backup_path = f"{remote_dir_norm}/backup_{binary_name}"
+    quoted_remote_abs_path = _shell_value(remote_abs_path, quote_values)
+    quoted_backup_path = _shell_value(backup_path, quote_values)
+    quoted_binary_name = _shell_value(binary_name, quote_values)
+    proceed_cmd = (
+        f"echo \"MD5 match! Proceeding...\" && "
+        f"chmod +x {quoted_remote_abs_path} && "
+        f"cp /opt/bin/{quoted_binary_name} {quoted_backup_path} && "
+        f"ln -sf {quoted_remote_abs_path} /opt/bin/{quoted_binary_name} && "
+        f"echo \"Backup created and symlink updated: /opt/bin/{binary_name} -> {remote_abs_path}\""
+    )
+    return build_md5_verified_post_copy_cmd(original_md5=original_md5, remote_abs_path=remote_abs_path, on_match_cmd=proceed_cmd, quote_values=quote_values, mismatch_message="MD5 MISMATCH! Aborting.")
+
+
+def build_binary_post_copy_cmd_for_shell_echo(remote_dir: str = DEFAULT_REMOTE_DIR) -> str:
+    escaped_cmd = build_binary_post_copy_cmd(original_md5="\"$original_md5\"", remote_dir=remote_dir, remote_name="$DEST_NAME", binary_name="$BIN_NAME", quote_values=False).replace("\\", "\\\\").replace("\"", "\\\"")
+    return escaped_cmd.replace("$(", "\\$(").replace("$actual_md5", "\\$actual_md5")
+
+
+def _build_binary_post_copy_cmd(original_md5: str, remote_dir: str, remote_name: str, binary_name: str) -> str:
+    return build_binary_post_copy_cmd(original_md5=original_md5, remote_dir=remote_dir, remote_name=remote_name, binary_name=binary_name)
+
+
+def build_iesa_post_copy_cmd(original_md5: str, remote_dir: str, remote_name: str, prompt_before_execute: bool, quote_values: bool = True, original_md5_display: Optional[str] = None) -> str:
+    remote_abs_path = f"{remote_dir.rstrip('/')}/{remote_name}"
+    install_cmd = create_install_iesa_cmd(remote_name, download_dir=remote_dir)
+    proceed_cmd = f"read -r -p \"MD5 match! Install (y/n)?: \" confirm; [ \"$confirm\" = \"y\" -o \"$confirm\" = \"Y\" ] && {install_cmd}" if prompt_before_execute else f"echo \"MD5 match! Proceeding...\" && {install_cmd}"
+    return build_md5_verified_post_copy_cmd(original_md5=original_md5, remote_abs_path=remote_abs_path, on_match_cmd=proceed_cmd, quote_values=quote_values, show_md5_details=True, original_md5_display=original_md5_display, mismatch_message="MD5 MISMATCH! Not running.")
 
 
 def _build_iesa_post_copy_cmd(original_md5: str, remote_dir: str, remote_name: str, prompt_before_execute: bool) -> str:
-    remote_abs_path = f"{remote_dir.rstrip('/')}/{remote_name}"
-    install_cmd = create_install_iesa_cmd(remote_name, download_dir=remote_dir)
-    if prompt_before_execute:
-        proceed_cmd = f"read -r -p \"MD5 match! Install (y/n)?: \" confirm; [ \"$confirm\" = \"y\" -o \"$confirm\" = \"Y\" ] && {install_cmd}"
-    else:
-        proceed_cmd = f"echo \"MD5 match! Proceeding...\" && {install_cmd}"
-    return (
-        f"actual_md5=$(md5sum {shlex.quote(remote_abs_path)} | cut -d\" \" -f1) && "
-        f"echo \"original md5sum: {original_md5}\"; echo \"actual md5sum: $actual_md5\"; "
-        f"if [ {shlex.quote(original_md5)} = \"$actual_md5\" ]; then {proceed_cmd}; "
-        f"else echo \"MD5 MISMATCH! Not running.\"; fi"
-    )
-
+    return build_iesa_post_copy_cmd(original_md5=original_md5, remote_dir=remote_dir, remote_name=remote_name, prompt_before_execute=prompt_before_execute)
 
 def _log_checksums(local_md5: str, remote_md5: Optional[str], remote_abs_path: str, stage: str) -> None:
     LOG(f"{LOG_PREFIX_MSG_INFO} Local md5 ({stage}): {local_md5}")

@@ -80,7 +80,7 @@ def _parse_iesa_projects(root: ElementTree.Element, ignored_project_names: List[
     return mapping
 
 
-def parse_local_gl_iesa_manifest(manifest_path_or_str: Union[Path, str] = IESA_MANIFEST_FILE_PATH_LOCAL, ignored_project_names: List[str] = [ "third_party_apps" ]) -> IesaManifest:
+def parse_local_gl_iesa_manifest(manifest_path_or_str: Union[Path, str] = IESA_MANIFEST_FILE_PATH_LOCAL_PATH, ignored_project_names: List[str] = [ "third_party_apps" ]) -> IesaManifest:
     """Return a Manifest object from the manifest XML."""
     manifest_path = Path(manifest_path_or_str)
     if not manifest_path.is_file():

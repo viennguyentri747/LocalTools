@@ -1,14 +1,6 @@
-to_windows_path() {
-    local file_path="$1"
-    local windows_path
-
-    if ! windows_path=$(wslpath -w "$file_path" 2>&1); then
-        echo "Failed to convert path: $windows_path" >&2
-        return 1
-    fi
-
-    printf "%s" "$windows_path"
-}
+if ! command -v to_windows_path >/dev/null 2>&1; then
+    echo "Required helper 'to_windows_path' is missing. Load common_utils.sh before windows_shell_tools.sh." >&2
+fi
 
 explorer() {
     local file_path="$1"

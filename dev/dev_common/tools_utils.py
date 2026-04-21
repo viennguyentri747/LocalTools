@@ -4,8 +4,10 @@ import importlib.util
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
+import time
 from typing import List, Dict, Any, Optional, Set, Tuple
 from enum import IntEnum, auto
 import pyperclip
@@ -14,6 +16,14 @@ from dev.dev_common import *
 # from dev.dev_common.core_utils import LOG, convert_win_to_wsl_path, run_shell, convert_wsl_to_win_path
 
 HIDDEN_TOOL_FILENAMES = {} #Can put thing like: "t_test_ut_from_local.py"
+LOCAL_PYTHON_BIN_PATH = "/usr/local/bin/local_python"
+WIN_PYTHON_RUNNER_SCRIPT_PATH = LOCAL_TOOL_REPO_PATH / "dev" / "dev_common" / "win_python_runner.py"
+WIN_PYTHON_TRACKED_MODULES: Set[str] = set()
+
+
+def get_local_python_runner_executable() -> str:
+    """Return preferred local Python executable for launching helper scripts."""
+    return LOCAL_PYTHON_BIN_PATH if Path(LOCAL_PYTHON_BIN_PATH).exists() else str(sys.executable)
 
 
 class ToolFolderPriority(IntEnum):
@@ -288,6 +298,8 @@ def open_path_in_explorer(file_path: Path) -> None:
 
         LOG(f"Opened Explorer to highlight '{file_path}'")
 
+    except SystemExit as e:
+        LOG(f"{LOG_PREFIX_MSG_WARNING} Failed to open Explorer (non-fatal): {e}")
     except Exception as e:
         LOG(f"Failed to open Explorer: {e}")
 
@@ -314,21 +326,87 @@ def run_win_cmd(command: str) -> Tuple[str, str, int]:
         LOG(f"Failed to run Windows command: {e}")
         return "", str(e), -1
 
+def _run_taskkill_for_pid(pid: int, force: bool = False) -> None:
+    cmd = ["taskkill.exe"]
+    if force:
+        cmd.append("/F")
+    cmd.extend(["/PID", str(pid), "/T"])
+    try:
+        result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+        if result.stdout.strip():
+            LOG(f"{LOG_PREFIX_MSG_INFO} taskkill stdout: {result.stdout.strip()}")
+        if result.stderr.strip():
+            LOG(f"{LOG_PREFIX_MSG_WARNING} taskkill stderr: {result.stderr.strip()}")
+    except Exception as exc:
+        LOG(f"{LOG_PREFIX_MSG_WARNING} Failed to execute taskkill for pid={pid}: {exc}")
+
+
+def _stop_win_process_tree(process: subprocess.Popen, graceful_timeout_sec: float = 2.0) -> None:
+    if process.poll() is not None:
+        return
+    pid = int(process.pid)
+    _run_taskkill_for_pid(pid, force=False)
+    wait_deadline = time.time() + max(0.0, float(graceful_timeout_sec))
+    while process.poll() is None and time.time() < wait_deadline:
+        time.sleep(0.1)
+    if process.poll() is None:
+        LOG(f"{LOG_PREFIX_MSG_WARNING} Process pid={pid} did not exit after graceful stop. Forcing termination.")
+        _run_taskkill_for_pid(pid, force=True)
+        try:
+            process.wait(timeout=2.0)
+        except subprocess.TimeoutExpired:
+            LOG(f"{LOG_PREFIX_MSG_WARNING} Process pid={pid} still did not exit after forced taskkill.")
+
+
+def run_module_via_win_python(module_path: str, module_args: Optional[List[str]] = None, package_root: str | Path = LOCAL_TOOL_REPO_PATH,
+                              win_python_executable_path: Optional[str] = None, graceful_shutdown_timeout_sec: float = 2.0) -> int:
+    """Run a Python module through Windows Python and stop reliably on Ctrl+C by killing the process tree."""
+    module_args = [str(arg) for arg in (module_args or [])]
+    package_root_path = Path(package_root).expanduser()
+    win_python_path = win_python_executable_path or get_win_python_executable_path_for_wsl()
+    cmd = [str(win_python_path), "-m", module_path, *module_args]
+    LOG(f"{LOG_PREFIX_MSG_INFO} Running Win Python module via shared runner: {' '.join(shlex.quote(str(part)) for part in cmd)}")
+    process = subprocess.Popen(cmd, cwd=str(package_root_path))
+    try:
+        return process.wait()
+    except KeyboardInterrupt:
+        LOG(f"{LOG_PREFIX_MSG_WARNING} Ctrl+C received. Stopping Win Python process tree (pid={process.pid})...")
+        _stop_win_process_tree(process=process, graceful_timeout_sec=graceful_shutdown_timeout_sec)
+        return 130
+    except Exception as exc:
+        LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to run Win Python module: {exc}")
+        return 1
+
+def get_win_python_runner_cmd_invocation(module_path: str, package_root: str = f"{LOCAL_TOOL_REPO_PATH}") -> str:
+    """Return command string that routes Win Python execution through a shared runner script."""
+    package_root_str = str(Path(package_root).expanduser())
+    package_root_q = quote_arg_value_if_need(package_root_str)
+    local_python_q = quote_arg_value_if_need(get_local_python_runner_executable())
+    runner_script_q = quote_arg_value_if_need(str(WIN_PYTHON_RUNNER_SCRIPT_PATH))
+    module_q = quote_arg_value_if_need(module_path)
+    WIN_PYTHON_TRACKED_MODULES.add(module_path)
+    return f"cd {package_root_q} && {local_python_q} {runner_script_q} --module {module_q} --package-root {package_root_q}"
+
+
+def get_registered_win_python_modules() -> List[str]:
+    """Return module paths currently registered for Win Python template invocation."""
+    return sorted(WIN_PYTHON_TRACKED_MODULES)
+
+
 def get_win_cmd_invocation(module_path: str, package_root: str = f"{LOCAL_TOOL_REPO_PATH}") -> str:
     """
-    Returns a Windows command string to invoke a Python module via the Windows Python executable.
+    Returns a shared-runner command string to invoke a Python module via Windows Python.
 
     :param module_path: Dotted module path to invoke (e.g. 'available_tools.iesa_tools.t_ow_local_build')
-    :return: Full Windows CLI command string
+    :return: Full shell command string
     """
 
-    #Note: need to make win python's pip to install local_tools package first by: cd ~/local_tools && <win_python_wsl_path> -m pip install -e .; otherwise the win_cmd_invocation won't work as it can't find the module to run.
-    win_cmd = F"cd {package_root} && {get_win_python_executable_path()} -m {module_path}"
-    return win_cmd
+    return get_win_python_runner_cmd_invocation(module_path=module_path, package_root=package_root)
 
-def get_win_python_executable_path() -> str:
+def get_win_python_executable_path_for_wsl() -> str:
     """Return python executable path respecting template flags."""
     current_python_executable = sys.executable
+    LOG(f"{LOG_PREFIX_MSG_INFO} Python runtime executable (sys.executable): {current_python_executable}")
     stdout, stderr, returncode = run_win_cmd("where python")
     if returncode != 0 or not stdout:
         LOG(f"Failed to detect Windows python (stdout='{stdout}', stderr='{stderr}').")
@@ -340,6 +418,7 @@ def get_win_python_executable_path() -> str:
             continue
         wsl_path = convert_win_to_wsl_path(candidate)
         if wsl_path:
+            LOG(f"{LOG_PREFIX_MSG_INFO} Windows python candidate selected from 'where python': {candidate} -> {wsl_path}")
             return wsl_path
 
     LOG(f"Could not parse Windows python path from output: {stdout}.")

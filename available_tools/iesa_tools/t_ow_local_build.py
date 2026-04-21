@@ -37,10 +37,10 @@ ARG_IS_DEBUG_BUILD = f"{ARGUMENT_LONG_PREFIX}is_debug_build"
 ARG_OW_BUILD_TYPE = f"{ARGUMENT_LONG_PREFIX}build_type"
 ARG_RUN_VIA_PYTHON = f"{ARGUMENT_LONG_PREFIX}run_via_python"
 PREFIX_OW_BUILD_ARTIFACT = f"iesa_test_"
-WIN_CMD_INVOCATION = get_win_cmd_invocation("available_tools.iesa_tools.t_ow_local_build")
+WIN_CMD_INVOCATION = get_win_python_runner_cmd_invocation("available_tools.iesa_tools.t_ow_local_build")
 IESA_TEST_DIFF_PREFIX = f"iesa_test_diff_"
 IESA_METADATA_FILE = f"iesa_ow_build_metadata.json"
-TEMP_OW_BUILD_OUTPUT_PATH = PERSISTENT_TEMP_PATH / "ow_build_output/"
+TEMP_OW_BUILD_OUTPUT_PATH = WSL_PERSISTENT_TEMP_PATH / "ow_build_output/"
 MANIFEST_OUT_ARTIFACT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}manifest.xml"
 IESA_OUT_ARTIFACT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}build.iesa"
 LOG_OUT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}log.txt"
@@ -140,7 +140,7 @@ def main() -> None:
     manifest_source: str = get_arg_value(args, ARG_MANIFEST_SOURCE)
     tisdk_ref: Optional[str] = get_arg_value(args, ARG_TISDK_REF)
     overwrite_repos: List[str] = get_arg_value(args, ARG_OVERWRITE_REPOS)
-    base_manifest_branch: str = get_arg_value(args, ARG_BASE_MANIFEST_BRANCH)
+    base_remote_manifest_branch: str = get_arg_value(args, ARG_BASE_MANIFEST_BRANCH)
     make_clean: bool = get_arg_value(args, ARG_MAKE_CLEAN)
     is_debug_build: bool = get_arg_value(args, ARG_IS_DEBUG_BUILD)
     run_via_python: bool = get_arg_value(args, ARG_RUN_VIA_PYTHON)
@@ -173,11 +173,11 @@ def main() -> None:
 
     LOG(f"Using current OW branch '{ow_manifest_branch}' as manifest branch.")
     append_build_log(f"Manifest branch: {ow_manifest_branch}")
-    append_build_log(f"Base manifest branch: {base_manifest_branch}")
+    append_build_log(f"Base remote manifest branch: {base_remote_manifest_branch}")
     if tisdk_ref:
         append_build_log(f"TISDK ref: {tisdk_ref}")
     actual_manifest, repo_change_details = setup_prebuild(
-        build_type, manifest_source, ow_manifest_branch, base_manifest_branch, tisdk_ref, overwrite_repos,
+        build_type, manifest_source, ow_manifest_branch, base_remote_manifest_branch, tisdk_ref, overwrite_repos,
         current_branch, tisdk_ref_from_ci_yml)
 
     run_build(build_type, get_arg_value(args, ARG_INTERACTIVE), make_clean, is_debug_build)
@@ -273,7 +273,7 @@ def main() -> None:
         "raw_arg_inputs": {k: v for k, v in vars(args).items()},
         "finalized_params": {
             "manifest_content": actual_manifest.to_serializable_dict(),
-            "base_manifest_branch": base_manifest_branch,
+            "base_remote_manifest_branch": base_remote_manifest_branch,
             "tisdk_ref": tisdk_ref,
             "overridden_repos": repo_change_details,
             "repo_changes": repo_change_details,
@@ -291,27 +291,27 @@ def main() -> None:
 # ───────────────────────────  helpers / actions  ─────────────────────── #
 
 
-def setup_prebuild(build_type: str, manifest_source: str, ow_manifest_branch: str, base_manifest_branch: str, input_tisdk_ref: Optional[str], overwrite_repos: List[str], current_local_branch: str, tisdk_ref_from_ci_yml: Optional[str] = None) -> Tuple[IesaManifest, List[Dict[str, Any]]]:
+def setup_prebuild(build_type: str, manifest_source: str, ow_manifest_branch: str, base_remote_manifest_branch: str, input_tisdk_ref: Optional[str], overwrite_repos: List[str], current_local_branch: str, tisdk_ref_from_ci_yml: Optional[str] = None) -> Tuple[IesaManifest, List[Dict[str, Any]]]:
     remove_tmp_build()
     
     ow_sw_path_str = str(OW_SW_PATH)
     # PRE-BUILD CHECK
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build check...")
-    LOG("Checking OW branch is ahead/descendant of base manifest branch that we fetched from remote. If it is not ahead then something is wrong and require manual intervention!")
+    LOG("Checking OW branch is ahead/descendant of base remote manifest branch fetched from remote. If it is not ahead then something is wrong and require manual intervention!")
     ow_git_remote = DEFAULT_OW_GIT_REMOTE
     ow_branch_is_descendant = git_is_local_branch_descendant_of_remote_branch(
-        OW_SW_PATH, current_local_branch, base_manifest_branch, remote_name=ow_git_remote, fetch_remote=True)
+        OW_SW_PATH, current_local_branch, base_remote_manifest_branch, remote_name=ow_git_remote, fetch_remote=True)
     if not ow_branch_is_descendant:
         LOG_EXCEPTION_STR(
-            f"ERROR: Current OW branch '{current_local_branch}' is not a descendant of remote '{ow_git_remote}/{base_manifest_branch}'.\n\n"
+            f"ERROR: Current OW branch '{current_local_branch}' is not a descendant of remote '{ow_git_remote}/{base_remote_manifest_branch}'.\n\n"
             f"This requirement is weird but exists because we run a docker command and mount OW_SW_PATH into the container "
             f"(docker run -it --rm -v $(pwd):$(pwd) <image>), so the OW branch must be in sync.\n\n"
             f"Fix suggestions:\n"
-            f"- Rebase current branch: cd {ow_sw_path_str} && git fetch {ow_git_remote} && git rebase {ow_git_remote}/{base_manifest_branch}\n"
-            f"- Or checkout a branch that already descends from {ow_git_remote}/{base_manifest_branch}"
+            f"- Rebase current branch: cd {ow_sw_path_str} && git fetch {ow_git_remote} && git rebase {ow_git_remote}/{base_remote_manifest_branch}\n"
+            f"- Or checkout a branch that already descends from {ow_git_remote}/{base_remote_manifest_branch}"
         )
        
-    LOG(f"Current OW branch '{current_local_branch}' is descendant of '{ow_git_remote}/{base_manifest_branch}'.")
+    LOG(f"Current OW branch '{current_local_branch}' is descendant of '{ow_git_remote}/{base_remote_manifest_branch}'.")
 
     if build_type == BUILD_TYPE_IESA:
         if not input_tisdk_ref:
@@ -353,8 +353,8 @@ def setup_prebuild(build_type: str, manifest_source: str, ow_manifest_branch: st
     manifest_metadata_path = copy_manifest_for_metadata(manifest_snapshot_path)
     LOG(f"Manifest snapshot copied to '{manifest_metadata_path}' for metadata export.")
     repo_change_details: List[Dict[str, Any]] = []
-    base_manifest = get_base_manifest_from_remote_branch(base_manifest_branch)
-    ow_base_ref = git_get_remote_branch_ref(base_manifest_branch, ow_git_remote)
+    base_manifest = get_base_manifest_from_remote_branch(base_remote_manifest_branch)
+    ow_base_ref = git_get_remote_branch_ref(base_remote_manifest_branch, ow_git_remote)
     
     # Collect OW repo changes
     ow_change_snapshot = collect_repo_changes(
@@ -564,10 +564,10 @@ def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, u
     return manifest_full_path
 
 
-def get_base_manifest_from_remote_branch(base_manifest_branch: str) -> IesaManifest:
-    remote_base_ref = git_get_remote_branch_ref(base_manifest_branch, DEFAULT_OW_GIT_REMOTE)
-    if not git_check_ref(OW_SW_PATH, remote_base_ref, ref_name="base manifest branch on remote"):
-        LOG(f"ERROR: Base manifest branch '{remote_base_ref}' is missing.", file=sys.stderr)
+def get_base_manifest_from_remote_branch(base_remote_manifest_branch: str) -> IesaManifest:
+    remote_base_ref = git_get_remote_branch_ref(base_remote_manifest_branch, DEFAULT_OW_GIT_REMOTE)
+    if not git_check_ref(OW_SW_PATH, remote_base_ref, ref_name="base remote manifest branch on remote"):
+        LOG(f"ERROR: Base remote manifest branch '{remote_base_ref}' is missing.", file=sys.stderr)
         sys.exit(1)
     manifest_git_obj = f"{remote_base_ref}:{IESA_MANIFEST_RELATIVE_PATH}"
     manifest_show = run_shell(

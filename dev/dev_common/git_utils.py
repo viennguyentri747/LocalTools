@@ -115,17 +115,12 @@ def git_is_ref_or_branch_existing(repo_path: Path, git_ref: str) -> bool:
     return git_get_ref_type(repo_path, git_ref) is not None
 
 
-def git_check_ref(
-    repo_path: Path | str,
-    ref: str,
-    ref_name: Optional[str] = None,
-    log_exception_on_failure: bool = True,
-) -> bool:
+def git_check_ref( repo_path: Path | str, ref: str, ref_name: Optional[str] = None, log_exception_on_failure: bool = True, ) -> bool:
     ref_type = git_get_ref_type(Path(repo_path), ref.strip())
     label = f"{ref_name} " if ref_name else ""
 
     if not ref_type:
-        msg = f"Git ref {label}'{ref.strip()}' does not exist in '{repo_path}'."
+        msg = f"Git ref {label}'{ref.strip()}' does not exist in repo '{repo_path}'."
         (LOG_EXCEPTION_STR if log_exception_on_failure else LOG)(msg)
         return False
 

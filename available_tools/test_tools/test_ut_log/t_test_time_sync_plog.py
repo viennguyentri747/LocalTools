@@ -5,20 +5,21 @@ import argparse
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+import sys
 from typing import Dict, List, Optional, Sequence
 
-from available_tools.test_tools.test_ut_log import t_test_process_plog_local
+from available_tools.test_tools.test_ut_log.log_test_interface import EUtLogType, TestLogInterface, normalize_log_paths_map
 from dev.dev_common import *
 from unit_tests.acu_log_tests.periodic_log_constants import LAST_TIME_SYNC_COLUMN, TIME_COLUMN
 from unit_tests.acu_log_tests.periodic_log_helper import PLogData
-from available_tools.test_tools.test_ut_log.t_test_process_plog_local import process_plog_files, _validate_plog_file, _get_compact_log_str, ARG_PLOG_PATHS, ARG_TIME_WINDOW, ARG_OUTPUT_PATH
+from available_tools.test_tools.test_ut_log.t_test_process_plog_local import process_plog_files, _validate_plog_file, _get_compact_log_str, ARG_PLOG_PATHS, ARG_TIME_WINDOW, ARG_OUTPUT_PATH, normalize_runtime_path
 
 
 use_posix_paths()
 
 DEFAULT_COLUMNS: List[str] = [TIME_COLUMN, LAST_TIME_SYNC_COLUMN]
 DEFAULT_MAX_SECS_PER_SYNC = 0.999
-DEFAULT_OUTPUT_PATH = PERSISTENT_TEMP_PATH / "time_sync_plog.tsv"
+DEFAULT_OUTPUT_PATH = WINDOW_PERSISTENT_TEMP_PATH / "time_sync_plog.tsv"
 
 ARG_PLOG_PATHS = ARG_PLOG_PATHS
 ARG_TIME_WINDOW = ARG_TIME_WINDOW
@@ -27,7 +28,8 @@ ARG_MAX_SECS_PER_SYNC = f"{ARGUMENT_LONG_PREFIX}max_secs_per_sync"
 DRIFT_ISSUE_NAME = "DRIFT"
 SYNC_ZERO_ISSUE_NAME = "SYNC_ZERO"
 ALL_TIME_SYNC_ISSUES: List[str] = [DRIFT_ISSUE_NAME, SYNC_ZERO_ISSUE_NAME]
-WIN_CMD_INVOCATION = get_win_cmd_invocation("available_tools.test_tools.test_ut_log.t_test_time_sync_plog")
+WIN_CMD_INVOCATION = get_win_python_runner_cmd_invocation("available_tools.test_tools.test_ut_log.t_test_time_sync_plog")
+TEST_NAME = "time_sync_plog"
 
 def get_tool_templates() -> List[ToolTemplate]:
     sample_log_path_1 = ACU_LOG_PATH / "192.168.100.61" / "P_20260216_000000.txt"
@@ -307,16 +309,10 @@ def _write_metadata_file(output_plog_path: Path, input_paths: Sequence[Path], ti
 def getToolData() -> ToolData:
     return ToolData(tool_template=get_tool_templates())
 
-def main(argv: Optional[Sequence[str]] = None) -> None:
-    args = parse_args(argv)
-    input_paths_raw = get_arg_value(args, ARG_PLOG_PATHS) or []
-    input_paths = [Path(path).expanduser() for path in input_paths_raw]
-    output_path = Path(get_arg_value(args, ARG_OUTPUT_PATH)).expanduser()
-    time_window: Optional[str] = get_arg_value(args, ARG_TIME_WINDOW)
-    if time_window is not None:
-        time_window = float(time_window)
-    max_secs_per_sync = float(get_arg_value(args, ARG_MAX_SECS_PER_SYNC))
-
+def run_time_sync_test(input_paths: Sequence[Path], output_path: Path, time_window: Optional[float], max_secs_per_sync: float) -> None:
+    LOG(f"{LOG_PREFIX_MSG_INFO} Time-sync runtime python: sys.executable={sys.executable}, argv0={sys.argv[0]}")
+    input_paths = [normalize_runtime_path(Path(path), label="P-log input path") for path in input_paths]
+    output_path = normalize_runtime_path(Path(output_path), label="output path")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plog_files = sorted({_validate_plog_file(input_path) for input_path in input_paths})
     LOG(f"{LOG_PREFIX_MSG_INFO} Found {len(plog_files)} unique P-log file(s) to analyze from {len(input_paths)} input path(s).")
@@ -336,13 +332,11 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     issues: List[str] = []
     issue_counts_by_name: Dict[str, int] = {issue_name: 0 for issue_name in ALL_TIME_SYNC_ISSUES}
-    separator: str = "SEPARATOR"
     for file_data in processed_data:
         issues_by_name = _check_time_sync(file_data, max_secs_per_sync)
         for issue_name, group_issues in issues_by_name.items():
             issue_counts_by_name[issue_name] += len(group_issues)
             issues.extend(group_issues)
-            issues.append(separator)
 
     metadata_path = _write_metadata_file(
         output_plog_path=output_path,
@@ -362,10 +356,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         LOG_LINE_SEPARATOR()
         LOG(f"{LOG_PREFIX_MSG_ERROR} Found {len(issues)} time sync issue(s) across {len(processed_data)} file(s). [{issue_counts_msg}]")
         for issue in issues:
-            if separator in issue:
-                LOG(show_time=False)
-            else:
-                LOG(f"  - {issue}", show_time=False)
+            LOG(f"  - {issue}", show_time=False)
 
         raise SystemExit(1)
 
@@ -373,6 +364,38 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         f"{LOG_PREFIX_MSG_SUCCESS} No time sync issues found (checked: {', '.join(ALL_TIME_SYNC_ISSUES)}) "
         f"across {len(processed_data)} file(s)."
     )
+
+
+class TimeSyncPlogTest(TestLogInterface):
+    TEST_NAME = "time_sync_plog"
+
+    @classmethod
+    def get_target_log_types(cls) -> List[EUtLogType]:
+        return [EUtLogType.PLOG]
+
+    @classmethod
+    def run_test(cls, log_paths_by_type: Dict[EUtLogType, List[Path]]) -> None:
+        normalized_map = normalize_log_paths_map(log_paths_by_type)
+        plog_paths = normalized_map.get(EUtLogType.PLOG, [])
+        if not plog_paths:
+            LOG_EXCEPTION(ValueError("No P-log files found for time sync test."), exit=True)
+        run_time_sync_test(
+            input_paths=plog_paths,
+            output_path=Path(DEFAULT_OUTPUT_PATH),
+            time_window=None,
+            max_secs_per_sync=DEFAULT_MAX_SECS_PER_SYNC,
+        )
+
+
+def main(argv: Optional[Sequence[str]] = None) -> None:
+    args = parse_args(argv)
+    input_paths_raw = get_arg_value(args, ARG_PLOG_PATHS) or []
+    input_paths = [normalize_runtime_path(Path(path), label="P-log input path") for path in input_paths_raw]
+    output_path = normalize_runtime_path(Path(get_arg_value(args, ARG_OUTPUT_PATH)), label="output path")
+    time_window_raw = get_arg_value(args, ARG_TIME_WINDOW)
+    time_window = float(time_window_raw) if time_window_raw is not None else None
+    max_secs_per_sync = float(get_arg_value(args, ARG_MAX_SECS_PER_SYNC))
+    run_time_sync_test(input_paths=input_paths, output_path=output_path, time_window=time_window, max_secs_per_sync=max_secs_per_sync)
 
 
 if __name__ == "__main__":

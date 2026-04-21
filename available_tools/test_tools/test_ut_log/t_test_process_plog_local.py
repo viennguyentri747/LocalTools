@@ -16,14 +16,28 @@ from unit_tests.acu_log_tests.periodic_log_helper import (
 
 use_posix_paths()
 
-LOCAL_LOG_WRAPPER_CMD = f"{Path(__file__).resolve().parents[1] / 't_test_logs_from_local.py'} --mode compact_plog"
+WIN_CMD_INVOCATION = get_win_python_runner_cmd_invocation("available_tools.test_tools.test_ut_log.t_test_process_plog_local")
 DEFAULT_TIME_WINDOW_HOURS: Optional[float] = None
-DEFAULT_COLUMNS: List[str] = [TIME_COLUMN, LAST_TIME_SYNC_COLUMN, LAST_VELOCITY_COLUMN, LAST_RTK_COMPASS_STATUS_COLUMN, LAST_ROLL_P_COLUMN, LAST_PITCH_P_COLUMN, LAST_YAW_P_COLUMN]
-DEFAULT_OUTPUT_PATH = PERSISTENT_TEMP_PATH / "compact_plog.tsv"
+DEFAULT_COLUMNS: List[str] = [TIME_COLUMN, LAST_TIME_SYNC_COLUMN, LAST_GPS1_CNO_COLUMN, LAST_GPS2_CNO_COLUMN, LAST_KIM_HW_STATUS_COLUMN, LAST_VELOCITY_COLUMN, LAST_RTK_COMPASS_STATUS_COLUMN, LAST_ROLL_P_COLUMN, LAST_PITCH_P_COLUMN, LAST_YAW_P_COLUMN]
+DEFAULT_OUTPUT_PATH = WINDOW_PERSISTENT_TEMP_PATH / "compact_plog.tsv"
 ARG_PLOG_PATHS = f"{ARGUMENT_LONG_PREFIX}plog_paths"
 ARG_COLUMNS = f"{ARGUMENT_LONG_PREFIX}columns"
 ARG_TIME_WINDOW = f"{ARGUMENT_LONG_PREFIX}hours"
 ARG_OUTPUT_PATH = f"{ARGUMENT_LONG_PREFIX}output"
+
+
+def normalize_runtime_path(path: Path, *, label: str = "path") -> Path:
+    normalized = Path(path).expanduser()
+    if not is_platform_windows():
+        return normalized
+    normalized_str = str(normalized)
+    if normalized_str.startswith("//") or ":" in normalized_str:
+        return normalized
+    if normalized_str.startswith("/"):
+        converted = Path(convert_wsl_to_win_path(Path(normalized_str)))
+        LOG(f"{LOG_PREFIX_MSG_INFO} Converted POSIX {label} for Windows runtime: {normalized} -> {converted}")
+        return converted
+    return normalized
 
 def get_tool_templates() -> List[ToolTemplate]:
     """
@@ -45,7 +59,7 @@ def get_tool_templates() -> List[ToolTemplate]:
             args=args,
             search_root=ACU_LOG_PATH,
             usage_note="Update --plog_paths with one or more P-log file paths you want to shrink.",
-            override_cmd_invocation=LOCAL_LOG_WRAPPER_CMD,
+            override_cmd_invocation=WIN_CMD_INVOCATION,
         ),
     ]
 
@@ -200,8 +214,8 @@ def getToolData() -> ToolData:
 def main(argv: Optional[Sequence[str]] = None) -> None:
     args = parse_args(argv)
     input_paths_raw = get_arg_value(args, ARG_PLOG_PATHS) or []
-    input_paths = [Path(path).expanduser() for path in input_paths_raw]
-    output_path = Path(get_arg_value(args, ARG_OUTPUT_PATH)).expanduser()
+    input_paths = [normalize_runtime_path(Path(path), label="P-log input path") for path in input_paths_raw]
+    output_path = normalize_runtime_path(Path(get_arg_value(args, ARG_OUTPUT_PATH)), label="output path")
     time_window = get_arg_value(args, ARG_TIME_WINDOW)
     if time_window is not None:
         time_window = float(time_window)

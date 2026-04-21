@@ -10,6 +10,8 @@ E_LOG_PREFIX = "E"
 P_LOG_PREFIX = "P"
 T_LOG_PREFIX = "T"
 ACU_SCRIPT_DIR = Path(__file__).resolve().parent / "acu_scripts"
+LEGACY_SSH_RSA_OPTIONS = ["-o", "HostKeyAlgorithms=+ssh-rsa", "-o", "PubkeyAcceptedAlgorithms=+ssh-rsa"]
+NON_INTERACTIVE_KNOWN_HOST_OPTIONS = ["-o", "UserKnownHostsFile=/dev/null", "-o", "GlobalKnownHostsFile=/dev/null"]
 
 
 class AcuLogInfo:
@@ -62,13 +64,12 @@ def batch_fetch_acu_logs_for_days(list_ips: List[str], extra_days_before_today: 
 
 
 def fetch_acu_logs(ut_ip: str, log_types: List[str], dest_folder_path: str | Path, ssh_key_type: str = SSH_KEY_TYPE_RSA,
-                   date_filters: List[str] = None, clear_dest_folder: bool = True, should_has_var_log: bool = False) -> AcuLogInfo:
-    """Fetch all logs in a single scp command to minimize password prompts."""
-    if not ping_host(ut_ip, total_pings=2, time_out_per_ping=3):
+                   date_filters: List[str] = None, clear_dest_folder: bool = True, should_has_var_log: bool = False, run_via_shell_cmd: bool = False) -> AcuLogInfo:
+    """Fetch ACU logs via Paramiko by default, or shell scp when run_via_shell_cmd is enabled."""
+    if not ping_host(ut_ip, total_pings=2, time_out_per_ping=5):
         LOG(f"{LOG_PREFIX_MSG_ERROR} Jump host {ut_ip} is not reachable. Aborting.", file=sys.stderr)
         return AcuLogInfo(is_valid=False, ip=ut_ip)
 
-    remove_known_hosts_entries([ut_ip, ACU_IP])
     if not setup_passwordless_ssh(ACU_USER, ut_ip, ACU_IP, ssh_key_type):
         LOG(f"{LOG_PREFIX_MSG_ERROR} SSH key setup failed for {ut_ip}. Continuing with password authentication...")
 
@@ -81,35 +82,42 @@ def fetch_acu_logs(ut_ip: str, log_types: List[str], dest_folder_path: str | Pat
         return AcuLogInfo(is_valid=False, ip=ut_ip)
 
     start_time = time.time()
-    cmd = build_scp_log_cmd(ACU_USER, ut_ip, log_types, str(dest_folder_path),
-                            date_filters, should_has_var_log=should_has_var_log)
-    LOG(f"{LOG_PREFIX_MSG_INFO} Fetching all logs for {ut_ip} into '{dest_folder_path}' in batch...")
-    LOG(f"Running command: {' '.join(cmd)}")
+    transfer_failed = False
+    copied_paths: List[str] = []
+    if run_via_shell_cmd:
+        cmd = build_scp_log_cmd(ACU_USER, ut_ip, log_types, str(dest_folder_path), date_filters, should_has_var_log=should_has_var_log)
+        LOG(f"{LOG_PREFIX_MSG_INFO} Fetching all logs for {ut_ip} into '{dest_folder_path}' in batch via shell scp...")
+        LOG(f"Running command: {' '.join(cmd)}")
+        try:
+            subprocess.check_call(cmd)
+        except Exception:
+            transfer_failed = True
+    else:
+        remote_sources = build_remote_log_sources(log_types=log_types, date_filters=date_filters, should_has_var_log=should_has_var_log)
+        LOG(f"{LOG_PREFIX_MSG_INFO} Fetching all logs for {ut_ip} into '{dest_folder_path}' via Paramiko...")
+        try:
+            copied_paths = copy_to_local_via_jump_host(remote_src_paths=remote_sources, remote_host_ip=ACU_IP, local_dest_path=dest_folder_path, jump_host_ip=ut_ip, remote_user=ACU_USER, remote_password=ACU_PASSWORD, jump_user=SSM_USER, jump_password=SSM_PASSWORD, recursive=False)
+        except Exception as exc:
+            transfer_failed = True
+            LOG(f"{LOG_PREFIX_MSG_WARNING} Paramiko fetch failed for {ut_ip}: {exc}")
 
-    scp_cmd_failed = False
     try:
-        subprocess.check_call(cmd)
-    except Exception as e:
-        scp_cmd_failed = True
-
-    # Collect any files fetched during the operation, regardless of scp exit status
-    try:
-        new_log_paths = sorted(
-            str(f) for f in Path(dest_folder_path).rglob("*")
-            if f.is_file() and f.stat().st_mtime >= start_time
-        )
+        new_log_paths = sorted(set(str(Path(path)) for path in copied_paths if Path(path).is_file()))
+        if not new_log_paths:
+            # Fallback scan catches shell transfers or partial Python transfers after exceptions.
+            new_log_paths = sorted(str(f) for f in Path(dest_folder_path).rglob("*") if f.is_file() and f.stat().st_mtime >= start_time)
     except Exception as exc:
         LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to enumerate fetched logs in '{dest_folder_path}': {exc}", file=sys.stderr)
         new_log_paths = []
 
     if new_log_paths:
-        if scp_cmd_failed:
-            LOG(f"{LOG_PREFIX_MSG_WARNING} Partial fetch for {ut_ip}: copied {len(new_log_paths)} file(s) despite scp errors.")
+        if transfer_failed:
+            LOG(f"{LOG_PREFIX_MSG_WARNING} Partial fetch for {ut_ip}: copied {len(new_log_paths)} file(s) despite transfer errors.")
         else:
-            LOG(f"{LOG_PREFIX_MSG_INFO} Scp batch completed for {ut_ip}, logs saved in '{dest_folder_path}'")
+            LOG(f"{LOG_PREFIX_MSG_INFO} Log fetch completed for {ut_ip}, logs saved in '{dest_folder_path}'")
             open_path_in_explorer(dest_folder_path)
     else:
-        LOG(f"{LOG_PREFIX_MSG_WARNING} No log files copied for {ut_ip}{' (scp failed)' if scp_cmd_failed else ' despite scp completion'}.")
+        LOG(f"{LOG_PREFIX_MSG_WARNING} No log files copied for {ut_ip}{' (transfer failed)' if transfer_failed else ' despite transfer completion'}.")
 
     return AcuLogInfo(is_valid=bool(new_log_paths), ip=ut_ip, log_paths=new_log_paths)
 
@@ -129,22 +137,11 @@ def calc_missing_logs(found_files: Iterable[str], log_types: Iterable[str], date
 def build_scp_log_cmd(user: str, jump_ip: str, log_types: List[str],
                       dest_path_str: str, date_filters: List[str] = None, should_has_var_log: bool = False) -> List[str]:
     """Build a single scp command to fetch multiple files in one go."""
-    remote_paths = []
-    dates_to_process = date_filters if date_filters else [None]
-
-    for log_type_prefix in log_types:
-        for date_filter in dates_to_process:
-            if should_has_var_log:
-                remote_paths.append(f"{str(ACU_VAR_LOG_PATH)}/{log_type_prefix}*")
-
-            if date_filter:
-                remote_paths.append(f"{str(ACU_FLASH_LOGS_PATH)}/{log_type_prefix}_{date_filter}*")
-            else:
-                remote_paths.append(f"{str(ACU_FLASH_LOGS_PATH)}/{log_type_prefix}*")
+    remote_paths = build_remote_log_sources(log_types=log_types, date_filters=date_filters, should_has_var_log=should_has_var_log)
 
     # Create a single command to copy all files
     proxy = f"{user}@{jump_ip}"
-    cmd: List[str] = ['scp', '-r', '-o', f'ProxyJump={proxy}', '-o', 'StrictHostKeyChecking=no']
+    cmd: List[str] = ['scp', '-r', '-o', f'ProxyJump={proxy}', '-o', 'StrictHostKeyChecking=no', *LEGACY_SSH_RSA_OPTIONS, *NON_INTERACTIVE_KNOWN_HOST_OPTIONS]
 
     # Add all remote paths
     for path in remote_paths:
@@ -152,3 +149,14 @@ def build_scp_log_cmd(user: str, jump_ip: str, log_types: List[str],
 
     cmd.append(dest_path_str)
     return cmd
+
+
+def build_remote_log_sources(log_types: List[str], date_filters: List[str] = None, should_has_var_log: bool = False) -> List[str]:
+    remote_paths: List[str] = []
+    dates_to_process = date_filters if date_filters else [None]
+    for log_type_prefix in log_types:
+        for date_filter in dates_to_process:
+            if should_has_var_log:
+                remote_paths.append(f"{str(ACU_VAR_LOG_PATH)}/{log_type_prefix}*")
+            remote_paths.append(f"{str(ACU_FLASH_LOGS_PATH)}/{log_type_prefix}_{date_filter}*" if date_filter else f"{str(ACU_FLASH_LOGS_PATH)}/{log_type_prefix}*")
+    return remote_paths

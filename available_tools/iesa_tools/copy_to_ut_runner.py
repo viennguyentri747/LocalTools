@@ -24,12 +24,9 @@ ARG_TARGET_IP = f"{ARGUMENT_LONG_PREFIX}target_ip"
 ARG_DEST_NAME = f"{ARGUMENT_LONG_PREFIX}dest_name"
 ARG_REMOTE_DIR = f"{ARGUMENT_LONG_PREFIX}remote_dir"
 ARG_REMOTE_HOST_IP = f"{ARGUMENT_LONG_PREFIX}remote_host_ip"
-ARG_REMOTE_USER = f"{ARGUMENT_LONG_PREFIX}remote_user"
 ARG_PROMPT_BEFORE_EXECUTE = f"{ARGUMENT_LONG_PREFIX}prompt_before_execute"
 DEFAULT_REMOTE_DIR = "/home/root/download"
 DEFAULT_TARGET_IP_PREFIX = "192.168.100."
-SSM_PASSWORD = read_value_from_credential_file(CREDENTIALS_FILE_PATH, UT_PWD_KEY_NAME)
-ACU_PASSWORD = ""
 
 
 def _prompt_non_empty(prompt_text: str, default_value: Optional[str] = None) -> str:
@@ -67,7 +64,7 @@ def _get_target_ip(target_ip_arg: Optional[str]) -> str:
     target_ip = target_ip_arg.strip() if target_ip_arg else ""
     if not target_ip:
         target_ip = _prompt_non_empty("Enter target IP", DEFAULT_TARGET_IP_PREFIX)
-    if not ping_host(target_ip, total_pings=2, time_out_per_ping=3, mute=True):
+    if not ping_host(target_ip, total_pings=2, time_out_per_ping=5, mute=True):
         raise ConnectionError(f"Target IP '{target_ip}' is not reachable.")
     return target_ip
 
@@ -124,7 +121,7 @@ def build_binary_post_copy_cmd(original_md5: str, remote_dir: str, remote_name: 
     proceed_cmd = (
         f"echo \"MD5 match! Proceeding...\" && "
         f"chmod +x {quoted_remote_abs_path} && "
-        f"cp /opt/bin/{quoted_binary_name} {quoted_backup_path} && "
+        f"cp $(realpath /opt/bin/{quoted_binary_name}) {quoted_backup_path} && "
         f"ln -sf {quoted_remote_abs_path} /opt/bin/{quoted_binary_name} && "
         f"echo \"Backup created and symlink updated: /opt/bin/{binary_name} -> {remote_abs_path}\""
     )
@@ -226,7 +223,6 @@ def main() -> None:
     parser.add_argument(ARG_REMOTE_DIR, default=DEFAULT_REMOTE_DIR,
                         help=f"Remote ACU directory. Defaults to {DEFAULT_REMOTE_DIR}.")
     parser.add_argument(ARG_REMOTE_HOST_IP, default=ACU_IP, help=f"Remote ACU IP. Defaults to {ACU_IP}.")
-    parser.add_argument(ARG_REMOTE_USER, default=ACU_USER, help=f"Remote ACU user. Defaults to {ACU_USER}.")
     add_arg_bool(parser, ARG_PROMPT_BEFORE_EXECUTE, default=True,
                  help_text="Prompt before executing the IESA install command")
     args = parser.parse_args()
@@ -236,14 +232,13 @@ def main() -> None:
     local_file = _resolve_local_file(local_path)
     remote_dir = get_arg_value(args, ARG_REMOTE_DIR).rstrip("/")
     remote_host_ip = get_arg_value(args, ARG_REMOTE_HOST_IP)
-    remote_user = get_arg_value(args, ARG_REMOTE_USER)
     target_ip = _get_target_ip(get_arg_value(args, ARG_TARGET_IP))
     dest_name = get_arg_value(args, ARG_DEST_NAME) or local_file.name
     remote_abs_path = f"{remote_dir}/{dest_name}"
 
     _ensure_local_file_accessible(local_file)
     original_md5 = get_file_md5sum(str(local_file)).lower()
-    remote_md5_before = get_remote_file_checksum(remote_host_ip=remote_host_ip, remote_path=remote_abs_path, remote_user=remote_user,
+    remote_md5_before = get_remote_file_checksum(remote_host_ip=remote_host_ip, remote_path=remote_abs_path, remote_user=ACU_USER,
                                                  password=ACU_PASSWORD, checksum_type=CHECKSUM_TYPE_MD5, jump_host_ip=target_ip,
                                                  jump_user=SSM_USER, jump_password=SSM_PASSWORD)
     _log_checksums(local_md5=original_md5, remote_md5=remote_md5_before, remote_abs_path=remote_abs_path, stage="before copy")
@@ -253,10 +248,10 @@ def main() -> None:
         LOG(f"{LOG_PREFIX_MSG_INFO} Remote file already matches local file. Skipping copy: {remote_abs_path}")
     else:
         copy_to_remote_via_jump_host(local_path=local_file, remote_host_ip=remote_host_ip, remote_dest_path=remote_abs_path,
-                                     jump_host_ip=target_ip, remote_user=remote_user, password=ACU_PASSWORD,
+                                     jump_host_ip=target_ip, remote_user=ACU_USER, password=ACU_PASSWORD,
                                      jump_user=SSM_USER, jump_password=SSM_PASSWORD, recursive=False)
         time.sleep(1)
-        remote_md5_after = get_remote_file_checksum(remote_host_ip=remote_host_ip, remote_path=remote_abs_path, remote_user=remote_user,
+        remote_md5_after = get_remote_file_checksum(remote_host_ip=remote_host_ip, remote_path=remote_abs_path, remote_user=ACU_USER,
                                                     password=ACU_PASSWORD, checksum_type=CHECKSUM_TYPE_MD5, jump_host_ip=target_ip,
                                                     jump_user=SSM_USER, jump_password=SSM_PASSWORD)
         _log_checksums(local_md5=original_md5, remote_md5=remote_md5_after, remote_abs_path=remote_abs_path, stage="after copy")

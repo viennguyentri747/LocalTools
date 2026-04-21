@@ -5,6 +5,7 @@ import paramiko
 import posixpath
 import re
 import shlex
+import stat
 import time
 import subprocess
 import sys
@@ -15,6 +16,10 @@ from dev.dev_common.format_utils import format_bytes_human
 
 SSH_KEY_TYPE_RSA = 'rsa'
 KEY_TYPE_ED25519 = 'ed25519'
+LEGACY_SSH_RSA_OPTIONS = ['-o', 'HostKeyAlgorithms=+ssh-rsa', '-o', 'PubkeyAcceptedAlgorithms=+ssh-rsa']
+LEGACY_SSH_RSA_OPTION_STR = "-o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa"
+NON_INTERACTIVE_KNOWN_HOST_OPTIONS = ['-o', 'UserKnownHostsFile=/dev/null', '-o', 'GlobalKnownHostsFile=/dev/null']
+NON_INTERACTIVE_KNOWN_HOST_OPTION_STR = "-o UserKnownHostsFile=/dev/null -o GlobalKnownHostsFile=/dev/null"
 
 
 def open_ssh_client(host_ip: str, user: str, password: Optional[str] = None, timeout: int = 5, jump_host_ip: Optional[str] = None,
@@ -33,7 +38,7 @@ def open_ssh_client(host_ip: str, user: str, password: Optional[str] = None, tim
         jump_connect_kwargs = dict(hostname=jump_host_ip, username=jump_user or user, timeout=timeout,
                                    password=jump_password or password, look_for_keys=not (jump_password or password), allow_agent=not (jump_password or password))
 
-        LOG(f"Connecting to jump host {jump_host_ip}", file=sys.stderr)
+        LOG(f"Connecting to jump host {jump_host_ip} using jump args {jump_connect_kwargs}", file=sys.stderr)
         jump_client.connect(**jump_connect_kwargs)
         jump_transport = jump_client.get_transport()
         if jump_transport is None:
@@ -43,7 +48,7 @@ def open_ssh_client(host_ip: str, user: str, password: Optional[str] = None, tim
         connect_kwargs["sock"] = jump_channel
 
     try:
-        LOG(f"Connecting to host {host_ip}", file=sys.stderr)
+        LOG(f"Connecting to remote host {host_ip} using args {connect_kwargs}", file=sys.stderr)
         target_client.connect(**connect_kwargs)
     except Exception:
         LOG(f"Failed to connect to {host_ip}", file=sys.stderr)
@@ -187,12 +192,12 @@ class SshPwlessStatuses:
     unreachable_ips: List[str] = field(default_factory=list)
 
 
-def ping_host(host: str, total_pings: int = 3, time_out_per_ping: int = 3, mute: bool = False) -> bool:
+def ping_host(host: str, total_pings: int = 3, time_out_per_ping: int = 5, mute: bool = False) -> bool:
     try:
         if not mute:
-            LOG(f"[INFO] Pinging {host}...")
+            LOG(f"[INFO] Pinging {host} {total_pings} times with a timeout of {time_out_per_ping} seconds...")
         cmd = ['ping', '-c', str(total_pings), '-W', str(time_out_per_ping), host]
-        result = subprocess.run(
+        result = run_shell(
             cmd,
             capture_output=True,
             text=True,
@@ -307,6 +312,138 @@ def _sftp_put_directory(sftp: paramiko.SFTPClient, local_dir: Path, remote_dir_p
     return remote_dir_path
 
 
+def _expand_remote_sources(target_client: paramiko.SSHClient, remote_sources: List[str], timeout: int = 20) -> List[str]:
+    if not remote_sources:
+        return []
+    joined_sources = " ".join(shlex.quote(source) for source in remote_sources)
+    remote_cmd = f"set -- {joined_sources}; for pattern in \"$@\"; do for src in $pattern; do [ -e \"$src\" ] && printf '%s\\n' \"$src\"; done; done"
+    _, stdout, stderr = target_client.exec_command(remote_cmd, timeout=timeout)
+    stdout_text = stdout.read().decode("utf-8", errors="replace")
+    stderr_text = stderr.read().decode("utf-8", errors="replace").strip()
+    if stderr_text:
+        LOG(f"{LOG_PREFIX_MSG_WARNING} Remote source expansion stderr: {stderr_text}")
+    stdout.channel.recv_exit_status()
+    expanded_sources: List[str] = []
+    seen_sources = set()
+    for line in stdout_text.splitlines():
+        source = line.strip()
+        if source and source not in seen_sources:
+            seen_sources.add(source)
+            expanded_sources.append(source)
+    return expanded_sources
+
+
+def _sftp_is_dir(sftp: paramiko.SFTPClient, remote_path: str) -> bool:
+    return stat.S_ISDIR(sftp.stat(remote_path).st_mode)
+
+
+def _sftp_get_file_with_progress(sftp: paramiko.SFTPClient, remote_file_path: str, local_file: Path, base_offset: int = 0, total_bytes: Optional[int] = None, label: Optional[str] = None) -> str:
+    remote_stat = sftp.stat(remote_file_path)
+    file_size = int(remote_stat.st_size)
+    local_file.parent.mkdir(parents=True, exist_ok=True)
+    reporter = _TransferProgressReporter(label=label or "Download Progress:", total_bytes=file_size if total_bytes is None else max(file_size, int(total_bytes)))
+    LOG(f"{LOG_PREFIX_MSG_INFO} Downloading {remote_file_path} to {local_file} ({format_bytes_human(file_size)})")
+
+    def _on_progress(transferred: int, total: int) -> None:
+        reporter.report(base_offset + max(0, min(transferred, file_size if file_size >= 0 else total)))
+
+    reporter.report(base_offset, force=True)
+    try:
+        sftp.get(remote_file_path, str(local_file), callback=_on_progress)
+        reporter.report(base_offset + file_size, force=True)
+    except Exception as exc:
+        raise RuntimeError(f"Failed to download '{remote_file_path}' to '{local_file}': {type(exc).__name__}: {exc}") from exc
+    finally:
+        reporter.finish_line()
+    return str(local_file)
+
+
+def _sftp_collect_dir_files(sftp: paramiko.SFTPClient, remote_dir_path: str) -> List[Tuple[str, int]]:
+    remote_files: List[Tuple[str, int]] = []
+    queue = [remote_dir_path]
+    while queue:
+        current_dir = queue.pop()
+        for entry in sftp.listdir_attr(current_dir):
+            remote_path = posixpath.join(current_dir, entry.filename)
+            if stat.S_ISDIR(entry.st_mode):
+                queue.append(remote_path)
+            elif stat.S_ISREG(entry.st_mode):
+                remote_files.append((remote_path, int(entry.st_size)))
+    return remote_files
+
+
+def _copy_to_local_impl(remote_src_paths: str | List[str], remote_host_ip: str, local_dest_path: str | Path, remote_user: str = ACU_USER,
+                        password: Optional[str] = None, jump_host_ip: Optional[str] = None, jump_user: Optional[str] = None,
+                        jump_password: Optional[str] = None, recursive: Optional[bool] = None, timeout: Optional[int] = None) -> List[str]:
+    remote_sources = [remote_src_paths] if isinstance(remote_src_paths, str) else list(remote_src_paths or [])
+    if not remote_sources:
+        raise ValueError("remote_src_paths cannot be empty.")
+
+    local_dest = Path(local_dest_path).expanduser().resolve()
+    should_use_recursive = True if recursive is None else recursive
+    copied_local_paths: List[str] = []
+    target_client = jump_client = jump_channel = None
+    sftp = None
+    try:
+        target_client, jump_client, jump_channel = open_ssh_client(host_ip=remote_host_ip, user=remote_user, password=password, timeout=timeout or 5, jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=jump_password)
+        transport = target_client.get_transport()
+        if transport is None or not transport.is_active():
+            raise RuntimeError(f"SSH transport unavailable for {remote_host_ip}")
+        sftp = paramiko.SFTPClient.from_transport(transport)
+        resolved_remote_paths = _expand_remote_sources(target_client=target_client, remote_sources=remote_sources, timeout=timeout or 20)
+        if not resolved_remote_paths:
+            LOG(f"{LOG_PREFIX_MSG_WARNING} No remote files matched sources: {remote_sources}")
+            return copied_local_paths
+
+        should_treat_dest_as_dir = len(resolved_remote_paths) > 1 or (local_dest.exists() and local_dest.is_dir())
+        if should_treat_dest_as_dir:
+            local_dest.mkdir(parents=True, exist_ok=True)
+
+        transfer_errors = 0
+        for remote_src in resolved_remote_paths:
+            try:
+                remote_is_dir = _sftp_is_dir(sftp, remote_src)
+            except IOError as exc:
+                transfer_errors += 1
+                LOG(f"{LOG_PREFIX_MSG_WARNING} Skipping unreadable remote source '{remote_src}': {exc}")
+                continue
+
+            if remote_is_dir:
+                if not should_use_recursive:
+                    raise ValueError(f"Remote path '{remote_src}' is a directory. Set recursive=True to copy it.")
+                local_base_dir = (local_dest / PurePosixPath(remote_src).name) if should_treat_dest_as_dir else local_dest
+                local_base_dir.mkdir(parents=True, exist_ok=True)
+                remote_files = _sftp_collect_dir_files(sftp, remote_src)
+                total_bytes = sum(file_size for _, file_size in remote_files)
+                downloaded_bytes = 0
+                for remote_file, file_size in remote_files:
+                    relative = PurePosixPath(remote_file).relative_to(PurePosixPath(remote_src)).as_posix()
+                    local_file = local_base_dir / relative
+                    try:
+                        _sftp_get_file_with_progress(sftp=sftp, remote_file_path=remote_file, local_file=local_file, base_offset=downloaded_bytes, total_bytes=total_bytes, label=f"Download {PurePosixPath(remote_src).name}:")
+                        copied_local_paths.append(str(local_file))
+                        downloaded_bytes += file_size
+                    except Exception as exc:
+                        transfer_errors += 1
+                        LOG(f"{LOG_PREFIX_MSG_WARNING} Failed to download '{remote_file}': {exc}")
+            else:
+                local_file = (local_dest / PurePosixPath(remote_src).name) if should_treat_dest_as_dir else local_dest
+                try:
+                    _sftp_get_file_with_progress(sftp=sftp, remote_file_path=remote_src, local_file=local_file)
+                    copied_local_paths.append(str(local_file))
+                except Exception as exc:
+                    transfer_errors += 1
+                    LOG(f"{LOG_PREFIX_MSG_WARNING} Failed to download '{remote_src}': {exc}")
+
+        if transfer_errors:
+            LOG(f"{LOG_PREFIX_MSG_WARNING} Completed download with {transfer_errors} transfer error(s).")
+        return copied_local_paths
+    finally:
+        if sftp:
+            sftp.close()
+        close_ssh_client(target_client, jump_client, jump_channel)
+
+
 def _copy_to_remote_impl(local_path: str | Path, remote_host_ip: str, remote_dest_path: str, remote_user: str = ACU_USER,
                          password: Optional[str] = None, jump_host_ip: Optional[str] = None, jump_user: Optional[str] = None,
                          jump_password: Optional[str] = None, recursive: Optional[bool] = None, timeout: Optional[int] = None) -> str:
@@ -355,14 +492,30 @@ def copy_to_remote_via_jump_host(local_path: str | Path, remote_host_ip: str, re
 recursive=recursive, timeout=timeout)
 
 
+def copy_to_local(remote_src_paths: str | List[str], remote_host_ip: str, local_dest_path: str | Path, remote_user: str = ACU_USER,
+                  password: Optional[str] = None, recursive: Optional[bool] = None, strict_host_key_checking: bool = False,
+                  timeout: Optional[int] = None) -> List[str]:
+    """Copy remote files/directories to local path using Paramiko SFTP."""
+    if strict_host_key_checking:
+        LOG(f"{LOG_PREFIX_MSG_WARNING} strict_host_key_checking is ignored for Paramiko-based copy_to_local().")
+    remote_desc = remote_src_paths if isinstance(remote_src_paths, str) else f"{len(remote_src_paths)} source(s)"
+    LOG(f"{LOG_PREFIX_MSG_INFO} Copying '{remote_desc}' from {remote_user}@{remote_host_ip} to '{Path(local_dest_path).expanduser()}' using Paramiko")
+    return _copy_to_local_impl(remote_src_paths=remote_src_paths, remote_host_ip=remote_host_ip, local_dest_path=local_dest_path, remote_user=remote_user, password=password, recursive=recursive, timeout=timeout)
+
+
+def copy_to_local_via_jump_host(remote_src_paths: str | List[str], remote_host_ip: str, local_dest_path: str | Path, jump_host_ip: str, remote_user: str = ACU_USER, remote_password: Optional[str] = None, jump_user: Optional[str] = None, jump_password: Optional[str] = None, recursive: Optional[bool] = None, strict_host_key_checking: bool = False, timeout: Optional[int] = None) -> List[str]:
+    """Copy remote files/directories through a jump host to local path using Paramiko SFTP."""
+    if strict_host_key_checking:
+        LOG(f"{LOG_PREFIX_MSG_WARNING} strict_host_key_checking is ignored for Paramiko-based copy_to_local_via_jump_host().")
+    remote_desc = remote_src_paths if isinstance(remote_src_paths, str) else f"{len(remote_src_paths)} source(s)"
+    LOG(f"{LOG_PREFIX_MSG_INFO} Copying '{remote_desc}' from {remote_user}@{remote_host_ip} to '{Path(local_dest_path).expanduser()}' via jump host {jump_user}@{jump_host_ip} using Paramiko.")
+    return _copy_to_local_impl(remote_src_paths=remote_src_paths, remote_host_ip=remote_host_ip, local_dest_path=local_dest_path, remote_user=remote_user, password=remote_password, jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=jump_password, recursive=recursive, timeout=timeout)
+
+
 def setup_passwordless_ssh(user: str, jump_host: str, remote_host: str,
                            key_type: str = SSH_KEY_TYPE_RSA) -> bool:
     """Set up passwordless SSH authentication."""
     LOG(f"{LOG_PREFIX_MSG_INFO} Setting up passwordless SSH authentication...")
-
-    # Remove known_hosts entries first (in case of host key changes)
-    all_hosts = [jump_host] + [remote_host]
-    remove_known_hosts_entries(all_hosts)
 
     # Generate SSH key if needed
     if not generate_ssh_key(key_type):
@@ -431,10 +584,9 @@ def check_ssh_pwless_statuses(ips: List[str], user: str, public_key_path: Path, 
             # Without a readable key we cannot check remotely; treat as requiring setup.
             return ip, "password_required"
 
-        cmd = (
-            f'ssh -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=5 '
-            f'{user}@{ip} \'grep -q "{key_fingerprint}" ~/.ssh/authorized_keys 2>/dev/null\''
-        )
+        cmd = (f'ssh {LEGACY_SSH_RSA_OPTION_STR} {NON_INTERACTIVE_KNOWN_HOST_OPTION_STR} '
+               f'-o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=5 '
+               f'{user}@{ip} \'grep -q "{key_fingerprint}" ~/.ssh/authorized_keys 2>/dev/null\'')
         try:
             result = run_shell(cmd, show_cmd=False, capture_output=True, timeout=10,
                                check_throw_exception_on_exit_code=False, )
@@ -489,7 +641,9 @@ def is_ssh_key_already_installed(user: str, host: str, public_key_path: Path) ->
 
         # Extract just the key part (not the comment)
         key_fingerprint = public_key.split()[1] if len(public_key.split()) > 1 else public_key
-        cmd = f'ssh -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=5 {user}@{host} \'grep -q "{key_fingerprint}" ~/.ssh/authorized_keys 2>/dev/null\''
+        cmd = (f'ssh {LEGACY_SSH_RSA_OPTION_STR} {NON_INTERACTIVE_KNOWN_HOST_OPTION_STR} '
+               f'-o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=5 {user}@{host} '
+               f'\'grep -q "{key_fingerprint}" ~/.ssh/authorized_keys 2>/dev/null\'')
         # batch mode=yes - Fail if password is needed
         result = run_shell(cmd, show_cmd=False, capture_output=True, timeout=10)
         return result.returncode == 0
@@ -573,19 +727,8 @@ def remove_target_ssh_key_from_known_host(ip: str) -> bool:
 
 def setup_host_ssh_key(user: str, host: str, public_key_path: Path,
                        via_jump: Optional[str] = None) -> bool:
-    """
-    Copy SSH public key to remote host.
-    Proactively removes any existing host key from known_hosts before attempting.
-    """
+    """Copy SSH public key to remote host."""
     LOG(f"{LOG_PREFIX_MSG_INFO} Copying SSH key to {user}@{host}...")
-
-    # --- NEW: Proactively remove the host key first ---
-    LOG(f"{LOG_PREFIX_MSG_INFO} Attempting to remove any old host key for {host}...")
-    if not remove_target_ssh_key_from_known_host(host):
-        LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to remove old host key for {host}. Aborting key copy.", file=sys.stderr)
-        return False
-    LOG(f"{LOG_PREFIX_MSG_INFO} Old host key removed (or did not exist). Proceeding with copy...")
-    # --- End NEW ---
 
     try:
         # Read the public key
@@ -597,12 +740,16 @@ def setup_host_ssh_key(user: str, host: str, public_key_path: Path,
             cmd = [
                 'ssh', '-o', f'ProxyJump={user}@{via_jump}',
                 '-o', 'StrictHostKeyChecking=no',  # Now accepts the new key automatically
+                *LEGACY_SSH_RSA_OPTIONS,
+                *NON_INTERACTIVE_KNOWN_HOST_OPTIONS,
                 f'{user}@{host}',
                 f'mkdir -p ~/.ssh && echo "{public_key}" >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && chmod 700 ~/.ssh'
             ]
         else:
             cmd = [
                 'ssh', '-o', 'StrictHostKeyChecking=no',
+                *LEGACY_SSH_RSA_OPTIONS,
+                *NON_INTERACTIVE_KNOWN_HOST_OPTIONS,
                 f'{user}@{host}',
                 f'mkdir -p ~/.ssh && echo "{public_key}" >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && chmod 700 ~/.ssh'
             ]

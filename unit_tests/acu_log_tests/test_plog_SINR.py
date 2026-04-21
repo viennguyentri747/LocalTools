@@ -4,7 +4,7 @@ from available_tools.test_tools.test_ut_log.t_get_acu_logs import AcuLogInfo
 from unit_tests.acu_log_tests.periodic_log_helper import *
 from unit_tests.acu_log_tests.common import batch_fetch_acu_logs_for_days
 
-ACU_PLOG_PATH = PERSISTENT_TEMP_PATH / "acu_plogs/"
+ACU_PLOG_PATH = WSL_PERSISTENT_TEMP_PATH / "acu_plogs/"
 EXTRA_DAYS_BEFORE_TODAY = 0
 LOG_HOUR_CAPTURE = 0.5  # 0.01 hour = 36 secs
 TARGET_COLUMNS = [TIME_COLUMN, LAST_AVG_SINR_COLUMN, LAST_RTK_COMPASS_STATUS_COLUMN]
@@ -38,13 +38,13 @@ def main():
             plog_data: PLogData = parse_periodic_log( log_path=log_file, target_columns=TARGET_COLUMNS, max_time_capture=LOG_HOUR_CAPTURE )
 
             table_str = f"UNIT TEST: {ip}\n" + plog_data.to_table_string(tablefmt="fancy_grid") + "\n\n"
-            output_path = f"{PERSISTENT_TEMP_PATH}/PlogTest_output.txt"
+            output_path = f"{WSL_PERSISTENT_TEMP_PATH}/PlogTest_output.txt"
             write_to_file(output_path, table_str,
                           mode=WriteMode.OVERWRITE if counter == 0 else WriteMode.APPEND)
             # print(table_str)
             counter += 1
 
-            graph_output_path = f"{PERSISTENT_TEMP_PATH}/PlogTest_graph_{ip}_{counter}.png"
+            graph_output_path = f"{WSL_PERSISTENT_TEMP_PATH}/PlogTest_graph_{ip}_{counter}.png"
             LOG(f"{LOG_PREFIX_MSG_INFO} Plotting graph...")
             plog_data.plot_columns(
                 column_names=[col for col in TARGET_COLUMNS if col != "Time"],  # Exclude Time column

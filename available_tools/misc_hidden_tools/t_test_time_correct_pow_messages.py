@@ -15,7 +15,7 @@ from dev.dev_common import *
 POWGPS_MESSAGE_TYPE = "POWGPS"
 POWTLV_MESSAGE_TYPE = "POWTLV"
 DEFAULT_REFERENCE_TYPES = ["GNZDA", "GXZDA", "GPZDA"]
-DEFAULT_POW_LOG_PATH = PERSISTENT_TEMP_PATH / "live_logs" / "ttymxc0_56.log"
+DEFAULT_POW_LOG_PATH = WSL_PERSISTENT_TEMP_PATH / "live_logs" / "ttymxc0_56.log"
 
 DEFAULT_EXPECTED_POWGPS_SEC = 1.0
 DEFAULT_EXPECTED_POWTLV_SEC = 0.2
@@ -98,7 +98,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_MAX_POWGPS_REF_UTC_DRIFT_SEC: DEFAULT_MAX_POWGPS_REF_UTC_DRIFT_SEC,
                 ARG_MAX_POWGPS_REF_HOST_DELTA_SEC: DEFAULT_MAX_POWGPS_REF_HOST_DELTA_SEC,
             },
-            search_root=PERSISTENT_TEMP_PATH / "live_logs",
+            search_root=WSL_PERSISTENT_TEMP_PATH / "live_logs",
             usage_note="Use --reference_types GNZDA when GNZDA is present in the same log.",
         ),
     ]

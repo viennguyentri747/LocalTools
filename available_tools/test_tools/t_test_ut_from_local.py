@@ -19,9 +19,8 @@ ARG_TEST_MODE = f"{ARGUMENT_LONG_PREFIX}mode"
 MODE_STATUS = "status_since_startup"
 MODE_STATUS_NATIVE = "status_since_startup_python"
 MODE_3D_FIX = "fix_3d"
-MODE_ACU_PATTERN = "acu_log_pattern"
 MODE_COMPACT_PLOG = "compact_plog"
-AVAILABLE_TEST_MODES = (MODE_STATUS, MODE_STATUS_NATIVE, MODE_3D_FIX, MODE_ACU_PATTERN, MODE_COMPACT_PLOG)
+AVAILABLE_TEST_MODES = (MODE_STATUS, MODE_STATUS_NATIVE, MODE_3D_FIX, MODE_COMPACT_PLOG)
 
 FORWARDED_TOOLS: Dict[str, ForwardedTool] = {
     MODE_STATUS: ForwardedTool(
@@ -93,7 +92,6 @@ def parse_args(argv: List[str]) -> Tuple[argparse.Namespace, List[str]]:
             f"'{MODE_STATUS}' forwards to test_ut_acquisition_status_via_bash.py. "
             f"'{MODE_STATUS_NATIVE}' forwards to test_ut_acquisition_status.py. "
             f"'{MODE_3D_FIX}' forwards to t_test_ut_3d_fix_status_tools.py. "
-            f"'{MODE_ACU_PATTERN}' forwards to test_pattern_in_acu_logs.py. "
             f"'{MODE_COMPACT_PLOG}' forwards to test_gen_compact_log_from_plog.py."
         ),
     )

@@ -219,7 +219,7 @@ def batch_fetch_acu_logs(ips: List[str], log_types: List[str], date_filters: Opt
                 LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to copy SSH key to {ip}, skipping...")
                 results_by_ip[ip] = AcuLogInfo(is_valid=False, ip=ip)
                 progress_tracker.set_status(ip, "failed")
-                LOG_EXCEPTION(f"Failed to copy SSH key to {ip}, quitting, check make sure enter correct PW!")
+                #LOG_EXCEPTION(f"Failed to copy SSH key to {ip}, quitting, check make sure enter correct PW!")
 
     # Now fetch logs from all hosts with passwordless access (parallel)
     if passwordless_ips:

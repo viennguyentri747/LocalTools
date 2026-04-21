@@ -3,12 +3,13 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import List
-from dev.dev_common.core_independent_utils import get_home_path
+from dev.dev_common.core_independent_utils import get_wsl_home_path, get_win_home_path, read_value_from_credential_file
 
 ARGUMENT_LONG_PREFIX = "--"
 ARGUMENT_SHORT_PREFIX = "-"
 
-HOME_PATH = get_home_path()
+WSL_HOME_PATH = get_wsl_home_path()
+WIN_HOME_PATH = get_win_home_path()
 
 # FORMATS
 LINE_SEPARATOR = f"\n{'=' * 70}\n"
@@ -32,7 +33,7 @@ MD_CODE_BLOCK_WRAPPER = "```"
 
 # Obsidian
 OBSIDIAN_VAULT_NAME = "ObsidianWorkVault"  # The exact name of your Obsidian vault.
-OBSIDIAN_VAULT_PATH = f"{HOME_PATH}/obsidian_work_vault"  # The full local path to your vault.
+OBSIDIAN_VAULT_PATH = f"{WSL_HOME_PATH}/obsidian_work_vault"  # The full local path to your vault.
 
 # GL
 GL_BASE_URL = "https://gitlab.com"
@@ -50,7 +51,7 @@ IESA_ADC_LIB_REPO_NAME = "adc_lib"
 IESA_SPIBEAM_REPO_NAME = "submodule_spibeam"
 IESA_UPGRADE_REPO_NAME = "upgrade"
 IESA_ALL_COMPONENT_REPO_NAMES: List[str] = [IESA_TISDK_TOOLS_REPO_NAME, IESA_INTELLIAN_PKG_REPO_NAME,
-                                       IESA_INSENSE_SDK_REPO_NAME, IESA_ADC_LIB_REPO_NAME, IESA_SPIBEAM_REPO_NAME, IESA_UPGRADE_REPO_NAME]
+                                            IESA_INSENSE_SDK_REPO_NAME, IESA_ADC_LIB_REPO_NAME, IESA_SPIBEAM_REPO_NAME, IESA_UPGRADE_REPO_NAME]
 IESA_ALL_REPO_NAMES: List[str] = [IESA_OW_SW_TOOLS_REPO_NAME] + IESA_ALL_COMPONENT_REPO_NAMES
 # IESA GL TOKEN KEYS
 GL_OW_SW_TOOLS_TOKEN_KEY_NAME = "GITLAB_OW_SW_TOOLS_TOKEN"
@@ -62,12 +63,42 @@ GL_SPIBEAM_TOKEN_KEY_NAME = "GITLAB_SPIBEAM_TOKEN"
 GL_UPGRADE_TOKEN_KEY_NAME = "GITLAB_UPGRADE_TOKEN"
 UT_PWD_KEY_NAME = "UT_PASSWORD"
 
+# PATHS
+DOWNLOAD_FOLDER_PATH = WSL_HOME_PATH / "downloads"
+CORE_REPOS_PATH = WSL_HOME_PATH / "workspace" / "intellian_core_repos"
+LOCAL_TOOL_REPO_PATH = CORE_REPOS_PATH / "local_tools"
+AVAILABLE_TOOLS_PATH = LOCAL_TOOL_REPO_PATH / "available_tools"
+CREDENTIALS_FILE_PATH = LOCAL_TOOL_REPO_PATH / ".my_credentials.env"
+WORKSPACE_PATH = WSL_HOME_PATH / "workspace"
+CORE_REPOS_PATH = WORKSPACE_PATH / "intellian_core_repos/"
+TEMP_WORKING_PATH = WSL_HOME_PATH / "testing" / "temp_working"
+INERTIAL_SENSE_LOG_INSPECTOR_PATH = TEMP_WORKING_PATH / "inertial_sense_python_modules" / "logInspector" / "logInspector.py"
+OW_SW_PATH = CORE_REPOS_PATH / "oneweb_project_sw_tools"
+TEMP_PATH = "/tmp/local_tools_workdir/"
+WSL_PERSISTENT_TEMP_PATH = LOCAL_TOOL_REPO_PATH / "temp"
+WINDOW_PERSISTENT_TEMP_PATH = WIN_HOME_PATH / "temp"
+ACU_LOG_PATH = WINDOW_PERSISTENT_TEMP_PATH / "acu_logs/"
+GIT_REPO_PATH = WORKSPACE_PATH / "other_projects" / "git-repo/"
+INSENSE_SDK_REPO_PATH = CORE_REPOS_PATH / IESA_INSENSE_SDK_REPO_NAME
+DOWNLOADS_PATH = WSL_HOME_PATH / "downloads"
+OW_SW_OUTPUT_IESA_PATH = OW_SW_PATH / "install_iesa_tarball.iesa"
+OW_SW_BUILD_FOLDER_PATH = OW_SW_PATH / "tmp_build/"
+OW_SW_BUILD_TOOLS_PATH = OW_SW_PATH / "tools" / "build_tools/"
+OW_SW_KIM_FTM_FW_PATH = OW_SW_PATH / "packaging/opt_etc/kim_ftm_fw/"
+OW_SW_KIM_RCVR_VERSION_FILE_PATH = OW_SW_KIM_FTM_FW_PATH / "kim_rcvr_version.txt"
+OW_SW_BUILD_OUTPUT_FOLDER_PATH = OW_SW_BUILD_FOLDER_PATH / "out"
+OW_SW_BUILD_BINARY_OUTPUT_PATH = OW_SW_BUILD_OUTPUT_FOLDER_PATH / "bin"
+IESA_MANIFEST_RELATIVE_PATH = f"tools/manifests/iesa_manifest_gitlab.xml"
+IESA_MANIFEST_FILE_PATH_LOCAL_PATH = OW_SW_PATH / IESA_MANIFEST_RELATIVE_PATH
+
 # NETWORKS
 SSM_BASE_IP_PREFIX = "192.168"
 SSM_NORMAL_IP_PREFIX = "192.168.100"
 ACU_IP = "192.168.100.254"
 SSM_USER = "root"
 ACU_USER = "root"
+ACU_PASSWORD = ""
+SSM_PASSWORD = read_value_from_credential_file(CREDENTIALS_FILE_PATH, UT_PWD_KEY_NAME)
 ACU_VAR_LOG_PATH = Path("/var/log")
 ACU_FLASH_LOGS_PATH = Path("/home") / ACU_USER / "flash_logs/"
 API_SYSTEM_REBOOT_ENDPOINT = "/api/system/reboot"
@@ -80,39 +111,11 @@ API_AIM_ANTENNA_CONFIG_ENDPOINT = "/aim/api/lui/data/config/antenna"
 LIST_MP_IPS = [F"{SSM_NORMAL_IP_PREFIX}.54", F"{SSM_NORMAL_IP_PREFIX}.56", F"{SSM_NORMAL_IP_PREFIX}.57", F"{SSM_NORMAL_IP_PREFIX}.60",
                F"{SSM_NORMAL_IP_PREFIX}.61", F"{SSM_NORMAL_IP_PREFIX}.62", F"{SSM_NORMAL_IP_PREFIX}.64"]
 LIST_FD_IPS = [F"{SSM_BASE_IP_PREFIX}.101.79", F"{SSM_BASE_IP_PREFIX}.101.126"]
-LIST_HD_IPS = [F"{SSM_BASE_IP_PREFIX}.101.65", F"{SSM_NORMAL_IP_PREFIX}.70",F"{SSM_NORMAL_IP_PREFIX}.85", F"{SSM_BASE_IP_PREFIX}.101.97", F"{SSM_NORMAL_IP_PREFIX}.107"]
+LIST_HD_IPS = [F"{SSM_BASE_IP_PREFIX}.101.65", F"{SSM_NORMAL_IP_PREFIX}.70",
+               F"{SSM_NORMAL_IP_PREFIX}.85", F"{SSM_BASE_IP_PREFIX}.101.97", F"{SSM_NORMAL_IP_PREFIX}.107"]
 ACU_DOWNLOAD_DIR = f"/home/root/download/"
 
 
-# PATHS
-DOWNLOAD_FOLDER_PATH = HOME_PATH / "downloads"
-CORE_REPOS_PATH = HOME_PATH / "workspace" / "intellian_core_repos"
-LOCAL_TOOL_REPO_PATH = CORE_REPOS_PATH / "local_tools"
-AVAILABLE_TOOLS_PATH = LOCAL_TOOL_REPO_PATH / "available_tools"
-CREDENTIALS_FILE_PATH = LOCAL_TOOL_REPO_PATH / ".my_credentials.env"
-WORKSPACE_PATH = HOME_PATH / "workspace"
-CORE_REPOS_PATH = WORKSPACE_PATH / "intellian_core_repos/"
-TEMP_WORKING_PATH = HOME_PATH / "testing" / "temp_working"
-INERTIAL_SENSE_LOG_INSPECTOR_PATH = TEMP_WORKING_PATH / "inertial_sense_python_modules" / "logInspector" / "logInspector.py"
-OW_SW_PATH = CORE_REPOS_PATH / "oneweb_project_sw_tools"
-TEMP_PATH = "/tmp/local_tools_workdir/"
-PERSISTENT_TEMP_PATH = LOCAL_TOOL_REPO_PATH / "temp"
-ACU_LOG_PATH = PERSISTENT_TEMP_PATH / "acu_logs/"
-GIT_REPO_PATH = WORKSPACE_PATH / "other_projects" / "git-repo/"
-
-INSENSE_SDK_REPO_PATH = CORE_REPOS_PATH / IESA_INSENSE_SDK_REPO_NAME
-DOWNLOADS_PATH = HOME_PATH / "downloads"
-
-OW_SW_OUTPUT_IESA_PATH = OW_SW_PATH / "install_iesa_tarball.iesa"
-OW_SW_BUILD_FOLDER_PATH = OW_SW_PATH / "tmp_build/"
-OW_SW_BUILD_TOOLS_PATH = OW_SW_PATH / "tools" / "build_tools/"
-OW_SW_KIM_FTM_FW_PATH = OW_SW_PATH / "packaging/opt_etc/kim_ftm_fw/"
-OW_SW_KIM_RCVR_VERSION_FILE_PATH = OW_SW_KIM_FTM_FW_PATH / "kim_rcvr_version.txt"
-OW_SW_BUILD_OUTPUT_FOLDER_PATH = OW_SW_BUILD_FOLDER_PATH / "out"
-OW_SW_BUILD_BINARY_OUTPUT_PATH = OW_SW_BUILD_OUTPUT_FOLDER_PATH / "bin"
-
-IESA_MANIFEST_RELATIVE_PATH = f"tools/manifests/iesa_manifest_gitlab.xml"
-IESA_MANIFEST_FILE_PATH_LOCAL = OW_SW_PATH / IESA_MANIFEST_RELATIVE_PATH
 NOTE_AVAILABLE_LOCAL_COMPONENT_REPO_NAMES = f"Available local repo names: [{', '.join(IESA_ALL_COMPONENT_REPO_NAMES)}]"
 NOTE_AVAILABLE_LOCAL_REPO_NAMES = f"Available local repo names: [{', '.join(IESA_ALL_REPO_NAMES)}]"
 # WSL COMMANDS

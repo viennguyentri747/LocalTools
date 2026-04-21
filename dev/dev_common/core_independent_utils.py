@@ -40,7 +40,7 @@ def get_current_log_level() -> ELogType:
     return _CURRENT_LOG_LEVEL
 
 
-def get_home_path() -> Path:
+def get_wsl_home_path() -> Path:
     if is_platform_windows():
         wsl_home_result = run_shell(["echo", "$HOME"], capture_output=True, is_run_wsl_if_window=True)
         wsl_home = wsl_home_result.stdout.strip()
@@ -50,6 +50,16 @@ def get_home_path() -> Path:
         resolved_path = Path.home()
     return resolved_path
 
+def get_win_home_path() -> Path:
+    if is_platform_windows():
+        # Running on Windows natively, USERPROFILE is available directly
+        return Path(os.environ['USERPROFILE'])
+    else:
+        # Running on WSL, need to query Windows environment via cmd.exe
+        result = run_shell( ["cmd.exe", "/c", "echo %USERPROFILE%"], capture_output=True )
+        win_home = result.stdout.strip()
+        # Convert Windows path to WSL-accessible path (e.g. C:\Users\foo -> /mnt/c/Users/foo)
+        return Path(convert_win_to_wsl_path(win_home))
 
 def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[Path | str] = None,
               check_throw_exception_on_exit_code: bool = True, stdout=None, stderr=None,
@@ -98,6 +108,18 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
             wsl_cmd.extend(_normalize_wsl_args(cmd_args))
         return wsl_cmd
 
+    def _is_already_wsl_wrapped(raw_cmd: Union[str, List[Union[str, Path]]]) -> bool:
+        if isinstance(raw_cmd, list):
+            if not raw_cmd:
+                return False
+            first_token = str(raw_cmd[0]).strip().lower()
+        else:
+            parts = shlex.split(str(raw_cmd))
+            if not parts:
+                return False
+            first_token = parts[0].strip().lower()
+        return first_token in {"wsl", "wsl.exe"}
+
     is_windows = is_platform_windows()
     run_in_wsl = is_windows and is_run_wsl_if_window
     use_shell = want_shell and not is_windows
@@ -125,7 +147,8 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
                 want_shell = False
 
     if run_in_wsl:
-        cmd = _wrap_cmd_for_wsl(cmd, use_shell, wsl_cwd)
+        if not _is_already_wsl_wrapped(cmd):
+            cmd = _wrap_cmd_for_wsl(cmd, use_shell, wsl_cwd)
         want_shell = False
     else:
         if want_shell and isinstance(cmd, List):

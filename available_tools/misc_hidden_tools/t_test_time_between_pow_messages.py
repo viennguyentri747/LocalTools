@@ -12,7 +12,7 @@ from dev.dev_common import *
 
 POWGPS_MESSAGE_TYPE = "POWGPS"
 POWTLV_MESSAGE_TYPE = "POWTLV"
-DEFAULT_POW_LOG_PATH = PERSISTENT_TEMP_PATH / "live_logs" / "ttymxc0_56.log"
+DEFAULT_POW_LOG_PATH = WSL_PERSISTENT_TEMP_PATH / "live_logs" / "ttymxc0_56.log"
 DEFAULT_POW_MESSAGE_TYPES = [POWTLV_MESSAGE_TYPE]
 DEFAULT_POWTLV_SECONDS_PER_MESSAGE = 0.2
 DEFAULT_POWGPS_SECONDS_PER_MESSAGE = 1.0
@@ -54,7 +54,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_CHECK_TIMESTAMP: DEFAULT_CHECK_TIMESTAMP,
                 ARG_MAX_DRIFT_BETWEEN_MSG_TIME: DEFAULT_MAX_DRIFT_BETWEEN_MSG_SECONDS,
             },
-            search_root=PERSISTENT_TEMP_PATH / "live_logs",
+            search_root=WSL_PERSISTENT_TEMP_PATH / "live_logs",
             usage_note="Point --log_paths at one or more captured live-log files.",
         ),
         ToolTemplate(
@@ -68,7 +68,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_CHECK_TIMESTAMP: DEFAULT_CHECK_TIMESTAMP,
                 ARG_MAX_DRIFT_BETWEEN_MSG_TIME: DEFAULT_MAX_DRIFT_BETWEEN_MSG_SECONDS,
             },
-            search_root=PERSISTENT_TEMP_PATH / "live_logs",
+            search_root=WSL_PERSISTENT_TEMP_PATH / "live_logs",
             usage_note="Point --log_paths at one or more captured live-log files.",
         ),
     ]

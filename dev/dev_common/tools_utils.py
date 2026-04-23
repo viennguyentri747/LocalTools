@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import signal
 import subprocess
 import sys
 import time
@@ -291,11 +292,16 @@ def open_path_in_explorer(file_path: Path) -> None:
         # Convert path using helper
         windows_path = convert_wsl_to_win_path(file_path)
         # Launch Explorer with selected file
-        run_shell(
+        command_result = run_shell(
             [CMD_EXPLORER, WSL_SELECT_FLAG, windows_path],
-            check_throw_exception_on_exit_code=False
+            check_throw_exception_on_exit_code=False,
+            # When this code runs under native Windows Python, do not wrap Explorer with `wsl`.
+            is_run_wsl_if_window=False
         )
 
+        if command_result.returncode != 0:
+            LOG(f"{LOG_PREFIX_MSG_WARNING} Explorer returned code {command_result.returncode} for '{file_path}'")
+            return
         LOG(f"Opened Explorer to highlight '{file_path}'")
 
     except SystemExit as e:
@@ -336,26 +342,57 @@ def _run_taskkill_for_pid(pid: int, force: bool = False) -> None:
         if result.stdout.strip():
             LOG(f"{LOG_PREFIX_MSG_INFO} taskkill stdout: {result.stdout.strip()}")
         if result.stderr.strip():
-            LOG(f"{LOG_PREFIX_MSG_WARNING} taskkill stderr: {result.stderr.strip()}")
+            stderr_text = result.stderr.strip()
+            if "not found" in stderr_text.lower():
+                LOG(f"{LOG_PREFIX_MSG_INFO} taskkill notice: {stderr_text}")
+            else:
+                LOG(f"{LOG_PREFIX_MSG_WARNING} taskkill stderr: {stderr_text}")
     except Exception as exc:
         LOG(f"{LOG_PREFIX_MSG_WARNING} Failed to execute taskkill for pid={pid}: {exc}")
+
+
+def _send_signal_to_process_group(process: subprocess.Popen, sig: int) -> None:
+    try:
+        pgid = os.getpgid(process.pid)
+        os.killpg(pgid, sig)
+    except Exception:
+        pass
+
+
+def _wait_for_exit(process: subprocess.Popen, timeout_sec: float) -> bool:
+    deadline = time.time() + max(0.0, float(timeout_sec))
+    while process.poll() is None and time.time() < deadline:
+        time.sleep(0.05)
+    return process.poll() is not None
 
 
 def _stop_win_process_tree(process: subprocess.Popen, graceful_timeout_sec: float = 2.0) -> None:
     if process.poll() is not None:
         return
     pid = int(process.pid)
-    _run_taskkill_for_pid(pid, force=False)
-    wait_deadline = time.time() + max(0.0, float(graceful_timeout_sec))
-    while process.poll() is None and time.time() < wait_deadline:
-        time.sleep(0.1)
-    if process.poll() is None:
-        LOG(f"{LOG_PREFIX_MSG_WARNING} Process pid={pid} did not exit after graceful stop. Forcing termination.")
-        _run_taskkill_for_pid(pid, force=True)
+    LOG(f"{LOG_PREFIX_MSG_INFO} Stopping process pid={pid} gracefully using local signals...")
+    signal_plan = [
+        ("SIGINT", signal.SIGINT, lambda: process.send_signal(signal.SIGINT), graceful_timeout_sec),
+        ("SIGTERM", signal.SIGTERM, process.terminate, 1.5),
+        ("SIGKILL", signal.SIGKILL, process.kill, 1.0),
+    ]
+    for idx, (sig_name, sig_value, send_to_process, wait_timeout_sec) in enumerate(signal_plan):
         try:
-            process.wait(timeout=2.0)
-        except subprocess.TimeoutExpired:
-            LOG(f"{LOG_PREFIX_MSG_WARNING} Process pid={pid} still did not exit after forced taskkill.")
+            send_to_process()
+        except Exception:
+            pass
+        _send_signal_to_process_group(process, sig_value)
+        if _wait_for_exit(process, wait_timeout_sec):
+            return
+        if idx < len(signal_plan) - 1:
+            next_sig_name = signal_plan[idx + 1][0]
+            LOG(f"{LOG_PREFIX_MSG_WARNING} Process pid={pid} did not exit after {sig_name}. Escalating to {next_sig_name}...")
+
+    # Final fallback when local signaling cannot reach underlying Windows tree.
+    LOG(f"{LOG_PREFIX_MSG_WARNING} Local signals could not stop pid={pid}. Trying taskkill fallback...")
+    _run_taskkill_for_pid(pid, force=True)
+    if not _wait_for_exit(process, 1.5):
+        LOG(f"{LOG_PREFIX_MSG_WARNING} Process pid={pid} still appears alive after all stop attempts.")
 
 
 def run_module_via_win_python(module_path: str, module_args: Optional[List[str]] = None, package_root: str | Path = LOCAL_TOOL_REPO_PATH,
@@ -366,16 +403,55 @@ def run_module_via_win_python(module_path: str, module_args: Optional[List[str]]
     win_python_path = win_python_executable_path or get_win_python_executable_path_for_wsl()
     cmd = [str(win_python_path), "-m", module_path, *module_args]
     LOG(f"{LOG_PREFIX_MSG_INFO} Running Win Python module via shared runner: {' '.join(shlex.quote(str(part)) for part in cmd)}")
-    process = subprocess.Popen(cmd, cwd=str(package_root_path))
-    try:
-        return process.wait()
-    except KeyboardInterrupt:
-        LOG(f"{LOG_PREFIX_MSG_WARNING} Ctrl+C received. Stopping Win Python process tree (pid={process.pid})...")
+    # Detach child into its own session so terminal Ctrl+C is handled by this launcher process.
+    # This avoids WSL interop cases where SIGINT appears to be delivered only to the Win child.
+    process = subprocess.Popen(cmd, cwd=str(package_root_path), start_new_session=True)
+    interrupted = False
+    stop_requested = False
+    previous_sigint_handler = None
+
+    def _request_stop() -> None:
+        nonlocal stop_requested
+        if stop_requested:
+            return
+        stop_requested = True
+        LOG(f"{LOG_PREFIX_MSG_INFO} Ctrl+C received. Stopping Win Python process tree (pid={process.pid})...")
         _stop_win_process_tree(process=process, graceful_timeout_sec=graceful_shutdown_timeout_sec)
+
+    def _on_sigint(signum, frame) -> None:
+        nonlocal interrupted
+        if interrupted:
+            return
+        interrupted = True
+        # Signal handlers should stay minimal. Do not run subprocess/taskkill logic here.
+
+    try:
+        previous_sigint_handler = signal.getsignal(signal.SIGINT)
+        signal.signal(signal.SIGINT, _on_sigint)
+    except Exception:
+        previous_sigint_handler = None
+    try:
+        while True:
+            if interrupted:
+                _request_stop()
+                return 130
+            return_code = process.poll()
+            if return_code is not None:
+                return return_code
+            time.sleep(0.1)
+    except KeyboardInterrupt:
+        interrupted = True
+        _request_stop()
         return 130
     except Exception as exc:
         LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to run Win Python module: {exc}")
         return 1
+    finally:
+        if previous_sigint_handler is not None:
+            try:
+                signal.signal(signal.SIGINT, previous_sigint_handler)
+            except Exception:
+                pass
 
 def get_win_python_runner_cmd_invocation(module_path: str, package_root: str = f"{LOCAL_TOOL_REPO_PATH}") -> str:
     """Return command string that routes Win Python execution through a shared runner script."""

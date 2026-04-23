@@ -619,7 +619,7 @@ def check_ssh_pwless_statuses(ips: List[str], user: str, public_key_path: Path, 
                 checked_ip, status = future.result()
                 if status == "passwordless":
                     statuses.passwordless_ips.append(checked_ip)
-                    LOG(f"{LOG_PREFIX_MSG_INFO} ✓ {checked_ip} - SSH key already installed")
+                    LOG(f"{LOG_PREFIX_MSG_INFO} [OK] {checked_ip} - SSH key already installed")
                 elif status == "password_required":
                     statuses.password_required_ips.append(checked_ip)
                     LOG(f"{LOG_PREFIX_MSG_WARNING} {checked_ip} - SSH key not found, will require password")

@@ -299,7 +299,13 @@ class _BaseStreamHandler(logging.StreamHandler):
             msg = self.format(record)
             if self._highlight:
                 msg = f"{self.BOLD}{self.HIGHLIGHT_COLOR}{msg}{self.RESET}"
-            self.stream.write(msg)
+            try:
+                self.stream.write(msg)
+            except UnicodeEncodeError:
+                # Windows cp1252 consoles cannot encode many Unicode glyphs.
+                # Fallback to best-effort printable text instead of crashing logging.
+                safe_msg = msg.encode("ascii", errors="replace").decode("ascii")
+                self.stream.write(safe_msg)
             self.stream.write("\r" if self._same_line else self.terminator)
             if self._flush_enabled:
                 self.flush()

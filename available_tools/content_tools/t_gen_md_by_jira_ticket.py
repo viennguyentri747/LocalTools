@@ -18,7 +18,7 @@ def get_tool_templates() -> List[ToolTemplate]:
             args={
                 ARG_VAULT_PATH: f"{Path.home()}/obsidian_work_vault/",
                 ARG_NOTE_REL_PATH: f"{PATH_TO_WORKING_NOTES}",
-                ARG_NOTE_REL_PATHS_TO_ADD_CONTENT: [f"{PATH_TO_WORKING_NOTES}/_Intellian Note working, diary (work log).md"],
+                ARG_NOTE_REL_PATHS_TO_ADD_LINK: [f"{PATH_TO_WORKING_NOTES}/_Intellian Note working, diary (work log).md"],
                 ARG_DEFAULT_OW_MANIFEST_BRANCH: BRANCH_MANPACK_MASTER,
                 ARG_IS_GEN_CODING_TASK: False,
                 ARG_TICKET_URL: f"{JIRA_COMPANY_URL}/browse/ESA1W-6816",
@@ -175,7 +175,7 @@ if __name__ == "__main__":
                         help="The destination directory for the generated file.")
     parser.add_argument(ARG_NOTE_REL_PATH, type=str, required=False, default=None,
                         help="The relative path (vs vault) to note that need to fill with content.")
-    parser.add_argument(ARG_NOTE_REL_PATHS_TO_ADD_CONTENT, nargs='+', default=[], required=False,
+    parser.add_argument(ARG_NOTE_REL_PATHS_TO_ADD_LINK, nargs='+', default=[], required=False,
                         help="The relative paths (vs vault) to add note (with filled content)'s link.")
 
     args = parser.parse_args()
@@ -183,7 +183,7 @@ if __name__ == "__main__":
     jira_url = get_arg_value(args, ARG_TICKET_URL)
     rel_note_dir = get_arg_value(args, ARG_NOTE_REL_PATH)
     vault_dir_str = get_arg_value(args, ARG_VAULT_PATH)
-    rel_paths_to_add_link = get_arg_value(args, ARG_NOTE_REL_PATHS_TO_ADD_CONTENT)
+    rel_paths_to_add_link = get_arg_value(args, ARG_NOTE_REL_PATHS_TO_ADD_LINK)
 
     # Request user input for Jira URL
     if not jira_url:
@@ -243,36 +243,34 @@ if __name__ == "__main__":
                         LOG(f"Copy operation cancelled by user.")
                         should_create_note = False
 
-        # 3. Create note
+        # 3. Create note + add link to that note
         if should_create_note:
-            # Optional alias: use the JIRA key prefix (e.g., "MANP-268")
-            # alias = file_prefix.rstrip("_")
-            # Build the wikilink list item
-            wikilink_line = f"\n- [ ] {to_wikilink(Path(file_name))}\n"
-            # Regex to match the exact heading line
-            heading_regex = r"^#\s*Common\s*\+\s*Log daily\s*$"
-            for path_to_add_link_str in rel_paths_to_add_link:
-                # Call YOUR helper (pass vault_path explicitly)
-                insert_success = insert_content_after_regex(
-                    note_vault_rel_path=Path(path_to_add_link_str),
-                    prefix_regex=heading_regex,
-                    content_to_insert=wikilink_line,
-                    vault_path=Path(vault_dir_str),
-                    flags=re.MULTILINE,
-                    insert_all=False,
-                    prevent_duplicate=True,
-                )
-
-                if insert_success:
-                    LOG(f"Successfully inserted link to {path_to_add_link_str}")
-                else:
-                    LOG(f"Failed to insert link to {path_to_add_link_str}")
             # output_dir_path = get_arg_value(args, ARG_DIR_TO_COPY_TO, for_shell=True)
             rel_destination_path = Path(strip_quotes(rel_note_dir)) / file_name
             success = create_obsidian_note_with_template(note_vault_rel_path=str(
                 rel_destination_path), markdown_content=markdown_content)
             if success:
                 LOG(f"Successfully created note at {destination_path}")
+                 # Build the wikilink list item
+                wikilink_line = f"\n- [ ] {to_wikilink(Path(file_name))}\n"
+                # Regex to match the exact heading line
+                heading_regex = r"^#\s*Common\s*\+\s*Log daily\s*$"
+                for path_to_add_link_str in rel_paths_to_add_link:
+                    # Call YOUR helper (pass vault_path explicitly)
+                    insert_success = insert_content_after_regex(
+                        note_vault_rel_path=Path(path_to_add_link_str),
+                        prefix_regex=heading_regex,
+                        content_to_insert=wikilink_line,
+                        vault_path=Path(vault_dir_str),
+                        flags=re.MULTILINE,
+                        insert_all=False,
+                        prevent_duplicate=True,
+                    )
+
+                    if insert_success:
+                        LOG(f"Successfully inserted link to {path_to_add_link_str}")
+                    else:
+                        LOG(f"Failed to insert link to {path_to_add_link_str}")
             else:
                 LOG(f"❌ Failed to create note at {destination_path}")
     else:

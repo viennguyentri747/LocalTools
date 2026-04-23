@@ -169,9 +169,9 @@ def create_obsidian_note_with_template(
             use_command_id=True,
             mode="overwrite"
         )
-        #sleep_secs = 1.5
-        #print(f"⏳ Waiting {sleep_secs} seconds for the note to be created...")
-        #time.sleep(sleep_secs)
+        sleep_secs = 1.5
+        print(f"⏳ Waiting {sleep_secs} seconds for the note to be created...")
+        time.sleep(sleep_secs)
         # Append provided markdown content
         create_note_with_uri(
             vault_name=vault_name,

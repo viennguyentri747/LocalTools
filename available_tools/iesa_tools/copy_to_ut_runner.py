@@ -231,14 +231,14 @@ def main() -> None:
     local_path = Path(get_arg_value(args, ARG_LOCAL_PATH)).expanduser().resolve()
     local_file = _resolve_local_file(local_path)
     remote_dir = get_arg_value(args, ARG_REMOTE_DIR).rstrip("/")
-    remote_host_ip = get_arg_value(args, ARG_REMOTE_HOST_IP)
+    acu_host_ip = get_arg_value(args, ARG_REMOTE_HOST_IP)
     target_ip = _get_target_ip(get_arg_value(args, ARG_TARGET_IP))
     dest_name = get_arg_value(args, ARG_DEST_NAME) or local_file.name
     remote_abs_path = f"{remote_dir}/{dest_name}"
 
     _ensure_local_file_accessible(local_file)
     original_md5 = get_file_md5sum(str(local_file)).lower()
-    remote_md5_before = get_remote_file_checksum(remote_host_ip=remote_host_ip, remote_path=remote_abs_path, remote_user=ACU_USER,
+    remote_md5_before = get_remote_file_checksum(remote_host_ip=acu_host_ip, remote_path=remote_abs_path, remote_user=ACU_USER,
                                                  password=ACU_PASSWORD, checksum_type=CHECKSUM_TYPE_MD5, jump_host_ip=target_ip,
                                                  jump_user=SSM_USER, jump_password=SSM_PASSWORD)
     _log_checksums(local_md5=original_md5, remote_md5=remote_md5_before, remote_abs_path=remote_abs_path, stage="before copy")
@@ -247,11 +247,11 @@ def main() -> None:
     if remote_md5_before == original_md5:
         LOG(f"{LOG_PREFIX_MSG_INFO} Remote file already matches local file. Skipping copy: {remote_abs_path}")
     else:
-        copy_to_remote_via_jump_host(local_path=local_file, remote_host_ip=remote_host_ip, remote_dest_path=remote_abs_path,
+        copy_to_remote_via_jump_host(local_path=local_file, remote_host_ip=acu_host_ip, remote_dest_path=remote_abs_path,
                                      jump_host_ip=target_ip, remote_user=ACU_USER, password=ACU_PASSWORD,
                                      jump_user=SSM_USER, jump_password=SSM_PASSWORD, recursive=False)
         time.sleep(1)
-        remote_md5_after = get_remote_file_checksum(remote_host_ip=remote_host_ip, remote_path=remote_abs_path, remote_user=ACU_USER,
+        remote_md5_after = get_remote_file_checksum(remote_host_ip=acu_host_ip, remote_path=remote_abs_path, remote_user=ACU_USER,
                                                     password=ACU_PASSWORD, checksum_type=CHECKSUM_TYPE_MD5, jump_host_ip=target_ip,
                                                     jump_user=SSM_USER, jump_password=SSM_PASSWORD)
         _log_checksums(local_md5=original_md5, remote_md5=remote_md5_after, remote_abs_path=remote_abs_path, stage="after copy")
@@ -274,7 +274,7 @@ def main() -> None:
         ut_command = _build_iesa_post_copy_cmd(original_md5=original_md5, remote_dir=remote_dir, remote_name=dest_name,
                                                prompt_before_execute=get_arg_value(args, ARG_PROMPT_BEFORE_EXECUTE))
     elif mode == MODE_IESA_PYTHON:
-        _run_iesa_install_via_python(remote_name=dest_name, remote_dir=remote_dir, remote_host_ip=remote_host_ip, remote_user=remote_user,
+        _run_iesa_install_via_python(remote_name=dest_name, remote_dir=remote_dir, remote_host_ip=acu_host_ip, remote_user=ACU_USER,
                                      jump_host_ip=target_ip, should_prompt=get_arg_value(args, ARG_PROMPT_BEFORE_EXECUTE))
     else:
         action = "copied" if is_copied else "already up to date (copy skipped)"

@@ -182,7 +182,7 @@ def main() -> None:
 
     run_build(build_type, get_arg_value(args, ARG_INTERACTIVE), make_clean, is_debug_build)
     # Always display binary build finish + command to copy
-    LOG(f"{MAIN_STEP_LOG_PREFIX} Binary build finished.")
+    LOG(f"{MAIN_STEP_LOG_PREFIX} Binary build finished")
     LOG(f"Find output binary files in '{OW_SW_BUILD_BINARY_OUTPUT_PATH}'")
     LOG(f"{LINE_SEPARATOR}")
     append_build_log("Binary build finished.")
@@ -416,7 +416,14 @@ def run_build(build_type: str, interactive: bool, make_clean: bool = True, is_de
     docker_image: str = get_docker_image_from_gitlab_ci(GITLAB_CI_YML_PATH)
     # docker_image: str = "oneweb_test:v1"
     LOG(f"Using Docker image: {docker_image}")
-    docker_cmd_base = ( f"docker run -it --rm -v {OW_SW_PATH}:{OW_SW_PATH} -w {OW_SW_PATH} {docker_image}" )
+
+    # Prune stopped containers, dangling images, and orphaned volumes before starting the build
+    # Note: `image prune` without `-a` only removes dangling (<none>:<none>) images, preserving the cached build image
+    LOG("Cleaning up unused Docker resources...")
+    run_shell("docker container prune -f && docker image prune -f && docker volume prune -f")
+
+    tty_flag = "-it" if interactive else ""
+    docker_cmd_base = f"docker run {tty_flag} --rm -v {OW_SW_PATH}:{OW_SW_PATH} -w {OW_SW_PATH} {docker_image}"
 
     # Command to find and convert script files to Unix format
     dos2unix_cmd = (
@@ -446,7 +453,6 @@ def run_build(build_type: str, interactive: bool, make_clean: bool = True, is_de
         LOG(f"Exiting interactive mode...")
     else:
         LOG("Running dos2unix on script files and build command...")
-
         # Build the command sequence based on make_clean flag
         if make_clean:
             bash_cmd = f"{bash_cmd_prefix} '{dos2unix_cmd} && {chmod_cmd} && {make_clean_cmd} && make {make_target}{debug_suffix}'"

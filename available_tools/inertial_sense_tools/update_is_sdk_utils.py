@@ -22,6 +22,8 @@ GITHUB_API_BASE_URL = "https://api.github.com"
 GITHUB_BASE_URL = "https://github.com"
 HTTP_USER_AGENT = "local-tools-sdk-updater"
 NO_PROMPT: bool = False
+SDK_SIGNAL_HANDLER_PATCH_PATH = Path(__file__).resolve().parent / "sdk_signal_handler.patch"
+SDK_REMOVE_DEFINE_DEBUG_PATCH_PATH = Path(__file__).resolve().parent / "sdk_remove_define_debug.patch"
 
 
 # ─────────────────────────── Git helpers ──────────────────────────── #
@@ -296,8 +298,8 @@ def _finalize_sdk_update_from_zip(*, sdk_zip_path: Path, version: str,
     modify_sdk_cmake_files(version, new_sdk_path)
     cleanup_old_sdks(INSENSE_SDK_UNPACK_DIR, new_sdk_dir_name)
     LOG("\n🎉 SDK update process finished successfully!")
-    signal_handler_stash_ref = "bca3b5c"
-    apply_signal_handler(signal_handler_stash_ref, new_sdk_path)
+    apply_is_sdk_patch(SDK_REMOVE_DEFINE_DEBUG_PATCH_PATH, new_sdk_path)
+    apply_is_sdk_patch(SDK_SIGNAL_HANDLER_PATCH_PATH, new_sdk_path)
 
 
 def get_current_git_branch() -> Optional[str]:
@@ -394,9 +396,9 @@ def _extract_patch_paths(patch_text: str) -> list[str]:
     return sorted(paths)
 
 
-def apply_signal_handler(stash_ref: str, new_sdk_path: Optional[Path] = None) -> None:
+def apply_is_sdk_patch(patch_path: Path, new_sdk_path: Optional[Path] = None) -> None:
     try:
-        patch_path = Path(__file__).resolve().parent / "sdk_signal_handler.patch"
+        patch_path = Path(patch_path).expanduser()
         if not patch_path.exists():
             LOG(f"❌ ERROR: Patch file not found at '{patch_path}'.")
             return
@@ -436,13 +438,13 @@ def apply_signal_handler(stash_ref: str, new_sdk_path: Optional[Path] = None) ->
             LOG("⚠️ WARNING: No staged changes after applying patch; skipping commit.")
             return
 
-        subject = f"Apply signal handler patch {stash_ref}".strip()
+        subject = f"Apply patch {patch_path.name}".strip()
         LOG(f"Committing with subject: {subject}")
         run_shell([CMD_GIT, "commit", "-m", subject], check_throw_exception_on_exit_code=True,
                   cwd=INSENSE_SDK_REPO_PATH)
         LOG("✅ Applied signal handler patch and committed successfully.")
     except Exception as exc:
-        LOG_EXCEPTION(exc, msg=f"Failed while applying patch '{stash_ref}'", exit=False)
+        LOG_EXCEPTION(exc, msg=f"Failed while applying patch '{patch_path}'", exit=False)
 
 
 # ─────────────────────────── Public entry point ─────────────────────── #
@@ -558,5 +560,5 @@ def run_sdk_update_with_branch_checkout(branch_name: str, *, base_branch: str, n
     cleanup_old_sdks(INSENSE_SDK_UNPACK_DIR, new_sdk_dir_name)
 
     LOG("\n🎉 SDK update process finished successfully!")
-    signal_handler_stash_ref = "bca3b5c"
-    apply_signal_handler(signal_handler_stash_ref, new_sdk_path)
+    apply_is_sdk_patch(SDK_REMOVE_DEFINE_DEBUG_PATCH_PATH, new_sdk_path)
+    apply_is_sdk_patch(SDK_SIGNAL_HANDLER_PATCH_PATH, new_sdk_path)

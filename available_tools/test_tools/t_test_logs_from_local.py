@@ -23,6 +23,12 @@ MODE_ALL_LOCAL_LOGS = "all_local_logs"
 AVAILABLE_TEST_MODES = (MODE_GET_ACU_LOGS, MODE_GET_UT_LIVE_LOG, MODE_COMPACT_PLOG, MODE_TIME_SYNC_PLOG, MODE_ALL_LOCAL_LOGS)
 
 FORWARDED_TOOLS: Dict[str, ForwardedTool] = {
+    MODE_ALL_LOCAL_LOGS: ForwardedTool(
+        mode=MODE_ALL_LOCAL_LOGS,
+        description="Run selected local log tests after collecting required log files by type.",
+        main=t_test_all_local_logs.main,
+        get_templates=t_test_all_local_logs.getToolData,
+    ),
     MODE_GET_ACU_LOGS: ForwardedTool(
         mode=MODE_GET_ACU_LOGS,
         description="Fetch ACU logs from remote UTs into the local log directory.",
@@ -47,12 +53,6 @@ FORWARDED_TOOLS: Dict[str, ForwardedTool] = {
     #    main=t_test_time_sync_plog.main,
     #    get_templates=t_test_time_sync_plog.getToolData,
     #),
-    MODE_ALL_LOCAL_LOGS: ForwardedTool(
-        mode=MODE_ALL_LOCAL_LOGS,
-        description="Run selected local log tests after collecting required log files by type.",
-        main=t_test_all_local_logs.main,
-        get_templates=t_test_all_local_logs.getToolData,
-    ),
 }
 
 

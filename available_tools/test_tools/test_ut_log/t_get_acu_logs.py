@@ -39,16 +39,6 @@ def get_tool_templates() -> List[ToolTemplate]:
             },
             override_cmd_invocation=LOCAL_LOG_WRAPPER_CMD,
         ),
-        #ToolTemplate(
-        #    name="Get All ACU Logs",
-        #    extra_description="Copy flash log files from remote",
-        #    args={
-        #        ARG_LOG_OUTPUT_PATH: str(DEFAULT_LOG_OUTPUT_PATH),
-        #        ARG_LOG_TYPES: list(DEFAULT_LOG_TYPE_PREFIXES),
-        #        ARG_LIST_IPS: LIST_MP_IPS + LIST_FD_IPS + LIST_HD_IPS,
-        #        ARG_DATE_FILTERS: DEFAULT_DATE_VALUES,
-        #    },
-        #),
     ]
 
 

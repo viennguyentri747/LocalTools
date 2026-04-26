@@ -44,7 +44,7 @@ def _normalize_runtime_path(path_like: Path, *, label: str) -> Path:
 def get_tool_templates() -> List[ToolTemplate]:
     args = {
         ARG_LOG_OUTPUT_PATH: str(ACU_LOG_PATH),
-        ARG_LIST_IPS: list(LIST_MP_IPS),
+        ARG_LIST_IPS: [UT_77, UT_56],
         ARG_DATE_FILTERS: t_get_acu_logs.DEFAULT_DATE_VALUES,
         ARG_SHOULD_GET_LOG: True,
         ARG_TESTS: list(DEFAULT_TESTS),

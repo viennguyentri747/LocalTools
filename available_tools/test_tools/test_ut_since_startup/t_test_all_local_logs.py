@@ -43,7 +43,7 @@ def _normalize_runtime_path(path_like: Path, *, label: str) -> Path:
 
 def get_tool_templates() -> List[ToolTemplate]:
     args = {
-        ARG_LOG_OUTPUT_PATH: str(ACU_LOG_PATH),
+        ARG_LOG_OUTPUT_PATH: str(t_get_acu_logs.ACU_LOG_PATH),
         ARG_LIST_IPS: [UT_77, UT_56],
         ARG_DATE_FILTERS: t_get_acu_logs.DEFAULT_DATE_VALUES,
         ARG_SHOULD_GET_LOG: True,
@@ -54,7 +54,7 @@ def get_tool_templates() -> List[ToolTemplate]:
             name="Run selected local log tests",
             extra_description="Collect required logs by type and run selected tests in one command.",
             args=args,
-            search_root=ACU_LOG_PATH,
+            search_root=t_get_acu_logs.ACU_LOG_PATH,
             override_cmd_invocation=WIN_CMD_INVOCATION,
         ),
     ]
@@ -68,7 +68,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
 
     parser.add_argument(ARG_TESTS, nargs="+", default=list(DEFAULT_TESTS), choices=sorted(TEST_REGISTRY.keys()), help="Which local log tests to run.")
-    parser.add_argument(ARG_LOG_OUTPUT_PATH, type=Path, default=Path(ACU_LOG_PATH), help="Base directory where local ACU logs are stored.")
+    parser.add_argument(ARG_LOG_OUTPUT_PATH, type=Path, default=Path(t_get_acu_logs.ACU_LOG_PATH), help="Base directory where local ACU logs are stored.")
     parser.add_argument(ARG_LIST_IPS, nargs="+", default=list(LIST_MP_IPS), help="UT IP folder(s) under log output path to scan.")
     parser.add_argument(ARG_DATE_FILTERS, nargs="+", default=None, help="Optional date filter(s) (YYYYMMDD). If omitted, all matching files are used.")
     add_arg_bool(parser, ARG_SHOULD_GET_LOG, default=None, help_text="Fetch required ACU logs from UTs before running local log tests.")

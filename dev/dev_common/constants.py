@@ -3,13 +3,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import List
-from dev.dev_common.core_independent_utils import get_wsl_home_path, get_win_home_path, read_value_from_credential_file
+from dev.dev_common.core_independent_utils import get_wsl_home_path, read_value_from_credential_file
 
 ARGUMENT_LONG_PREFIX = "--"
 ARGUMENT_SHORT_PREFIX = "-"
 
 WSL_HOME_PATH = get_wsl_home_path()
-WIN_HOME_PATH = get_win_home_path()
 
 # FORMATS
 LINE_SEPARATOR = f"\n{'=' * 70}\n"
@@ -76,8 +75,6 @@ INERTIAL_SENSE_LOG_INSPECTOR_PATH = TEMP_WORKING_PATH / "inertial_sense_python_m
 OW_SW_PATH = CORE_REPOS_PATH / "oneweb_project_sw_tools"
 TEMP_PATH = "/tmp/local_tools_workdir/"
 WSL_PERSISTENT_TEMP_PATH = LOCAL_TOOL_REPO_PATH / "temp"
-WINDOW_PERSISTENT_TEMP_PATH = WIN_HOME_PATH / "temp"
-ACU_LOG_PATH = WINDOW_PERSISTENT_TEMP_PATH / "acu_logs/"
 GIT_REPO_PATH = WORKSPACE_PATH / "other_projects" / "git-repo/"
 INSENSE_SDK_REPO_PATH = CORE_REPOS_PATH / IESA_INSENSE_SDK_REPO_NAME
 DOWNLOADS_PATH = WSL_HOME_PATH / "downloads"

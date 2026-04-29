@@ -40,15 +40,52 @@ def get_current_log_level() -> ELogType:
     return _CURRENT_LOG_LEVEL
 
 
+def LOG(*values: object, sep: str = " ", end: str = "\n", file=None, highlight: bool = False,
+        show_time: bool = True, show_traceback: bool = False, flush: bool = True,
+        log_type: ELogType = ELogType.NORMAL, same_line: bool = False,
+        handlers: Optional[Union[logging.Handler, List[logging.Handler], Tuple[logging.Handler, ...]]] = None) -> None:
+    if log_type < get_current_log_level():
+        return
+    message = sep.join(str(value) for value in values)
+    if show_time:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        message = f"[{timestamp}] {message}"
+    if show_traceback:
+        tb = traceback.format_stack()
+        filtered_tb = tb[-5:] if len(tb) > 5 else tb
+        message = f"{message}\nBacktrace:\n" + "".join(filtered_tb)
+    normalized_handlers: List[logging.Handler]
+    if handlers is None:
+        auto_highlight = highlight or log_type in (ELogType.WARNING, ELogType.CRITICAL)
+        default_handler = _BaseStreamHandler(
+            stream=file or sys.stdout, highlight=auto_highlight, same_line=same_line, flush=flush, terminator=end)
+        default_handler.setFormatter(logging.Formatter("%(message)s"))
+        normalized_handlers = [default_handler]
+    elif isinstance(handlers, logging.Handler):
+        normalized_handlers = [handlers]
+    else:
+        normalized_handlers = list(handlers)
+
+    record = _INTERNAL_LOGGER.makeRecord(_INTERNAL_LOGGER.name, _map_log_type_to_level(
+        log_type), fn="", lno=0, msg=message, args=(), exc_info=None)
+    for handler in normalized_handlers:
+        if handler.formatter is None:
+            handler.setFormatter(logging.Formatter("%(message)s"))
+        handler.handle(record)
+        if flush and hasattr(handler, "flush"):
+            handler.flush()
+
+
 def get_wsl_home_path() -> Path:
     if is_platform_windows():
         wsl_home_result = run_shell(["echo", "$HOME"], capture_output=True, is_run_wsl_if_window=True)
         wsl_home = wsl_home_result.stdout.strip()
         resolved_path = Path(f"{WSL_ROOT_FROM_WIN_DRIVE}/{wsl_home.lstrip('/')}")
-        print(f"Using local home path: {resolved_path}")
+        LOG(f"Using local home path: {resolved_path}", log_type=ELogType.DEBUG)
     else:
         resolved_path = Path.home()
     return resolved_path
+
 
 def get_win_home_path() -> Path:
     if is_platform_windows():
@@ -56,10 +93,15 @@ def get_win_home_path() -> Path:
         return Path(os.environ['USERPROFILE'])
     else:
         # Running on WSL, need to query Windows environment via cmd.exe
-        result = run_shell( ["cmd.exe", "/c", "echo %USERPROFILE%"], capture_output=True )
+        result = run_shell(["cmd.exe", "/c", "echo %USERPROFILE%"], capture_output=True, timeout=3)
         win_home = result.stdout.strip()
         # Convert Windows path to WSL-accessible path (e.g. C:\Users\foo -> /mnt/c/Users/foo)
         return Path(convert_win_to_wsl_path(win_home))
+
+
+def get_win_persistent_temp_path() -> Path:
+    return get_win_home_path() / "temp"
+
 
 def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[Path | str] = None,
               check_throw_exception_on_exit_code: bool = True, stdout=None, stderr=None,
@@ -131,7 +173,7 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
             exec_path = None
             if cwd:
                 wsl_cwd = convert_win_to_wsl_path(str(cwd))
-                LOG(f"Converting cwd '{cwd}' to WSL path '{wsl_cwd}'")
+                LOG(f"Converting cwd '{cwd}' to WSL path '{wsl_cwd}'", log_type=ELogType.DEBUG)
                 exec_cwd = wsl_cwd
         else:
             if cwd:
@@ -139,11 +181,12 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
                 if ":" not in cwd_str and "\\\\" not in cwd_str:
                     exec_cwd = convert_wsl_to_win_path(Path(cwd))
                 if not os.path.exists(str(exec_cwd)):
-                    LOG(f"WARNING: CWD '{exec_cwd}' not found. Mapped drives ({WSL_ROOT_FROM_WIN_DRIVE}) may be invisible to Python.")
+                    LOG(f"WARNING: CWD '{exec_cwd}' not found. Mapped drives ({WSL_ROOT_FROM_WIN_DRIVE}) may be invisible to Python.",
+                        log_type=ELogType.WARNING)
 
             exec_path = None  # Let Windows resolve binaries (e.g., git.exe)
             if want_shell:
-                LOG("Windows: Forcing shell=False for UNC path support.")
+                LOG("Windows: Forcing shell=False for UNC path support.", log_type=ELogType.DEBUG)
                 want_shell = False
 
     if run_in_wsl:
@@ -152,14 +195,14 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
         want_shell = False
     else:
         if want_shell and isinstance(cmd, List):
-            #LOG(f"Shell mode but cmd is a list -> Converting to string...")
+            # LOG(f"Shell mode but cmd is a list -> Converting to string...")
             cmd = _stringify_cmd_list(cmd)
         elif not want_shell and isinstance(cmd, str):
-            #LOG(f"Non-shell mode but cmd is a string -> Converting to list...")
+            # LOG(f"Non-shell mode but cmd is a string -> Converting to list...")
             cmd = shlex.split(cmd)
 
     if show_cmd:
-        LOG(f"{format_cmd_for_log(cmd)} (cwd={exec_cwd or Path.cwd()})")
+        LOG(f"{format_cmd_for_log(cmd)} (cwd={exec_cwd or Path.cwd()})", log_type=ELogType.DEBUG)
 
     return subprocess.run(cmd, shell=want_shell, cwd=exec_cwd, check=check_throw_exception_on_exit_code, stdout=stdout, stderr=stderr, text=text, capture_output=capture_output, encoding=encoding, executable=exec_path, timeout=timeout)
 
@@ -255,7 +298,7 @@ def convert_win_to_wsl_path(win_path: str) -> str:
             rest_of_path = drive_match.group(2)
             wsl_path = f"/mnt/{drive_letter}/{rest_of_path}"
 
-    LOG(f"Converted Windows path {win_path} to WSL path: {wsl_path}")
+    LOG(f"Converted Windows path {win_path} to WSL path: {wsl_path}", log_type=ELogType.DEBUG)
     return wsl_path
 
 
@@ -313,39 +356,6 @@ class _BaseStreamHandler(logging.StreamHandler):
             self.handleError(record)
 
 
-def LOG(*values: object, sep: str = " ", end: str = "\n", file=None, highlight: bool = False,
-        show_time: bool = True, show_traceback: bool = False, flush: bool = True,
-        log_type: ELogType = ELogType.NORMAL, same_line: bool = False,
-        handlers: Optional[Union[logging.Handler, List[logging.Handler], Tuple[logging.Handler, ...]]] = None) -> None:
-    if log_type < get_current_log_level():
-        return
-    message = sep.join(str(value) for value in values)
-    if show_time:
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        message = f"[{timestamp}] {message}"
-    if show_traceback:
-        tb = traceback.format_stack()
-        filtered_tb = tb[-5:] if len(tb) > 5 else tb
-        message = f"{message}\nBacktrace:\n" + "".join(filtered_tb)
-    normalized_handlers: List[logging.Handler]
-    if handlers is None:
-        auto_highlight = highlight or log_type in (ELogType.WARNING, ELogType.CRITICAL)
-        default_handler = _BaseStreamHandler(stream=file or sys.stdout, highlight=auto_highlight, same_line=same_line, flush=flush, terminator=end)
-        default_handler.setFormatter(logging.Formatter("%(message)s"))
-        normalized_handlers = [default_handler]
-    elif isinstance(handlers, logging.Handler):
-        normalized_handlers = [handlers]
-    else:
-        normalized_handlers = list(handlers)
-
-    record = _INTERNAL_LOGGER.makeRecord(_INTERNAL_LOGGER.name, _map_log_type_to_level(log_type), fn="", lno=0, msg=message, args=(), exc_info=None)
-    for handler in normalized_handlers:
-        if handler.formatter is None:
-            handler.setFormatter(logging.Formatter("%(message)s"))
-        handler.handle(record)
-        if flush and hasattr(handler, "flush"):
-            handler.flush()
-
 def is_diff_ignore_eol(file1: Path, file2: Path) -> bool:
     if file1.is_dir() or file2.is_dir():
         LOG(f"Skipping directory: {file1} (is dir: {file1.is_dir()}) or {file2} (is dir: {file2.is_dir()})")
@@ -370,7 +380,6 @@ def read_value_from_credential_file(credentials_file_path: str, key_to_read: str
     Returns the value if found, otherwise None.
     """
     if is_platform_windows():
-        LOG(f"Converting Windows path to WSL path: {credentials_file_path}")
         credentials_file_path = convert_win_to_wsl_path(credentials_file_path)
 
     if os.path.exists(credentials_file_path):
@@ -385,14 +394,14 @@ def read_value_from_credential_file(credentials_file_path: str, key_to_read: str
                                 return value
                         except ValueError:
                             # Handle lines that don't contain '='
-                            print(f"Warning: Skipping malformed line in {credentials_file_path}: {line}")
+                            LOG(f"Warning: Skipping malformed line in {credentials_file_path}: {line}")
                             continue
         except Exception as e:
             if exit_on_error:
-                print(f"Error reading credentials file {credentials_file_path}: {e}")
+                LOG(f"Error reading credentials file {credentials_file_path}: {e}")
                 sys.exit(1)
     else:
-        print(f"Credentials file {credentials_file_path} not found.")
+        LOG(f"Credentials file {credentials_file_path} not found.")
 
     LOG(f"ERROR: Key '{key_to_read}' not found in {credentials_file_path}")
     return None
@@ -453,6 +462,7 @@ def LOG_EXCEPTION(exception: Exception, msg=None, exit: bool = True):
     if exit:
         sys.exit(1)
 
+
 def LOG_LINE_SEPARATOR():
     separator = f"\n{'=' * 70}\n"
-    LOG(f"{separator}", show_time = False)
+    LOG(f"{separator}", show_time=False)

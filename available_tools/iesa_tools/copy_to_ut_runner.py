@@ -11,7 +11,7 @@ from pathlib import Path
 import shlex
 import stat
 import sys
-from typing import Optional
+from typing import Callable, Optional
 from dev.dev_common import *
 from dev.dev_iesa.acu_utils import create_install_iesa_cmd
 
@@ -158,14 +158,14 @@ def _wrap_command_with_remote_env(command: str) -> str:
     return f"sh -lc {shlex.quote(wrapped_body)}"
 
 
-def _run_remote_command_with_live_output(remote_host_ip: str, remote_user: str, jump_host_ip: str, command: str) -> int:
+def _run_remote_command_with_live_output(remote_host_ip: str, remote_user: str, jump_host_ip: str, command: str, on_line_recv: Optional[Callable[[str], None]] = None) -> int:
     target_client = jump_client = jump_channel = None
     stdout = stderr = None
     stdout_pending = EMPTY_STR_VALUE
     stderr_pending = EMPTY_STR_VALUE
     try:
         target_client, jump_client, jump_channel = open_ssh_client(host_ip=remote_host_ip, user=remote_user, password=ACU_PASSWORD or EMPTY_STR_VALUE, timeout=10, jump_host_ip=jump_host_ip, jump_user=SSM_USER, jump_password=SSM_PASSWORD)
-        LOG(f"{LOG_PREFIX_MSG_INFO} Running remote command on ACU via UT {jump_host_ip}. Command: {command}")
+        LOG(f"{LOG_PREFIX_MSG_INFO} Running remote command on {remote_host_ip} via jump host {jump_host_ip}. Command: {command}")
         _, stdout, stderr = target_client.exec_command(command, get_pty=True)
         LOG(f"{LOG_PREFIX_MSG_INFO} Live install log started. Press Ctrl+C to stop tailing.")
         while True:
@@ -173,19 +173,31 @@ def _run_remote_command_with_live_output(remote_host_ip: str, remote_user: str, 
                 stdout_pending += stdout.channel.recv(4096).decode('utf-8', errors='replace')
                 while "\n" in stdout_pending:
                     line, stdout_pending = stdout_pending.split("\n", 1)
-                    LOG(line.rstrip("\r"))
+                    normalized_line = line.rstrip("\r")
+                    LOG(normalized_line)
+                    if on_line_recv:
+                        on_line_recv(normalized_line)
             if stderr.channel.recv_stderr_ready():
                 stderr_pending += stderr.channel.recv_stderr(4096).decode('utf-8', errors='replace')
                 while "\n" in stderr_pending:
                     line, stderr_pending = stderr_pending.split("\n", 1)
-                    LOG(f"{LOG_PREFIX_MSG_WARNING} {line.rstrip(chr(13))}")
+                    normalized_line = line.rstrip(chr(13))
+                    LOG(f"{LOG_PREFIX_MSG_WARNING} {normalized_line}")
+                    if on_line_recv:
+                        on_line_recv(normalized_line)
             if stdout.channel.exit_status_ready() and not stdout.channel.recv_ready() and not stderr.channel.recv_stderr_ready():
                 break
             time.sleep(0.1)
         if stdout_pending.strip():
-            LOG(stdout_pending.rstrip("\r"))
+            normalized_line = stdout_pending.rstrip("\r")
+            LOG(normalized_line)
+            if on_line_recv:
+                on_line_recv(normalized_line)
         if stderr_pending.strip():
-            LOG(f"{LOG_PREFIX_MSG_WARNING} {stderr_pending.rstrip(chr(13))}")
+            normalized_line = stderr_pending.rstrip(chr(13))
+            LOG(f"{LOG_PREFIX_MSG_WARNING} {normalized_line}")
+            if on_line_recv:
+                on_line_recv(normalized_line)
         return int(stdout.channel.recv_exit_status())
     except KeyboardInterrupt:
         LOG(f"{LOG_PREFIX_MSG_WARNING} Log tail stopped by user.")
@@ -208,7 +220,17 @@ def _run_iesa_install_via_python(remote_name: str, remote_dir: str, remote_host_
         return
     install_and_tail_cmd = _wrap_command_with_remote_env(create_install_iesa_cmd(remote_name, download_dir=remote_dir))
     LOG(f"{LOG_PREFIX_MSG_INFO} Running remote install + tail command on ACU via UT {jump_host_ip}...")
-    install_rc = _run_remote_command_with_live_output(remote_host_ip=remote_host_ip, remote_user=remote_user, jump_host_ip=jump_host_ip, command=install_and_tail_cmd)
+    install_complete_noti_sent = False
+
+    INSTALL_COMPLETE_MSG = "Install complete. Please reboot to boot into the other partition"
+    def _on_install_line_recv(line: str) -> None:
+        nonlocal install_complete_noti_sent
+        if install_complete_noti_sent or INSTALL_COMPLETE_MSG not in line:
+            return
+        show_noti(title="IESA Install Complete", message=f"{INSTALL_COMPLETE_MSG} ({jump_host_ip})", no_log_on_success=True)
+        install_complete_noti_sent = True
+
+    install_rc = _run_remote_command_with_live_output(remote_host_ip=remote_host_ip, remote_user=remote_user, jump_host_ip=jump_host_ip, command=install_and_tail_cmd, on_line_recv=_on_install_line_recv)
     if install_rc != 0:
         raise RuntimeError(f"Remote install command failed with exit code {install_rc}.")
     LOG(f"{LOG_PREFIX_MSG_SUCCESS} IESA install command started successfully on remote host {jump_host_ip}.")

@@ -9,6 +9,7 @@ import sys
 from typing import Dict, List, Optional, Sequence
 
 from available_tools.test_tools.test_ut_log.log_test_interface import EUtLogType, TestLogInterface, normalize_log_paths_map
+from available_tools.test_tools.test_ut_log.t_get_acu_logs import ACU_LOG_PATH
 from dev.dev_common import *
 from unit_tests.acu_log_tests.periodic_log_constants import LAST_TIME_SYNC_COLUMN, TIME_COLUMN
 from unit_tests.acu_log_tests.periodic_log_helper import PLogData
@@ -19,7 +20,7 @@ use_posix_paths()
 
 DEFAULT_COLUMNS: List[str] = [TIME_COLUMN, LAST_TIME_SYNC_COLUMN]
 DEFAULT_MAX_SECS_PER_SYNC = 0.999
-DEFAULT_OUTPUT_PATH = WINDOW_PERSISTENT_TEMP_PATH / "time_sync_plog.tsv"
+DEFAULT_OUTPUT_PATH = get_win_persistent_temp_path() / "time_sync_plog.tsv"
 
 ARG_PLOG_PATHS = ARG_PLOG_PATHS
 ARG_TIME_WINDOW = ARG_TIME_WINDOW

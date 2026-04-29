@@ -27,6 +27,10 @@ open_wsl_config() {
     vi "$wsl_config_path"
 }
 
+wsl_config(){
+    open_wsl_config
+}
+
 sync_ssh_keys_to_windows() {
   local win_ssh="$win_home_dir/.ssh"
   

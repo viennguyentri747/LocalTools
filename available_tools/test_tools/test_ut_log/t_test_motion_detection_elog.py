@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
 from available_tools.test_tools.test_ut_log.common_test_functions import run_pattern_test_on_files
+from available_tools.test_tools.test_ut_log.t_get_acu_logs import ACU_LOG_PATH
 from available_tools.test_tools.test_ut_log.log_test_interface import EUtLogType, TestLogInterface, normalize_log_paths_map
 from dev.dev_common import *
 

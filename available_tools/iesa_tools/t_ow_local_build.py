@@ -429,7 +429,7 @@ def run_build(build_type: str, interactive: bool, make_clean: bool = True, is_de
     dos2unix_cmd = (
         f"apt-get install -y dos2unix && "
         f"find {OW_SW_PATH.absolute()}/ \\( -name .git -o -name __pycache__ \\) " # -o -name tmp_build
-        "-prune -o -type f \\( -name '*.py' -o -name '*.sh' -o -name '*.json' \\) -exec dos2unix {} +"
+        "-prune -o -type f \\( -name '*.py' -o -name '*.sh' -o -name '*.json'  -o -name '*.txt' \\) -exec dos2unix {} +"
     )
 
     chmod_cmd = f"chmod -R +x {OW_SW_PATH.absolute()}/"

@@ -12,6 +12,7 @@ from available_tools.test_tools.common import *
 from dev.dev_common import *
 
 DEFAULT_LOG_TYPE_PREFIXES = [P_LOG_PREFIX, E_LOG_PREFIX]
+ACU_LOG_PATH = get_win_persistent_temp_path() / "acu_logs"
 DEFAULT_LOG_OUTPUT_PATH = ACU_LOG_PATH
 LOCAL_LOG_WRAPPER_CMD = f"{Path(__file__).resolve().parents[1] / 't_test_logs_from_local.py'} --mode get_acu_logs"
 ARG_LOG_TYPES = f"{ARGUMENT_LONG_PREFIX}type"

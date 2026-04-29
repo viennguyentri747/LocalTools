@@ -3,9 +3,9 @@
 from typing import Tuple
 import logging
 
-from dev.dev_common.constants import *
+from dev.dev_common.constants import SSM_NORMAL_IP_PREFIX, SSM_USER, ACU_IP, ACU_USER, CREDENTIALS_FILE_PATH, UT_PWD_KEY_NAME
 from dev.dev_common.core_independent_utils import read_value_from_credential_file
-from dev.dev_common.network_utils import run_ssh_command
+from dev.dev_common.independent_network_utils import run_ssh_command
 from mcp.server.fastmcp import FastMCP
 
 # Configuration

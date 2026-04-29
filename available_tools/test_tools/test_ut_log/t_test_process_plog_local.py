@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
+from available_tools.test_tools.test_ut_log.t_get_acu_logs import ACU_LOG_PATH
 from dev.dev_common import *
 from unit_tests.acu_log_tests.periodic_log_constants import *
 from unit_tests.acu_log_tests.periodic_log_helper import (
@@ -19,7 +20,7 @@ use_posix_paths()
 WIN_CMD_INVOCATION = get_win_python_runner_cmd_invocation("available_tools.test_tools.test_ut_log.t_test_process_plog_local")
 DEFAULT_TIME_WINDOW_HOURS: Optional[float] = None
 DEFAULT_COLUMNS: List[str] = [TIME_COLUMN, LAST_TIME_SYNC_COLUMN, LAST_GPS1_CNO_COLUMN, LAST_GPS2_CNO_COLUMN, LAST_KIM_HW_STATUS_COLUMN, LAST_VELOCITY_COLUMN, LAST_RTK_COMPASS_STATUS_COLUMN, LAST_ROLL_P_COLUMN, LAST_PITCH_P_COLUMN, LAST_YAW_P_COLUMN]
-DEFAULT_OUTPUT_PATH = WINDOW_PERSISTENT_TEMP_PATH / "compact_plog.tsv"
+DEFAULT_OUTPUT_PATH = get_win_persistent_temp_path() / "compact_plog.tsv"
 ARG_PLOG_PATHS = f"{ARGUMENT_LONG_PREFIX}plog_paths"
 ARG_COLUMNS = f"{ARGUMENT_LONG_PREFIX}columns"
 ARG_TIME_WINDOW = f"{ARGUMENT_LONG_PREFIX}hours"

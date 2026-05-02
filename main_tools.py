@@ -9,6 +9,8 @@ from typing import Dict, Iterable, List, Optional, Tuple
 from dataclasses import dataclass, field
 from dev.dev_common import *
 from dev.dev_common.tools_utils import *
+from dev.dev_common.constants import SUDO
+from dev.dev_common.core_independent_utils import LOG, is_platform_windows
 
 
 @dataclass
@@ -113,8 +115,11 @@ def build_template_run_command(tool_path: Path, template: ToolTemplate) -> str:
         cmd_prefix = base_cmd
         LOG(f"Using override command prefix '{base_cmd}' for template '{template.name}'.")
     else:
+        # if not overridden, add sudo + default python if need
+        LOG(f"Using default python (that running current script) at {sys.executable} for template '{template.name}'.")
         cmd_parts = [sys.executable, str(tool_path)]
-        LOG(f"Using default python at {sys.executable} for template '{template.name}'.")
+        if not is_platform_windows() and template.need_sudo_on_wsl:
+            cmd_parts = [SUDO, "--preserve-env=HOME,PATH"] + cmd_parts
 
     for arg_key, arg_value in template.args.items():
         if isinstance(arg_value, list):
@@ -152,7 +157,7 @@ def diplay_templates(tool_path: Path, templates: List[ToolTemplate]) -> int:
     for i, template in enumerate(templates, 1):
         if template.should_hidden:
             continue
-        
+
         # Build command preview for this template
         display_counter += 1
         preview_cmd = build_template_run_command(tool_path, template)

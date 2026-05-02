@@ -7,8 +7,8 @@ from dev.dev_common.core_independent_utils import get_wsl_home_path, read_value_
 
 ARGUMENT_LONG_PREFIX = "--"
 ARGUMENT_SHORT_PREFIX = "-"
-
 WSL_HOME_PATH = get_wsl_home_path()
+SUDO = "sudo"
 
 # FORMATS
 LINE_SEPARATOR = f"\n{'=' * 70}\n"
@@ -162,6 +162,7 @@ ARG_OUTPUT_DIR_SHORT = f"{ARGUMENT_SHORT_PREFIX}o"
 ARG_NO_OPEN_EXPLORER = f"{ARGUMENT_LONG_PREFIX}no-open-explorer"
 ARG_MAX_FOLDERS = f"{ARGUMENT_LONG_PREFIX}max-folders"
 ARG_IS_GEN_CODING_TASK = F"{ARGUMENT_LONG_PREFIX}is_gen_coding_task"
+ARG_HAS_TICKET_CONTEXT = f"{ARGUMENT_LONG_PREFIX}has_ticket_context"
 ARG_TEMPLATE_PATH = f"{ARGUMENT_LONG_PREFIX}template_path"
 ARG_VAULT_PATH = f"{ARGUMENT_LONG_PREFIX}vault_path"
 ARG_NOTE_REL_PATH = f"{ARGUMENT_LONG_PREFIX}dir_to_copy_to"
@@ -172,7 +173,7 @@ ARG_SOURCE_BRANCH = f"{ARGUMENT_LONG_PREFIX}source_branch"
 ARG_TARGET_BRANCH = f"{ARGUMENT_LONG_PREFIX}target_branch"
 ARG_INTERACTIVE = f"{ARGUMENT_LONG_PREFIX}interactive"
 ARG_IS_CREATE_GL_MR = f"{ARGUMENT_LONG_PREFIX}is_create_gl_mr"
-ARG_BASE_MANIFEST_BRANCH = f"{ARGUMENT_LONG_PREFIX}base_remote_manifest_branch"
+ARG_BASE_REMOTE_MANIFEST_BRANCH = f"{ARGUMENT_LONG_PREFIX}base_remote_manifest_branch"
 # ARG VALUES
 EMPTY_STR_VALUE = ""
 TRUE_STR_VALUE = "true"

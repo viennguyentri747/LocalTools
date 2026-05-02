@@ -38,14 +38,14 @@ ARG_OW_BUILD_TYPE = f"{ARGUMENT_LONG_PREFIX}build_type"
 ARG_RUN_VIA_PYTHON = f"{ARGUMENT_LONG_PREFIX}run_via_python"
 PREFIX_OW_BUILD_ARTIFACT = f"iesa_test_"
 WIN_CMD_INVOCATION = get_win_python_runner_cmd_invocation("available_tools.iesa_tools.t_ow_local_build")
-IESA_TEST_DIFF_PREFIX = f"iesa_test_diff_"
+IESA_TEST_DIFF_FILE_PREFIX = f"iesa_test_diff_"
+IESA_TEST_DIFF_FILE_SUFFIX = f".txt"
 IESA_METADATA_FILE = f"iesa_ow_build_metadata.json"
 TEMP_OW_BUILD_OUTPUT_PATH = WSL_PERSISTENT_TEMP_PATH / "ow_build_output/"
 MANIFEST_OUT_ARTIFACT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}manifest.xml"
 IESA_OUT_ARTIFACT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}build.iesa"
 LOG_OUT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}log.txt"
 COPY_TO_UT_RUNNER_PATH = Path(__file__).resolve().parent / "copy_to_ut_runner.py"
-LOCAL_PYTHON_BIN = "/usr/local/bin/local_python"
 
 def get_tool_templates() -> List[ToolTemplate]:
     return [
@@ -57,12 +57,13 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_OW_BUILD_TYPE: BUILD_TYPE_IESA,
                 ARG_RUN_VIA_PYTHON: True,
                 ARG_MANIFEST_SOURCE: MANIFEST_SOURCE_LOCAL,
-                ARG_BASE_MANIFEST_BRANCH: BRANCH_AERO_MASTER,
+                ARG_BASE_REMOTE_MANIFEST_BRANCH: BRANCH_AERO_MASTER,
                 ARG_TISDK_REF: BRANCH_AERO_MASTER,
                 ARG_MAKE_CLEAN: True,
                 ARG_IS_DEBUG_BUILD: True,
                 ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME],
             },
+            need_sudo_on_wsl=True,
             # override_cmd_invocation=WIN_CMD_INVOCATION,
         ),
         ToolTemplate(
@@ -73,11 +74,12 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_OW_BUILD_TYPE: BUILD_TYPE_BINARY,
                 ARG_RUN_VIA_PYTHON: True,
                 ARG_MANIFEST_SOURCE: MANIFEST_SOURCE_LOCAL,
-                ARG_BASE_MANIFEST_BRANCH: BRANCH_AERO_MASTER,
+                ARG_BASE_REMOTE_MANIFEST_BRANCH: BRANCH_AERO_MASTER,
                 ARG_MAKE_CLEAN: True,
                 ARG_IS_DEBUG_BUILD: True,
                 ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME],
             },
+            need_sudo_on_wsl=True,
             # override_cmd_invocation=WIN_CMD_INVOCATION,
         ),
         ToolTemplate(
@@ -87,13 +89,14 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_INTERACTIVE: False,
                 ARG_OW_BUILD_TYPE: BUILD_TYPE_IESA,
                 ARG_MANIFEST_SOURCE: MANIFEST_SOURCE_REMOTE,
-                ARG_BASE_MANIFEST_BRANCH: BRANCH_MANPACK_MASTER,
+                ARG_BASE_REMOTE_MANIFEST_BRANCH: BRANCH_MANPACK_MASTER,
                 ARG_TISDK_REF: BRANCH_MANPACK_MASTER,
                 ARG_MAKE_CLEAN: True,
                 ARG_IS_DEBUG_BUILD: True,
                 ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME],
             },
             hidden=True,
+            need_sudo_on_wsl=True,
             # override_cmd_invocation=WIN_CMD_INVOCATION,
         ),
     ]
@@ -112,7 +115,7 @@ def main() -> None:
                         help="Build type (binary or iesa). Defaults to binary.")
     parser.add_argument(ARG_MANIFEST_SOURCE, choices=[MANIFEST_SOURCE_LOCAL, MANIFEST_SOURCE_REMOTE], default=MANIFEST_SOURCE_LOCAL,
                         help=F"Source for the manifest repository URL ({MANIFEST_SOURCE_LOCAL} or {MANIFEST_SOURCE_REMOTE}). Defaults to {MANIFEST_SOURCE_LOCAL}. Note that although it is local manifest, the source of sync is still remote so will need to push branch of dependent local repos specified in local manifest (not ow_sw_tools).")
-    parser.add_argument(ARG_BASE_MANIFEST_BRANCH, default=BRANCH_MANPACK_MASTER,
+    parser.add_argument(ARG_BASE_REMOTE_MANIFEST_BRANCH, default=BRANCH_MANPACK_MASTER,
                         help=f"Base branch to validate current OW branch against on remote '{DEFAULT_OW_GIT_REMOTE}'. Current OW branch must be ahead/descendant of this base branch. Ex: {BRANCH_MANPACK_MASTER}")
     parser.add_argument(ARG_TISDK_REF, type=str, default=EMPTY_STR_VALUE,
                         help=f"TISDK Ref for BSP (for creating .iesa). Ex: {BRANCH_MANPACK_MASTER}")
@@ -140,7 +143,7 @@ def main() -> None:
     manifest_source: str = get_arg_value(args, ARG_MANIFEST_SOURCE)
     tisdk_ref: Optional[str] = get_arg_value(args, ARG_TISDK_REF)
     overwrite_repos: List[str] = get_arg_value(args, ARG_OVERWRITE_REPOS)
-    base_remote_manifest_branch: str = get_arg_value(args, ARG_BASE_MANIFEST_BRANCH)
+    base_remote_manifest_branch: str = get_arg_value(args, ARG_BASE_REMOTE_MANIFEST_BRANCH)
     make_clean: bool = get_arg_value(args, ARG_MAKE_CLEAN)
     is_debug_build: bool = get_arg_value(args, ARG_IS_DEBUG_BUILD)
     run_via_python: bool = get_arg_value(args, ARG_RUN_VIA_PYTHON)
@@ -284,6 +287,10 @@ def main() -> None:
             "manifest_path": str(MANIFEST_OUT_ARTIFACT_PATH),
             "log_path": str(LOG_OUT_PATH),
         },
+        "md5sum": {
+            "iesa_artifact": get_file_md5sum_safe(iesa_artifact_path) if iesa_artifact_path else None,
+            "binary_directory_files": get_binary_directory_md5_map(OW_SW_BUILD_BINARY_OUTPUT_PATH),
+        },
     }
 
     write_build_metadata(metadata_payload)
@@ -295,8 +302,30 @@ def setup_prebuild(build_type: str, manifest_source: str, ow_manifest_branch: st
     remove_tmp_build()
     
     ow_sw_path_str = str(OW_SW_PATH)
+    bsp_symlink_rel_for_build = BSP_SYMLINK_PATH_FOR_BUILD.relative_to(OW_SW_PATH).as_posix()
+    def _extract_porcelain_path(status_line: str) -> str:
+        path_part = status_line[3:].strip() if len(status_line) >= 3 else status_line.strip()
+        return path_part.split(" -> ", 1)[1].strip() if " -> " in path_part else path_part
+
     # PRE-BUILD CHECK
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build check...")
+    ow_local_status_lines = [
+        line for line in git_get_porcelain_status_lines(OW_SW_PATH)
+        if _extract_porcelain_path(line) != bsp_symlink_rel_for_build # exclude BSP symlink since we will override it anyway
+    ]
+    if ow_local_status_lines:
+        status_preview = "\n".join(ow_local_status_lines[:20])
+        LOG(
+            "ERROR: Local OW repo has uncommitted or untracked changes. Please commit + push before running prebuild.\n"
+            f"Repo: {ow_sw_path_str}\n"
+            f"Detected changes ({len(ow_local_status_lines)}):\n{status_preview}",
+            file=sys.stderr,
+        )
+        show_noti(
+            title="Pre-build blocked",
+            message="OW repo has local changes. Commit + push all changes, then rerun.",
+        )
+        sys.exit(1)
     LOG("Checking OW branch is ahead/descendant of base remote manifest branch fetched from remote. If it is not ahead then something is wrong and require manual intervention!")
     ow_git_remote = DEFAULT_OW_GIT_REMOTE
     ow_branch_is_descendant = git_is_local_branch_descendant_of_remote_branch(
@@ -308,7 +337,8 @@ def setup_prebuild(build_type: str, manifest_source: str, ow_manifest_branch: st
             f"(docker run -it --rm -v $(pwd):$(pwd) <image>), so the OW branch must be in sync.\n\n"
             f"Fix suggestions:\n"
             f"- Rebase current branch: cd {ow_sw_path_str} && git fetch {ow_git_remote} && git rebase {ow_git_remote}/{base_remote_manifest_branch}\n"
-            f"- Or checkout a branch that already descends from {ow_git_remote}/{base_remote_manifest_branch}"
+            f"- Or checkout a branch that already descends from {ow_git_remote}/{base_remote_manifest_branch}\n"
+            f"- Or change arg {ARG_BASE_REMOTE_MANIFEST_BRANCH} to something else (same or parent of current branch {current_local_branch})\n",
         )
        
     LOG(f"Current OW branch '{current_local_branch}' is descendant of '{ow_git_remote}/{base_remote_manifest_branch}'.")
@@ -717,7 +747,7 @@ def export_repo_diff_artifact(repo_name: str, repo_path: Path, base_ref: str) ->
     """
     ensure_temp_build_output_dir()
     safe_repo_name = sanitize_str_to_file_name(repo_name) or repo_name
-    diff_filename = f"{IESA_TEST_DIFF_PREFIX}{safe_repo_name}"
+    diff_filename = f"{IESA_TEST_DIFF_FILE_PREFIX}{safe_repo_name}{IESA_TEST_DIFF_FILE_SUFFIX}"
     diff_path = TEMP_OW_BUILD_OUTPUT_PATH / diff_filename
     diff_content = build_repo_change_artifact_content(repo_path, base_ref)
     if not diff_content:
@@ -798,6 +828,27 @@ def copy_manifest_for_metadata(manifest_source_path: Path) -> Path:
         manifest_metadata_path.unlink()
     shutil.copy2(manifest_source_path, manifest_metadata_path)
     return manifest_metadata_path
+
+
+def get_binary_directory_md5_map(binary_directory: Path) -> Dict[str, Optional[str]]:
+    if not binary_directory.exists() or not binary_directory.is_dir():
+        return {}
+    md5_map: Dict[str, Optional[str]] = {}
+    for file_path in sorted(binary_directory.rglob("*")):
+        if not file_path.is_file():
+            continue
+        md5_map[file_path.name] = get_file_md5sum_safe(file_path)
+    return md5_map
+
+
+def get_file_md5sum_safe(file_path: Path) -> Optional[str]:
+    if not file_path.exists() or not file_path.is_file():
+        return None
+    try:
+        return get_file_md5sum(str(file_path))
+    except Exception as e:
+        LOG(f"WARNING: Failed to calculate md5sum for '{file_path}': {e}. Saving null md5 in metadata.", file=sys.stderr)
+        return None
 
 
 def write_build_metadata(metadata_payload: Dict[str, Any]) -> Path:
@@ -881,21 +932,21 @@ def prepare_iesa_bsp(tisdk_ref: str):
 
     paths: List[str] = download_job_artifacts(target_project, artifacts_dir, pipeline_id, target_job_name)
     if paths:
-        bsp_path = None
+        new_bsp_path = None
         LOG(f"Artifacts extracted to: {artifacts_dir}")
         for path in paths:
             LOG(f"  {path}")
             file_name = os.path.basename(path)
             if file_name.startswith(BSP_ARTIFACT_PREFIX):
-                if bsp_path:
-                    LOG(f"Overwriting previous BSP path {bsp_path} with {path}")
+                if new_bsp_path:
+                    LOG(f"Overwriting previous BSP path {new_bsp_path} with {path}")
                     LOG("Setting permissions for BSP file to 644...")
-                    os.chmod(bsp_path, 0o644)  # 644: rw-r--r--
-                bsp_path = path
-        if bsp_path:
-            LOG(f"Final BSP: {bsp_path}. md5sum: {get_file_md5sum(bsp_path)}")
-            LOG(f"Creating symbolic link {BSP_SYMLINK_PATH_FOR_BUILD} -> {bsp_path}")
-            subprocess.run(["ln", "-sf", bsp_path, BSP_SYMLINK_PATH_FOR_BUILD])
+                    os.chmod(new_bsp_path, 0o644)  # 644: rw-r--r--
+                new_bsp_path = path
+        if new_bsp_path:
+            LOG(f"Final BSP: {new_bsp_path}. md5sum: {get_file_md5sum(new_bsp_path)}")
+            LOG(f"Creating symbolic link {BSP_SYMLINK_PATH_FOR_BUILD} -> {new_bsp_path}")
+            subprocess.run(["ln", "-sf", new_bsp_path, BSP_SYMLINK_PATH_FOR_BUILD])
             subprocess.run(["ls", "-la", BSP_SYMLINK_PATH_FOR_BUILD])
 
 

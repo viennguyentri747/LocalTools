@@ -136,8 +136,9 @@ class ToolTemplate:
     should_run_now: bool = False
     should_hidden: bool = False
     override_cmd_invocation: Optional[str] = None
+    need_sudo_on_wsl: bool = False
 
-    def __init__(self, name: str, extra_description: str = "", args: Dict[str, Any] = {}, search_root: Optional[Path] = None, no_need_live_edit: bool = True, usage_note: str = "", should_run_now: bool = False, hidden: bool = False, override_cmd_invocation: Optional[str] = None):
+    def __init__(self, name: str, extra_description: str = "", args: Dict[str, Any] = {}, search_root: Optional[Path] = None, no_need_live_edit: bool = True, usage_note: str = "", should_run_now: bool = False, hidden: bool = False, override_cmd_invocation: Optional[str] = None, need_sudo_on_wsl: bool = False):
         self.name = name
         self.extra_description = extra_description
         self.args = args
@@ -147,6 +148,23 @@ class ToolTemplate:
         self.should_run_now = should_run_now
         self.should_hidden = hidden
         self.override_cmd_invocation = override_cmd_invocation
+        self.need_sudo_on_wsl = need_sudo_on_wsl
+
+    def clone_with_args(self, arg_overrides: Dict[str, Any]) -> "ToolTemplate":
+        templated_args = dict(self.args or {})
+        templated_args.update(arg_overrides or {})
+        return ToolTemplate(
+            name=self.name,
+            extra_description=self.extra_description,
+            args=templated_args,
+            search_root=self.search_root,
+            no_need_live_edit=self.no_need_live_edit,
+            usage_note=self.usage_note,
+            should_run_now=self.should_run_now,
+            hidden=self.should_hidden,
+            override_cmd_invocation=self.override_cmd_invocation,
+            need_sudo_on_wsl=self.need_sudo_on_wsl,
+        )
 
 
 @dataclass

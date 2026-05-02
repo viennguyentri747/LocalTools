@@ -12,7 +12,7 @@ import time
 from typing import List, Dict, Any, Optional, Set, Tuple
 from enum import IntEnum, auto
 import pyperclip
-from dev.dev_common.constants import LINE_SEPARATOR, CMD_EXPLORER, WSL_SELECT_FLAG
+from dev.dev_common.constants import LINE_SEPARATOR, CMD_EXPLORER, WSL_SELECT_FLAG, LOCAL_TOOL_REPO_PATH
 from dev.dev_common import *
 # from dev.dev_common.core_utils import LOG, convert_win_to_wsl_path, run_shell, convert_wsl_to_win_path
 
@@ -468,16 +468,6 @@ def get_registered_win_python_modules() -> List[str]:
     """Return module paths currently registered for Win Python template invocation."""
     return sorted(WIN_PYTHON_TRACKED_MODULES)
 
-
-def get_win_cmd_invocation(module_path: str, package_root: str = f"{LOCAL_TOOL_REPO_PATH}") -> str:
-    """
-    Returns a shared-runner command string to invoke a Python module via Windows Python.
-
-    :param module_path: Dotted module path to invoke (e.g. 'available_tools.iesa_tools.t_ow_local_build')
-    :return: Full shell command string
-    """
-
-    return get_win_python_runner_cmd_invocation(module_path=module_path, package_root=package_root)
 
 def get_win_python_executable_path_for_wsl() -> str:
     """Return python executable path respecting template flags."""

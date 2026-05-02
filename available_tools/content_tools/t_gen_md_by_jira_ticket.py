@@ -21,6 +21,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_NOTE_REL_PATHS_TO_ADD_LINK: [f"{PATH_TO_WORKING_NOTES}/_Intellian Note working, diary (work log).md"],
                 ARG_DEFAULT_OW_MANIFEST_BRANCH: BRANCH_MANPACK_MASTER,
                 ARG_IS_GEN_CODING_TASK: False,
+                ARG_HAS_TICKET_CONTEXT: False,
                 ARG_TICKET_URL: f"{JIRA_COMPANY_URL}/browse/ESA1W-6816",
             },
         )
@@ -42,7 +43,7 @@ class CodingTaskInfo:
         self.main_ow_branch = main_ow_branch
 
 
-def gen_content_markdown(ticket: JiraTicket, coding_task_info: Optional[CodingTaskInfo]) -> str:
+def gen_content_markdown(ticket: JiraTicket, coding_task_info: Optional[CodingTaskInfo], has_ticket_context: bool) -> str:
     """Generate the code task markdown content from Jira ticket data."""
     spacing_between_line_around_headers = "\n\n"
     spacing_between_lines = "\n"
@@ -53,19 +54,20 @@ def gen_content_markdown(ticket: JiraTicket, coding_task_info: Optional[CodingTa
     )
 
     # has_body = False
-    # if ticket.description:
-    #     md_content_to_gen += (
-    #         f"#### Description:{spacing_between_line_around_headers}"
-    #         f"{ticket.description}{spacing_between_line_around_headers}"
-    #     )
-    #     has_body = True
+    if has_ticket_context:
+        if ticket.description:
+            md_content_to_gen += (
+                f"### Description:{spacing_between_line_around_headers}"
+                f"{ticket.description}{spacing_between_line_around_headers}"
+            )
+            #has_body = True
 
-    # if ticket.environment:
-    #     md_content_to_gen += (
-    #         f"#### Environment:{spacing_between_line_around_headers}"
-    #         f"{ticket.environment}{spacing_between_line_around_headers}"
-    #     )
-    #     has_body = True
+        if ticket.environment:
+            md_content_to_gen += (
+                f"### Environment:{spacing_between_line_around_headers}"
+                f"{ticket.environment}{spacing_between_line_around_headers}"
+            )
+        #has_body = True
 
     # if not has_body:
     #     md_content_to_gen += f"*No additional ticket context provided.*{spacing_between_line_around_headers}"
@@ -171,13 +173,14 @@ if __name__ == "__main__":
                         help="The manifest branch to use for generating checkout commands.")
     parser.add_argument(f"{ARG_IS_GEN_CODING_TASK}", type=lambda x: x.lower() == TRUE_STR_VALUE, required=True,
                         help="Is generating coding task content.")
+    parser.add_argument(ARG_HAS_TICKET_CONTEXT, type=lambda x: x.lower() == FALSE_STR_VALUE, required=True, default=False,
+                        help="Include description/environment from Jira ticket in output content.")
     parser.add_argument(ARG_VAULT_PATH, type=str, required=False, default=None,
                         help="The destination directory for the generated file.")
     parser.add_argument(ARG_NOTE_REL_PATH, type=str, required=False, default=None,
                         help="The relative path (vs vault) to note that need to fill with content.")
     parser.add_argument(ARG_NOTE_REL_PATHS_TO_ADD_LINK, nargs='+', default=[], required=False,
                         help="The relative paths (vs vault) to add note (with filled content)'s link.")
-
     args = parser.parse_args()
 
     jira_url = get_arg_value(args, ARG_TICKET_URL)
@@ -200,6 +203,7 @@ if __name__ == "__main__":
     ticket: JiraTicket = client.get_ticket_by_key(ticket_key)
 
     is_gen_coding_task = get_arg_value(args, ARG_IS_GEN_CODING_TASK)
+    has_ticket_context = get_arg_value(args, ARG_HAS_TICKET_CONTEXT)
     if is_gen_coding_task:
         main_branch = get_arg_value(args, ARG_DEFAULT_OW_MANIFEST_BRANCH)
         if not main_branch:
@@ -210,7 +214,7 @@ if __name__ == "__main__":
         coding_task_content = None
 
     # Generate and LOG the markdown content
-    markdown_content = gen_content_markdown(ticket, coding_task_content)
+    markdown_content = gen_content_markdown(ticket, coding_task_content, has_ticket_context)
 
     # Save the generated markdown content to a file
     file_prefix = f"{ticket.key} "

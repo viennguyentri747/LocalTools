@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import sys
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, List, Tuple
 
 from available_tools.test_tools.test_ut_log import t_get_acu_logs
 from available_tools.test_tools.test_ut_log import t_get_ut_live_log
@@ -57,26 +57,12 @@ FORWARDED_TOOLS: Dict[str, ForwardedTool] = {
 
 
 def get_tool_templates() -> List[ToolTemplate]:
-    def get_templates_with_mode(mode: str, templates: Iterable[ToolTemplate]) -> List[ToolTemplate]:
+    def get_templates_with_mode(mode: str, templates: List[ToolTemplate]) -> List[ToolTemplate]:
         cloned: List[ToolTemplate] = []
         for template in templates:
-            templated_args = dict(template.args or {})
             if not template.override_cmd_invocation:
                 #Add mode if does not have override command (to call via this module instead), else call it directly
-                templated_args[ARG_TEST_MODE] = mode
-                cloned.append(
-                    ToolTemplate(
-                        name=template.name,
-                        extra_description=template.extra_description,
-                        args=templated_args,
-                        search_root=template.search_root,
-                        no_need_live_edit=template.no_need_live_edit,
-                        usage_note=template.usage_note,
-                        should_run_now=getattr(template, "run_now_without_modify", False),
-                        hidden=getattr(template, "should_hidden", False),
-                        override_cmd_invocation=template.override_cmd_invocation,
-                    )
-                )
+                cloned.append(template.clone_with_args({ARG_TEST_MODE: mode}))
             else:
                 cloned.append(template)
         return cloned

@@ -7,8 +7,7 @@ import shlex
 import shutil
 import stat
 from datetime import datetime
-import time
-from typing import Any, Callable, Tuple, Union
+from typing import Tuple, Union
 import xml.etree.ElementTree as ET
 
 from dev.dev_common.core_utils import LOG, LOG_EXCEPTION, LOG_EXCEPTION_STR, run_shell
@@ -76,15 +75,10 @@ def clear_directory(dir_path: Union[str, Path], remove_dir_itself: bool = False)
             else:
                 LOG(f"Removing file/link: {target}")
                 target.unlink()
-        # except FileNotFoundError:
-        #     LOG(f"Target already removed: {target}")
-        #     pass  # Race condition: it's already gone
         except Exception as e:
             LOG(f"Failed to remove {target}: {e}")
             LOG(f"Permission denied. Attempting sudo fallback for: {target}")
             target_path = str(target)
-            # if is_platform_windows():
-            #     target_path = convert_win_to_wsl_path(target_path)
             cmd = f"sudo rm -rf {shlex.quote(target_path)}"
             run_shell(cmd)
 

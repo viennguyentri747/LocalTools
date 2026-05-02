@@ -19,12 +19,17 @@ from available_tools.inertial_sense_tools.decode_gps_hdw_status_utils import (
     decode_gps_hdw_status,
     print_decoded_status as print_gps_hdw_status,
 )
+from available_tools.inertial_sense_tools.decode_gpx_status_utils import (
+    decode_gpx_status,
+    print_decoded_status as print_gpx_status,
+)
 from available_tools.inertial_sense_tools.decode_ins_status_utils import (
     decode_ins_status,
     print_decoded_status as print_ins_status,
 )
 
-SUPPORTED_TYPES: Tuple[str, ...] = ("gen_fault", "gps", "gps_hdw", "system_hdw", "ins")
+SUPPORTED_TYPES: Tuple[str, ...] = ("gen_fault", "gps", "gps_hdw", "gpx", "system_hdw", "ins")
+
 
 def get_tool_templates() -> List[ToolTemplate]:
     return [
@@ -42,6 +47,14 @@ def get_tool_templates() -> List[ToolTemplate]:
             args={
                 "--type": "gps",
                 "--status": "0x312",
+            },
+        ),
+        ToolTemplate(
+            name="Decode GPX Status Integer",
+            extra_description="Check it in `status` in `tail -F /var/log/ins_monitor_log | grep -i DID_GPX_STATUS`",
+            args={
+                "--type": "gpx",
+                "--status": "0x60",
             },
         ),
         ToolTemplate(
@@ -73,6 +86,7 @@ def get_tool_templates() -> List[ToolTemplate]:
 
 def getToolData() -> ToolData:
     return ToolData(tool_template=get_tool_templates())
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -117,6 +131,13 @@ def decode_message(message_type: str, status_value: str) -> None:
         print(f"\nDecoding GPS HDW Status: 0x{status_value:08X} ({status_value})")
         decoded = decode_gps_hdw_status(status_value)
         print_gps_hdw_status(decoded)
+        print("\n" + "=" * 60 + "\n")
+        return
+
+    if message_type == "gpx":
+        print(f"\nDecoding GPX Status: 0x{status_value:08X} ({status_value})")
+        decoded = decode_gpx_status(status_value)
+        print_gpx_status(decoded)
         print("\n" + "=" * 60 + "\n")
         return
 

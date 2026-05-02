@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import sys
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, List, Tuple
 
 from available_tools.test_tools import test_ins_monitor_msg_on_acu as ins_monitor_tool
 from available_tools.test_tools import test_tail_p_log_on_acu as tail_p_log_tool
@@ -35,29 +35,9 @@ FORWARDED_TOOLS: Dict[str, ForwardedTool] = {
 
 def get_tool_templates() -> List[ToolTemplate]:
     """Provide ready-to-run templates for remote UT helpers."""
-
-    def clone_with_mode(mode: str, templates: Iterable[ToolTemplate]) -> List[ToolTemplate]:
-        cloned: List[ToolTemplate] = []
-        for template in templates:
-            templated_args = dict(template.args or {})
-            templated_args[ARG_TEST_MODE] = mode
-            cloned.append(
-                ToolTemplate(
-                    name=template.name,
-                    extra_description=template.extra_description,
-                    args=templated_args,
-                    search_root=template.search_root,
-                    no_need_live_edit=template.no_need_live_edit,
-                    usage_note=template.usage_note,
-                    should_run_now=getattr(template, "run_now_without_modify", False),
-                    hidden=getattr(template, "should_hidden", False),
-                )
-            )
-        return cloned
-
     aggregated_templates: List[ToolTemplate] = []
     for mode, tool in FORWARDED_TOOLS.items():
-        aggregated_templates.extend(clone_with_mode(mode, tool.get_templates_list()))
+        aggregated_templates.extend([template.clone_with_args({ARG_TEST_MODE: mode}) for template in tool.get_templates_list()])
 
     return aggregated_templates
 

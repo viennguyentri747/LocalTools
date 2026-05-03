@@ -1,0 +1,21 @@
+{
+  "retry": {
+    "max_reboot_retries": 1
+  },
+  "cycles": 3,
+  "upgrade_log_dir_path": "logs/upgrade_install",
+  "upgrade_sequence": [
+    {
+      "type": "iesa",
+      "path": "~/local_tools/storage/in_iesa/ow_core_apps-release-master-1.0.0.196.iesa"
+    },
+    {
+      "type": "bundle",
+      "path": "~/local_tools/storage/in_bundle/OW-IESA_2.0.0.9T_FTM_1.22_AIM_1.0.0.196_CNX_420.204.1.022_MDM_4.0.1.305RP_MIM_0.0.0_SSM_5.0.70_SSM_BSP_4.0.24.tar.gz"
+    },
+    {
+      "type": "iesa",
+      "path": "~/local_tools/storage/in_iesa/iesa_test_build.iesa"
+    }
+  ]
+}

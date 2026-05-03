@@ -151,7 +151,8 @@ load_ssh_keys() {
   _ensure_ssh_agent
 
   KEYS=(id_ed25519_intel_github id_ed25519_personal_github)
+  # Adding private keys to ssh-agent
   for KEY_NAME in "${KEYS[@]}"; do
-    ssh-add -l | grep -q "$KEY_NAME" || ssh-add "$HOME/.ssh/$KEY_NAME"
+    ssh-add -l | grep -q "$KEY_NAME" || ssh-add -q "$HOME/.ssh/$KEY_NAME"
   done
 }

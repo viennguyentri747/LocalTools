@@ -158,13 +158,13 @@ def _wrap_command_with_remote_env(command: str) -> str:
     return f"sh -lc {shlex.quote(wrapped_body)}"
 
 
-def _run_remote_command_with_live_output(remote_host_ip: str, remote_user: str, jump_host_ip: str, command: str, on_line_recv: Optional[Callable[[str], None]] = None) -> int:
+def _run_remote_command_with_live_output(remote_host_ip: str, remote_user: str, jump_host_ip: str, command: str, on_line_recv: Optional[Callable[[str], None]] = None, remote_password: Optional[str] = None, jump_user: Optional[str] = None, jump_password: Optional[str] = None) -> int:
     target_client = jump_client = jump_channel = None
     stdout = stderr = None
     stdout_pending = EMPTY_STR_VALUE
     stderr_pending = EMPTY_STR_VALUE
     try:
-        target_client, jump_client, jump_channel = open_ssh_client(host_ip=remote_host_ip, user=remote_user, password=ACU_PASSWORD or EMPTY_STR_VALUE, timeout=10, jump_host_ip=jump_host_ip, jump_user=SSM_USER, jump_password=SSM_PASSWORD)
+        target_client, jump_client, jump_channel = open_ssh_client(host_ip=remote_host_ip, user=remote_user, password=(remote_password if remote_password is not None else ACU_PASSWORD) or EMPTY_STR_VALUE, timeout=10, jump_host_ip=jump_host_ip, jump_user=jump_user or SSM_USER, jump_password=jump_password if jump_password is not None else SSM_PASSWORD)
         LOG(f"{LOG_PREFIX_MSG_INFO} Running remote command on {remote_host_ip} via jump host {jump_host_ip}. Command: {command}")
         _, stdout, stderr = target_client.exec_command(command, get_pty=True)
         LOG(f"{LOG_PREFIX_MSG_INFO} Live install log started. Press Ctrl+C to stop tailing.")
@@ -214,23 +214,14 @@ def _run_remote_command_with_live_output(remote_host_ip: str, remote_user: str, 
         close_ssh_client(target_client, jump_client, jump_channel)
 
 
-def _run_iesa_install_via_python(remote_name: str, remote_dir: str, remote_host_ip: str, remote_user: str, jump_host_ip: str, should_prompt: bool) -> None:
+def _run_iesa_install_via_python(remote_name: str, remote_dir: str, remote_host_ip: str, remote_user: str, jump_host_ip: str, should_prompt: bool, on_install_line_recv: Optional[Callable[[str], None]], remote_password: Optional[str] = None, jump_user: Optional[str] = None, jump_password: Optional[str] = None) -> None:
     if should_prompt and not prompt_confirmation("MD5 match! Install (y/n)?"):
         LOG(f"{LOG_PREFIX_MSG_WARNING} Install skipped by user.")
         return
     install_and_tail_cmd = _wrap_command_with_remote_env(create_install_iesa_cmd(remote_name, download_dir=remote_dir))
     LOG(f"{LOG_PREFIX_MSG_INFO} Running remote install + tail command on ACU via UT {jump_host_ip}...")
-    install_complete_noti_sent = False
-
-    INSTALL_COMPLETE_MSG = "Install complete. Please reboot to boot into the other partition"
-    def _on_install_line_recv(line: str) -> None:
-        nonlocal install_complete_noti_sent
-        if install_complete_noti_sent or INSTALL_COMPLETE_MSG not in line:
-            return
-        show_noti(title="IESA Install Complete", message=f"{INSTALL_COMPLETE_MSG} ({jump_host_ip})", no_log_on_success=True)
-        install_complete_noti_sent = True
-
-    install_rc = _run_remote_command_with_live_output(remote_host_ip=remote_host_ip, remote_user=remote_user, jump_host_ip=jump_host_ip, command=install_and_tail_cmd, on_line_recv=_on_install_line_recv)
+   
+    install_rc = _run_remote_command_with_live_output(remote_host_ip=remote_host_ip, remote_user=remote_user, jump_host_ip=jump_host_ip, command=install_and_tail_cmd, on_line_recv=on_install_line_recv, remote_password=remote_password, jump_user=jump_user, jump_password=jump_password)
     if install_rc != 0:
         raise RuntimeError(f"Remote install command failed with exit code {install_rc}.")
     LOG(f"{LOG_PREFIX_MSG_SUCCESS} IESA install command started successfully on remote host {jump_host_ip}.")
@@ -284,6 +275,16 @@ def main() -> None:
         LOG("SCP copy completed successfully")
         show_noti(title="Copy Complete", message=f"File copied to {target_ip}", no_log_on_success=True)
 
+
+    install_complete_noti_sent = False
+    INSTALL_COMPLETE_MSG = "Install complete. Please reboot to boot into the other partition"
+    def _on_install_line_recv(line: str) -> None:
+        nonlocal install_complete_noti_sent
+        if install_complete_noti_sent or INSTALL_COMPLETE_MSG not in line:
+            return
+        show_noti(title="IESA Install Complete", message=f"{INSTALL_COMPLETE_MSG} ({jump_host_ip})", no_log_on_success=True)
+        install_complete_noti_sent = True
+
     ut_command: Optional[str] = None
     purpose: str = ""
     if mode == MODE_BINARY_SHELL_CMD:
@@ -297,7 +298,7 @@ def main() -> None:
                                                prompt_before_execute=get_arg_value(args, ARG_PROMPT_BEFORE_EXECUTE))
     elif mode == MODE_IESA_PYTHON:
         _run_iesa_install_via_python(remote_name=dest_name, remote_dir=remote_dir, remote_host_ip=acu_host_ip, remote_user=ACU_USER,
-                                     jump_host_ip=target_ip, should_prompt=get_arg_value(args, ARG_PROMPT_BEFORE_EXECUTE))
+                                     jump_host_ip=target_ip, should_prompt=get_arg_value(args, ARG_PROMPT_BEFORE_EXECUTE), on_install_line_recv=_on_install_line_recv, remote_password=ACU_PASSWORD, jump_user=SSM_USER, jump_password=SSM_PASSWORD)
     else:
         action = "copied" if is_copied else "already up to date (copy skipped)"
         LOG(f"File {action}. Run on target UT {target_ip}!!")

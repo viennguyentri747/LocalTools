@@ -1,12 +1,18 @@
+get_shell_type() {
+    if [ -n "$ZSH_VERSION" ]; then printf "%s\n" "zsh"; else printf "%s\n" "bash"; fi
+}
+
+get_shell_config_path() {
+    local shell_type
+    shell_type="$(get_shell_type)"
+    if [ "$shell_type" = "zsh" ]; then printf "%s\n" "$HOME/.zshrc"; else printf "%s\n" "$HOME/.bashrc"; fi
+}
+
+
 source_shell_config() {
     local shell_type config_path
-    if [ -n "$ZSH_VERSION" ]; then
-        shell_type="zsh"
-        config_path="$HOME/.zshrc"
-    else
-        shell_type="bash"
-        config_path="$HOME/.bashrc"
-    fi
+    shell_type="$(get_shell_type)"
+    config_path="$(get_shell_config_path)"
 
     if [[ -f "$config_path" ]]; then
         echo "[INFO] Sourcing ${config_path} for ${shell_type} to apply user configurations..."

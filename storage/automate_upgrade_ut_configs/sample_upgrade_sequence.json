@@ -1,0 +1,17 @@
+{
+  "retry": {
+    "max_reboot_retries": 1
+  },
+  "cycles": 3,
+  "upgrade_log_dir_path": "logs/upgrade_install",
+  "upgrade_sequence": [
+    {
+      "type": "iesa",
+      "path": "~/local_tools/storage/in_iesa/ow_core_apps-release-master-1.0.0.196.iesa"
+    },
+    {
+      "type": "iesa",
+      "path": "~/local_tools/storage/in_iesa/ESA1W-7229_ImproveKimUpgrade_May2.iesa"
+    }
+  ]
+}

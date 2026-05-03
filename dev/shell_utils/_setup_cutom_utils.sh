@@ -22,7 +22,12 @@ export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
 
 #Custom utils
-echo "[DEBUG] Current shell: $0, BASH_VERSION: ${BASH_VERSION-}, ZSH_VERSION: ${ZSH_VERSION-}, SHELL env: $SHELL"
+_current_shell="$(ps -p $$ -o comm= 2>/dev/null || echo "unknown")"
+_version_info=""
+[ -n "${BASH_VERSION-}" ] && _version_info=" (v$BASH_VERSION)"
+[ -n "${ZSH_VERSION-}" ]  && _version_info=" (v$ZSH_VERSION)"
+echo "Shell=${_current_shell}${_version_info}."
+unset _current_shell _version_info
 
 # Common aliases
 alias rmh="rm -f ~/.ssh/known_hosts"
@@ -104,7 +109,6 @@ if [[ -n "$loaded_str" ]]; then
 fi
 
 # Run startup utils
-echo "Running startup scripts..."
 load_ssh_keys
 mount_h
 #monitor_stock not_restart_if_running run_in_background

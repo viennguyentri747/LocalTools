@@ -4,7 +4,7 @@ from typing import Iterable, List
 from dev.dev_common import *
 
 
-ARG_LOG_OUTPUT_PATH = f"{ARGUMENT_LONG_PREFIX}log_output_path"
+ARG_LOG_OUTPUT_DIR_PATH = f"{ARGUMENT_LONG_PREFIX}log_output_path"
 ARG_LIST_IPS = f"{ARGUMENT_LONG_PREFIX}ips"
 E_LOG_PREFIX = "E"
 P_LOG_PREFIX = "P"
@@ -66,7 +66,7 @@ def batch_fetch_acu_logs_for_days(list_ips: List[str], extra_days_before_today: 
 def fetch_acu_logs(ut_ip: str, log_types: List[str], dest_folder_path: str | Path, ssh_key_type: str = SSH_KEY_TYPE_RSA,
                    date_filters: List[str] = None, clear_dest_folder: bool = True, should_has_var_log: bool = False, run_via_shell_cmd: bool = False) -> AcuLogInfo:
     """Fetch ACU logs via Paramiko by default, or shell scp when run_via_shell_cmd is enabled."""
-    if not ping_host(ut_ip, total_pings=2, time_out_per_ping=5):
+    if not ping_remote_host(ut_ip, total_pings=2, time_out_per_ping=5):
         LOG(f"{LOG_PREFIX_MSG_ERROR} Jump host {ut_ip} is not reachable. Aborting.", file=sys.stderr)
         return AcuLogInfo(is_valid=False, ip=ut_ip)
 

@@ -1,0 +1,37 @@
+{
+  "max_retries_per_upgrade": 5,
+  "cycles": 3,
+  "wait_secs_before_next_upgrade": 5,
+  "upgrade_log_dir_path": "~/local_tools/storage/logs/upgrade_install",
+  "upgrade_sequence": [
+    {
+      "type": "iesa",
+      "path": "~/local_tools/storage/in_iesa/ow_core_apps-release-master-1.0.0.196.iesa",
+      "timeout_secs": 3600,
+      "supported_unit_types": ["hd", "fd"],
+      "supported_sub_parts": ["MS", "OS", "PS", "HS"]
+    },
+    {
+      "type": "iesa",
+      "path": "~/local_tools/storage/in_iesa/ow_core_apps-manpack-master-1.0.1.227.iesa",
+      "timeout_secs": 3600,
+      "supported_unit_types": ["hd", "fd", "manpack"],
+      "supported_sub_parts": ["MS", "AS", "OS", "PS", "HS"]
+    },
+    {
+      "type": "iesa",
+      "path": "~/local_tools/storage/in_iesa/ESA1W-7229_ImproveKimUpgrade_May2.iesa",
+      "timeout_secs": 3600,
+      "supported_unit_types": ["hd", "fd", "manpack"],
+      "supported_sub_parts": ["MS", "AS", "OS", "PS", "HS"]
+    },
+    
+    {
+      "type": "iesa",
+      "path": "~/local_tools/storage/in_iesa/ow_core_apps-manpack-master-1.0.1.227.iesa",
+      "timeout_secs": 3600,
+      "supported_unit_types": ["hd", "fd", "manpack"],
+      "supported_sub_parts": ["MS", "AS", "OS", "PS", "HS"]
+    }
+  ]
+}

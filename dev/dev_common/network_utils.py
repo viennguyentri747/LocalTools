@@ -9,6 +9,7 @@ import stat
 import time
 import subprocess
 import sys
+import select
 from typing import Callable, List, Optional, Tuple
 from dev.dev_common.constants import *
 from dev.dev_common.core_utils import *
@@ -54,78 +55,192 @@ def get_remote_file_checksum(remote_host_ip: str, remote_path: str, remote_user:
         f"Could not parse remote checksum output for '{remote_path}' on {remote_host_ip}. Raw stdout='{stdout.strip()}' stderr='{stderr.strip()}'")
 
 
-def get_live_remote_log(host_ip: str, user: str, password: str, remote_log_path: str, timeout: int = 5, jump_host_ip: Optional[str] = None,
-                        jump_user: Optional[str] = None, jump_password: Optional[str] = None, tail_lines: int = 0, read_timeout: int = 300,
-                        poll_interval: float = 0.1, stop_event=None, on_line: Optional[Callable[[str], None]] = None) -> None:
-    """Continuously tail a remote log file or read from a serial device until interrupted or stop_event is set."""
-    target_client = None
-    jump_client = None
-    jump_channel = None
-    stdout = stderr = None
+def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_path: str, timeout: int = 5,
+                        jump_host_ip: Optional[str] = None, jump_user: Optional[str] = None,
+                        jump_password: Optional[str] = None, tail_lines: int = 0, read_timeout: int = 900,
+                        poll_interval: float = 0.1, stop_event=None, on_line: Optional[Callable[[str], None]] = None,
+                        retry_interval: float = 5.0) -> None:
+    """Continuously tail a remote log file or read from a serial device until interrupted or stop_event is set.
+    Automatically retries on connection loss or timeout."""
+    LOG(f"Getting live log at {remote_log_path} from {host_ip} via jump host {jump_host_ip}")
     on_line = on_line or (lambda line: print(line, flush=True))
-
-    # /dev/ paths are character devices — use cat instead of tail
     is_device = remote_log_path.startswith("/dev/")
     if is_device:
         remote_cmd = f"cat {shlex.quote(remote_log_path)}"
     else:
         remote_cmd = f"tail -F -n {max(0, int(tail_lines))} {shlex.quote(remote_log_path)}"
 
-    try:
-        target_client, jump_client, jump_channel = open_ssh_client(
-            host_ip=host_ip, user=user, password=password, timeout=timeout, jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=jump_password)
-        _, stdout, stderr = target_client.exec_command(remote_cmd)
-        channel_read_timeout = 1.0
-        stdout.channel.settimeout(channel_read_timeout)
-        last_output_time = time.time()
-        waiting_start_time = last_output_time
-        waiting_last_second = -1
-        waiting_last_text_len = 0
-        saw_first_log = False
+    # Add first line starting
+    on_line(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Getting live log at {remote_log_path} from {host_ip} via jump host {jump_host_ip}")
+    while not (stop_event and stop_event.is_set()):
+        target_client = None
+        jump_client = None
+        jump_channel = None
+        stdout = stderr = None
 
-        while not (stop_event and stop_event.is_set()):
-            if target_client.get_transport() is None or not target_client.get_transport().is_active():
-                raise ConnectionError(f"SSH connection lost for {host_ip}")
-            if not saw_first_log:
-                elapsed_seconds = int(time.time() - waiting_start_time)
-                if elapsed_seconds != waiting_last_second:
-                    waiting_text = f"Waiting for log output from '{remote_log_path}'... Elapsed: {elapsed_seconds}/{read_timeout}s"
-                    waiting_last_text_len = max(waiting_last_text_len, len(waiting_text))
-                    LOG(f"{waiting_text}{' ' * (waiting_last_text_len - len(waiting_text))}", same_line=True, show_time=False)
-                    waiting_last_second = elapsed_seconds
-            try:
-                line = stdout.readline()
-            except TimeoutError:
-                if is_device:
-                    # Serial ports can be silent for long periods — don't timeout, just keep waiting
+        try:
+            target_client, jump_client, jump_channel = open_ssh_client(
+                host_ip=host_ip, user=user, password=password, timeout=timeout,
+                jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=jump_password)
+            _, stdout, stderr = target_client.exec_command(remote_cmd)
+            channel_read_timeout = 1.0
+            stdout.channel.settimeout(channel_read_timeout)
+            last_output_time = time.time()
+            waiting_start_time = last_output_time
+            waiting_last_second = -1
+            waiting_last_text_len = 0
+            saw_first_log = False
+
+            while not (stop_event and stop_event.is_set()):
+                if target_client.get_transport() is None or not target_client.get_transport().is_active():
+                    raise ConnectionError(f"SSH connection lost for {host_ip}")
+                if not saw_first_log:
+                    elapsed_seconds = int(time.time() - waiting_start_time)
+                    if elapsed_seconds != waiting_last_second:
+                        timeout_text = f"{read_timeout}s" if read_timeout > 0 else "infinite"
+                        waiting_text = f"Waiting for log output from '{remote_log_path}'... Elapsed: {elapsed_seconds}/{timeout_text}"
+                        waiting_last_text_len = max(waiting_last_text_len, len(waiting_text))
+                        LOG(f"{waiting_text}{' ' * (waiting_last_text_len - len(waiting_text))}", same_line=True, show_time=True)
+                        waiting_last_second = elapsed_seconds
+                try:
+                    line = stdout.readline()
+                except TimeoutError:
+                    if is_device:
+                        last_output_time = time.time()
+                        continue
+                    if read_timeout > 0 and time.time() - last_output_time >= read_timeout:
+                        raise TimeoutError(f"No data received from '{remote_log_path}' for {read_timeout} seconds")
+                    continue
+                if line:
+                    if not saw_first_log:
+                        on_line(line.rstrip() + f"\r\nGET_UT_LIVE_LOG START at {time.strftime('%Y-%m-%d %H:%M:%S')}!!")
+                        saw_first_log = True
+                    on_line(line.rstrip('\r\n'))
                     last_output_time = time.time()
                     continue
-                if time.time() - last_output_time >= read_timeout:
+                if stdout.channel.exit_status_ready():
+                    stderr_text = stderr.read().decode('utf-8', errors='replace').strip() if stderr else ""
+                    if stderr_text:
+                        raise RuntimeError(stderr_text)
+                    return  # Clean exit — remote process ended normally, no retry
+                remain_secs = read_timeout - (time.time() - last_output_time)
+                if not is_device and read_timeout > 0 and remain_secs < 0:
                     raise TimeoutError(f"No data received from '{remote_log_path}' for {read_timeout} seconds")
-                continue
-            if line:
-                if not saw_first_log:
-                    on_line(line.rstrip() + f"\r\nGET_UT_LIVE_LOG START at {time.strftime('%Y-%m-%d %H:%M:%S')}!!")
-                    saw_first_log = True
-                on_line(line.rstrip('\r\n'))
-                last_output_time = time.time()
-                continue
-            if stdout.channel.exit_status_ready():
-                stderr_text = stderr.read().decode('utf-8', errors='replace').strip() if stderr else ""
-                if stderr_text:
-                    raise RuntimeError(stderr_text)
-                return
-            remain_secs = read_timeout - (time.time() - last_output_time)
-            if not is_device and remain_secs < 0:
-                raise TimeoutError(f"No data received from '{remote_log_path}' for {read_timeout} seconds")
-            time.sleep(max(0.01, poll_interval))
-    finally:
-        if stdout:
-            stdout.close()
-        if stderr:
-            stderr.close()
-        close_ssh_client(target_client, jump_client, jump_channel)
+                time.sleep(max(0.01, poll_interval))
 
+        except Exception as e:
+            if stop_event and stop_event.is_set():
+                return
+            LOG(f"[get_live_remote_log] Error ({type(e).__name__}: {e}) — retrying in {retry_interval}s...", show_time=True)
+            time.sleep(retry_interval)
+
+        finally:
+            if stdout:
+                stdout.close()
+            if stderr:
+                stderr.close()
+            close_ssh_client(target_client, jump_client, jump_channel)
+
+
+#def get_live_remote_log(host_ip: str, user: str, password: str, remote_log_path: str, timeout: int = 5,
+#                        jump_host_ip: Optional[str] = None, jump_user: Optional[str] = None,
+#                        jump_password: Optional[str] = None, tail_lines: int = 0, read_timeout: int = 300,
+#                        poll_interval: float = 0.1, stop_event=None, on_line: Optional[Callable[[str], None]] = None,
+#                        retry_interval: float = 5.0) -> None:
+#    """Continuously tail a remote log file or read from a serial device until interrupted or stop_event is set.
+#    Automatically retries on connection loss or timeout. Uses select() to avoid readline() hanging."""
+#    LOG(f"Getting live log from {host_ip} via jump host {jump_host_ip}")
+#    on_line = on_line or (lambda line: print(line, flush=True))
+#    is_device = remote_log_path.startswith("/dev/")
+#    if is_device:
+#        remote_cmd = f"cat {shlex.quote(remote_log_path)}"
+#    else:
+#        remote_cmd = f"tail -F -n {max(0, int(tail_lines))} {shlex.quote(remote_log_path)}"
+
+#    while not (stop_event and stop_event.is_set()):
+#        target_client = None
+#        jump_client = None
+#        jump_channel = None
+#        stdout = stderr = None
+#        line_buf = b""  # partial line buffer
+
+#        try:
+#            target_client, jump_client, jump_channel = open_ssh_client(
+#                host_ip=host_ip, user=user, password=password, timeout=timeout,
+#                jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=jump_password)
+#            _, stdout, stderr = target_client.exec_command(remote_cmd)
+#            stdout.channel.setblocking(False)  # non-blocking mode, select() controls timing
+#            last_output_time = time.time()
+#            waiting_start_time = last_output_time
+#            waiting_last_second = -1
+#            waiting_last_text_len = 0
+#            saw_first_log = False
+
+#            while not (stop_event and stop_event.is_set()):
+#                if target_client.get_transport() is None or not target_client.get_transport().is_active():
+#                    raise ConnectionError(f"SSH connection lost for {host_ip}")
+
+#                if not saw_first_log:
+#                    elapsed_seconds = int(time.time() - waiting_start_time)
+#                    if elapsed_seconds != waiting_last_second:
+#                        waiting_text = f"Waiting for log output from '{remote_log_path}'... Elapsed: {elapsed_seconds}/{read_timeout}s"
+#                        waiting_last_text_len = max(waiting_last_text_len, len(waiting_text))
+#                        LOG(f"{waiting_text}{' ' * (waiting_last_text_len - len(waiting_text))}", same_line=False, show_time=False)
+#                        waiting_last_second = elapsed_seconds
+
+#                # Wait up to poll_interval for data — never blocks indefinitely
+#                ready, _, _ = select.select([stdout.channel], [], [], poll_interval)
+#                if not ready:
+#                    # No data in this poll window — check timeouts
+#                    if is_device:
+#                        last_output_time = time.time()  # serial devices can be silent, don't timeout
+#                        continue
+#                    if (time.time() - last_output_time) >= read_timeout:
+#                        raise TimeoutError(f"No data received from '{remote_log_path}' for {read_timeout} seconds")
+#                    continue
+
+#                # Data is ready — recv raw bytes
+#                try:
+#                    data = stdout.channel.recv(4096)
+#                except Exception as e:
+#                    raise ConnectionError(f"Channel recv error for {host_ip}: {e}")
+
+#                if not data:
+#                    # Empty recv = channel closed
+#                    if stdout.channel.exit_status_ready():
+#                        stderr_text = stderr.read().decode('utf-8', errors='replace').strip() if stderr else ""
+#                        if stderr_text:
+#                            raise RuntimeError(stderr_text)
+#                        return  # Clean exit — remote process ended normally, no retry
+#                    continue
+
+#                # Accumulate into buffer and split on newlines
+#                line_buf += data
+#                lines = line_buf.split(b'\n')
+#                line_buf = lines.pop()  # last element is incomplete line — keep for next recv
+
+#                for raw_line in lines:
+#                    line = raw_line.decode('utf-8', errors='replace').rstrip('\r')
+#                    LOG(line)
+#                    if not saw_first_log:
+#                        on_line(line + f"\r\nGET_UT_LIVE_LOG START at {time.strftime('%Y-%m-%d %H:%M:%S')}!!")
+#                        saw_first_log = True
+#                    else:
+#                        on_line(line)
+#                    last_output_time = time.time()
+
+#        except Exception as e:
+#            if stop_event and stop_event.is_set():
+#                return
+#            LOG(f"[get_live_remote_log] Error ({type(e).__name__}: {e}) — retrying in {retry_interval}s...", show_time=True)
+#            time.sleep(retry_interval)
+
+#        finally:
+#            if stdout:
+#                stdout.close()
+#            if stderr:
+#                stderr.close()
+#            close_ssh_client(target_client, jump_client, jump_channel)
 
 @dataclass
 class SshPwlessStatuses:
@@ -136,7 +251,7 @@ class SshPwlessStatuses:
     unreachable_ips: List[str] = field(default_factory=list)
 
 
-def ping_host(host: str, total_pings: int = 3, time_out_per_ping: int = 5, mute: bool = False) -> bool:
+def ping_remote_host(host: str, total_pings: int = 3, time_out_per_ping: int = 5, mute: bool = False) -> bool:
     try:
         if not mute:
             LOG(f"[INFO] Pinging {host} {total_pings} times with a timeout of {time_out_per_ping} seconds...")
@@ -159,6 +274,63 @@ def ping_host(host: str, total_pings: int = 3, time_out_per_ping: int = 5, mute:
         if not mute:
             LOG(f"[WARNING] Ping to {host} failed: {e}")
         return False
+
+
+def ping_remote_host_via_jump_host(remote_host_ip: str, jump_host_ip: Optional[str] = None, jump_user: str = SSM_USER, jump_password: Optional[str] = None, *,
+                                   max_wait_sec: int = 120, retry_interval_sec: float = 1.0, ping_count: int = 1,
+                                   ping_timeout_sec: int = 1, ssh_timeout_sec: int = 10, check_jump_host_reachable: bool = True,
+                                   mute: bool = False) -> bool:
+    start_time = time.time()
+    deadline = start_time + max(1, int(max_wait_sec))
+    interval = max(0.1, float(retry_interval_sec))
+    ping_count = max(1, int(ping_count))
+    ping_timeout = max(1, int(ping_timeout_sec))
+    ssh_timeout = max(1, int(ssh_timeout_sec))
+    last_reason = EMPTY_STR_VALUE
+    ping_ok_marker = "__PING_OK__"
+    ping_fail_marker = "__PING_FAIL__"
+    remote_ping_cmd = f"ping -c {ping_count} -W {ping_timeout} {shlex.quote(remote_host_ip)} >/dev/null 2>&1 && echo {ping_ok_marker} || echo {ping_fail_marker}"
+
+    while time.time() < deadline:
+        elapsed = int(time.time() - start_time)
+        try:
+            if not jump_host_ip:
+                if ping_remote_host(remote_host_ip, total_pings=ping_count, time_out_per_ping=ping_timeout, mute=True):
+                    if not mute:
+                        LOG(f"{LOG_PREFIX_MSG_INFO} {remote_host_ip} is reachable after {elapsed}s.")
+                    return True
+                last_reason = f"{remote_host_ip} not reachable"
+            elif check_jump_host_reachable and not ping_remote_host(jump_host_ip, total_pings=ping_count, time_out_per_ping=ping_timeout, mute=True):
+                last_reason = f"jump host {jump_host_ip} is not reachable"
+            else:
+                stdout, stderr = run_ssh_command(
+                    host_ip=jump_host_ip,
+                    user=jump_user,
+                    password=jump_password or EMPTY_STR_VALUE,
+                    command=remote_ping_cmd,
+                    timeout=ssh_timeout,
+                )
+                if stderr.strip():
+                    last_reason = stderr.strip()
+                marker = (stdout or EMPTY_STR_VALUE).strip().splitlines()
+                last_line = marker[-1].strip() if marker else EMPTY_STR_VALUE
+                if last_line == ping_ok_marker:
+                    if not mute:
+                        LOG(f"{LOG_PREFIX_MSG_INFO} {remote_host_ip} is reachable from jump host {jump_host_ip} after {elapsed}s.")
+                    return True
+                last_reason = f"{remote_host_ip} not reachable from jump host {jump_host_ip}"
+        except Exception as exc:
+            last_reason = str(exc)
+        if not mute:
+            via_text = f" via {jump_host_ip}" if jump_host_ip else EMPTY_STR_VALUE
+            LOG(f"{LOG_PREFIX_MSG_INFO} Waiting for {remote_host_ip}{via_text} [{elapsed}/{int(max_wait_sec)}s]: {last_reason or 'retrying'}")
+        time.sleep(interval)
+
+    if not mute:
+        elapsed = int(time.time() - start_time)
+        via_text = f" via {jump_host_ip}" if jump_host_ip else EMPTY_STR_VALUE
+        LOG(f"{LOG_PREFIX_MSG_WARNING} Timeout waiting for {remote_host_ip}{via_text} after {elapsed}s. Last reason: {last_reason or 'unknown'}")
+    return False
 
 
 def _sftp_mkdir_p(sftp: paramiko.SFTPClient, remote_dir: str) -> None:
@@ -219,7 +391,7 @@ def _sftp_put_file_with_progress(sftp: paramiko.SFTPClient, local_file: Path, re
     file_uploaded = 0
     overall_total = file_size if total_bytes is None else max(file_size, int(total_bytes))
     LOG(f"{LOG_PREFIX_MSG_INFO} Uploading {local_file} to {remote_file_path} ({format_bytes_human(file_size)})")
-    reporter = _TransferProgressReporter(label=label or f"Upload Progress:", total_bytes=overall_total)
+    reporter = _TransferProgressReporter(label=label or f"Upload Progress", total_bytes=overall_total)
 
     def _on_progress(transferred: int, total: int) -> None:
         nonlocal file_uploaded

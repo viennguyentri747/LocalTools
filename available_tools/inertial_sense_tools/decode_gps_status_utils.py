@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from enum import Flag, IntEnum
 from typing import Dict, List, Union
 
-from dev.dev_common.core_independent_utils import LOG
+from dev.dev_common.core_independent_utils import ELogType, LOG
 from dev.dev_iesa.iesa_repo_utils import (
     get_enum_declaration_from_path,
     get_path_to_inertial_sense_data_set_header,
@@ -72,9 +72,10 @@ GPS_STATUS_FLAGS_MASK: int = 0
 for _flag in GpsStatusFlags:
     GPS_STATUS_FLAGS_MASK |= _flag.value
 
+LOG(f"[IESA] Parsed enum {ENUM_GPS_STATUS_NAME}")
 LOG(
-    f"[IESA] Parsed {ENUM_GPS_STATUS_NAME}: "
-    f"{ {k: hex(v) if isinstance(v, int) else v for k, v in _GPS_STATUS_VALUES.items()} }"
+    f"{ {k: hex(v) if isinstance(v, int) else v for k, v in _GPS_STATUS_VALUES.items()} }",
+    log_type=ELogType.DEBUG,
 )
 
 

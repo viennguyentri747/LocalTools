@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Dict, Union
 
-from dev.dev_common.core_independent_utils import LOG
+from dev.dev_common.core_independent_utils import ELogType, LOG
 from dev.dev_iesa.iesa_repo_utils import (
     get_enum_declaration_from_path,
     get_path_to_inertial_sense_data_set_header,
@@ -100,13 +100,15 @@ INS_STATUS_RTOS_TASK_PERIOD_OVERRUN = _require(
 INS_STATUS_GENERAL_FAULT = _require(_INS_STATUS_VALUES, "INS_STATUS_GENERAL_FAULT", ENUM_INS_STATUS_FLAGS)
 
 
+LOG(f"[IESA] Parsed enum {ENUM_INS_STATUS_FLAGS}")
 LOG(
-    f"[IESA] Parsed {ENUM_INS_STATUS_FLAGS}: "
-    f"{ {k: hex(v) if isinstance(v, int) else v for k, v in _INS_STATUS_VALUES.items()} }"
+    f"{ {k: hex(v) if isinstance(v, int) else v for k, v in _INS_STATUS_VALUES.items()} }",
+    log_type=ELogType.DEBUG,
 )
+LOG(f"[IESA] Parsed enum {ENUM_GPS_NAV_FIX_STATUS}")
 LOG(
-    f"[IESA] Parsed {ENUM_GPS_NAV_FIX_STATUS}: "
-    f"{ {k: hex(v) if isinstance(v, int) else v for k, v in _GPS_NAV_FIX_VALUES.items()} }"
+    f"{ {k: hex(v) if isinstance(v, int) else v for k, v in _GPS_NAV_FIX_VALUES.items()} }",
+    log_type=ELogType.DEBUG,
 )
 
 

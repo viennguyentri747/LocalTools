@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from enum import IntFlag
 from typing import Dict, Iterable, List, Optional, Union
 
-from dev.dev_common.core_independent_utils import LOG
+from dev.dev_common.core_independent_utils import ELogType, LOG
 from dev.dev_iesa.iesa_repo_utils import (
     get_enum_declaration_from_path,
     get_path_to_inertial_sense_data_set_header,
@@ -54,9 +54,10 @@ class GeneralFaultCode(IntFlag):
     GNSS_GENERAL_FAULT = _get("GFC_GNSS_GENERAL_FAULT")
 
 
+LOG(f"[IESA] Parsed enum {ENUM_GEN_FAULT_CODES}")
 LOG(
-    f"[IESA] Parsed {ENUM_GEN_FAULT_CODES}: "
-    f"{ {k: hex(v) if isinstance(v, int) else v for k, v in _GEN_FAULT_VALUES.items()} }"
+    f"{ {k: hex(v) if isinstance(v, int) else v for k, v in _GEN_FAULT_VALUES.items()} }",
+    log_type=ELogType.DEBUG,
 )
 
 

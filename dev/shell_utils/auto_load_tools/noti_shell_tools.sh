@@ -34,6 +34,7 @@ countdown() {
         sleep 1
         duration=$((duration - 1))
     done
-    echo -e "\nCountdown finished!"
+    printf "\n"
+    log "Countdown finished!"
     noti "Countdown" "Countdown finished!"
 }

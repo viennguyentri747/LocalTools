@@ -3,6 +3,29 @@
 #     command codex --ask-for-approval never --sandbox workspace-write "$@"
 # }
 
+_MY_AGENT_DIR_NAME="MY_AGENT"
+_MY_AGENT_INPUT_DIR_NAME="INPUT"
+_MY_AGENT_OUTPUT_DIR_NAME="OUTPUT"
+_MY_AGENT_TODO_NEXT_FILE_NAME="AGENT_TODO_NEXT.md"
+
+# AI agent tools
+check_create_agent_dir_if_not_exist(){
+    # Check if the agent directory exists in current dir, if not, create it
+    if [ ! -d $_MY_AGENT_DIR_NAME ]; then
+        log "Creating agent directory: $_MY_AGENT_DIR_NAME"
+        mkdir $_MY_AGENT_DIR_NAME
+        mkdir $_MY_AGENT_DIR_NAME/$_MY_AGENT_INPUT_DIR_NAME
+        mkdir $_MY_AGENT_DIR_NAME/$_MY_AGENT_OUTPUT_DIR_NAME
+    fi
+}
+
+agent_todo_next(){
+    # Open agent todo next file
+    check_create_agent_dir_if_not_exist
+    code "$_MY_AGENT_DIR_NAME/$_MY_AGENT_INPUT_DIR_NAME/$_MY_AGENT_TODO_NEXT_FILE_NAME"
+}
+
+
 tool(){
 	~/core_repos/local_tools/main_tools.py "$@"
 }
@@ -30,14 +53,14 @@ get_acu_logs() {
 
 test_mcp() {
     if [ -z "$1" ]; then
-        echo "Usage: test_mcp <path_to_mcp_server.py>. Ex: test_mcp ~/core_repos/local_tools/mcp_server/ssh_command_mcp_server.py"
+        log "Usage: test_mcp <path_to_mcp_server.py>. Ex: test_mcp ~/core_repos/local_tools/mcp_server/ssh_command_mcp_server.py"
         return 1
     fi
 
     # Convert to absolute path if it isn't already
     local ABS_PATH=$(realpath "$1")
 
-    echo "Starting MCP Inspector for: $ABS_PATH"
+    log "Starting MCP Inspector for: $ABS_PATH"
     npx @modelcontextprotocol/inspector "$ABS_PATH"
 }
 

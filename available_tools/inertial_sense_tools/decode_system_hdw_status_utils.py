@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from enum import Flag
 from typing import Dict, List, Union
 
-from dev.dev_common.core_independent_utils import LOG
+from dev.dev_common.core_independent_utils import ELogType, LOG
 from dev.dev_iesa.iesa_repo_utils import (
     get_enum_declaration_from_path,
     get_path_to_inertial_sense_data_set_header,
@@ -40,9 +40,10 @@ HDW_STATUS_RESET_CAUSE_WATCHDOG_FAULT: int = _get("HDW_STATUS_RESET_CAUSE_WATCHD
 HDW_STATUS_RESET_CAUSE_SOFT: int = _get("HDW_STATUS_RESET_CAUSE_SOFT")
 HDW_STATUS_RESET_CAUSE_HDW: int = _get("HDW_STATUS_RESET_CAUSE_HDW")
 
+LOG(f"[IESA] Parsed enum {ENUM_HDW_STATUS_FLAGS_NAME}")
 LOG(
-    f"[IESA] Parsed {ENUM_HDW_STATUS_FLAGS_NAME}: "
-    f"{ {k: hex(v) if isinstance(v, int) else v for k, v in _HDW_STATUS_VALUES.items()} }"
+    f"{ {k: hex(v) if isinstance(v, int) else v for k, v in _HDW_STATUS_VALUES.items()} }",
+    log_type=ELogType.DEBUG,
 )
 
 

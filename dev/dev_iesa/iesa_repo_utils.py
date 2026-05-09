@@ -70,7 +70,8 @@ def get_enum_declaration_from_path(enum_name: str, header_path: Path | None = No
             raise ValueError(f"Failed to evaluate expression '{expr}' for {name} in {enum_name}") from exc
         values[name] = value
         LOG(f"[IESA] Finish evaluating expression '{expr}' for {name} in {enum_name} -> Result: {value}", log_type=ELogType.DEBUG)
-    LOG(f"[IESA] Parsed enum {enum_name} ({len(values)} entries): { {k: hex(v) if v > 9 else v for k, v in values.items()} }")
+    LOG(f"[IESA] Parsed enum {enum_name} ({len(values)} entries)")
+    LOG(f"{ {k: hex(v) if v > 9 else v for k, v in values.items()} }", log_type=ELogType.DEBUG)
     return values
 
 

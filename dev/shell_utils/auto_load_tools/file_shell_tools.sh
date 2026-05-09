@@ -5,7 +5,7 @@ trash_dir="$HOME/.local/share/Trash/"
 clean_trash() {
     # check if directory exists first
     if [ ! -d "$trash_dir" ]; then
-        echo "Trash directory not found at: $trash_dir"
+        log "Trash directory not found at: $trash_dir"
         return 1
     fi
 
@@ -20,11 +20,11 @@ clean_trash() {
     fi
     
     if [ ${#files[@]} -eq 0 ]; then
-        echo "Trash directory '$trash_dir' is already empty."
+        log "Trash directory '$trash_dir' is already empty."
     else
         #Remove all files including hidden files
         rm -rf "${files[@]}"
-        echo "Trash cleaned (including hidden files)."
+        log "Trash cleaned (including hidden files)."
     fi
 }
 
@@ -32,13 +32,13 @@ dos2unix_dir() {
     local dir="$1"
     
     # Validation
-    if [[ -z "$dir" ]]; then echo "Usage: dos2unix_dir <dir_path>"; return 1; fi
-    if [[ ! -d "$dir" ]]; then echo "Directory not found: $dir"; return 1; fi
-    if ! command -v dos2unix >/dev/null 2>&1; then echo "Error: dos2unix not installed."; return 1; fi
+    if [[ -z "$dir" ]]; then log "Usage: dos2unix_dir <dir_path>"; return 1; fi
+    if [[ ! -d "$dir" ]]; then log "Directory not found: $dir"; return 1; fi
+    if ! command -v dos2unix >/dev/null 2>&1; then log_err "Error: dos2unix not installed."; return 1; fi
 
     local total=0 ok=0 fail=0
     
-    echo "--- Starting targeted conversion in: $dir ---"
+    log "--- Starting targeted conversion in: $dir ---"
     local total=0 ok=0 fail=0
     while IFS= read -r -d '' file; do
         ((total++))
@@ -53,8 +53,8 @@ dos2unix_dir() {
     done < <(find "$dir" -type f -not -path "*/.git/*" \
             \( -name "*.sh" -o -name "*.py" -o -name "*.bash" -o -name "*.pl" \) -print0)
             
-    echo "------------------------------------------"
-    echo "Finished: Total=$total | OK=$ok | Failed=$fail"
+    log "------------------------------------------"
+    log "Finished: Total=$total | OK=$ok | Failed=$fail"
 }
 
 deep_extract() {
@@ -67,26 +67,26 @@ deep_extract() {
     local usage_msg="Usage: deep_extract --input_dir_or_archive <path> [--archive_name_regex <regex>] [--should_remove_orig_dir true|false] [--jobs <n>]"
 
     if [ ! -f "$script" ]; then
-        echo "Error: script not found: $script" >&2
+        log_err "Error: script not found: $script"
         return 1
     fi
 
     if [ ${#raw_args[@]} -eq 0 ]; then
-        echo "Error: --input_dir_or_archive is required." >&2
-        echo "$usage_msg" >&2
+        log_err "Error: --input_dir_or_archive is required."
+        log_err "$usage_msg"
         return 1
     fi
 
     if [[ "$first_arg" != -* ]]; then
-        echo "Error: positional argument is not supported. Use --input_dir_or_archive <path>." >&2
-        echo "$usage_msg" >&2
+        log_err "Error: positional argument is not supported. Use --input_dir_or_archive <path>."
+        log_err "$usage_msg"
         return 1
     fi
 
     case "$first_arg" in
         -h|--help)
-            echo "$usage_msg"
-            echo "Example (prefix filter): deep_extract --input_dir_or_archive /path/to/logs --archive_name_regex '^(350928590056204|350928590056205|master)'"
+            log "$usage_msg"
+            log "Example (prefix filter): deep_extract --input_dir_or_archive /path/to/logs --archive_name_regex '^(350928590056204|350928590056205|master)'"
             ;;
     esac
 
@@ -118,7 +118,7 @@ deep_extract() {
         esac
     done
     if [ "$expect_input_path_value" -eq 1 ]; then
-        echo "Error: --input_dir_or_archive requires a path value." >&2
+        log_err "Error: --input_dir_or_archive requires a path value."
         return 1
     fi
 
@@ -149,20 +149,20 @@ deep_extract() {
             esac
         done
         if [ "$expect_input_dir_value" -eq 1 ]; then
-            echo "Error: --input_dir_or_archive requires a path value." >&2
+            log_err "Error: --input_dir_or_archive requires a path value."
             return 1
         fi
-        echo "[deep_extract] Using python via win_python"
+        log "[deep_extract] Using python via win_python"
         win_python "$win_script" "${win_args[@]}"
     elif command -v python3 >/dev/null 2>&1; then
-        echo "[deep_extract] Using python3: $(command -v python3)"
+        log "[deep_extract] Using python3: $(command -v python3)"
         python3 "$script" "${normalized_args[@]}"
     elif command -v python >/dev/null 2>&1; then
-        echo "[deep_extract] Using python: $(command -v python)"
+        log "[deep_extract] Using python: $(command -v python)"
         python "$script" "${normalized_args[@]}"
     else
-        echo "[deep_extract] No usable python interpreter found (checked: win_python, python3, python)." >&2
-        echo "Error: python interpreter not found." >&2
+        log_err "[deep_extract] No usable python interpreter found (checked: win_python, python3, python)."
+        log_err "Error: python interpreter not found."
         return 1
     fi
 }

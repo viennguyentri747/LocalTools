@@ -1,5 +1,23 @@
 #!/bin/bash
 
+log() {
+    local timestamp
+    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    printf "[%s] %s\n" "$timestamp" "$*"
+}
+
+log_err() {
+    local timestamp
+    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    printf "[%s] %s\n" "$timestamp" "$*" >&2
+}
+
+log_inline() {
+    local timestamp
+    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    printf "\r[%s] %s" "$timestamp" "$*"
+}
+
 normalize_script_line_endings() {
     local script_path="$1"
     if [ -z "$script_path" ] || [ ! -f "$script_path" ]; then return 0; fi
@@ -24,7 +42,7 @@ _is_windows_path() {
 convert_wsl_to_win_path() {
     local source_path="$1" windows_path=""
     if [ -z "$source_path" ]; then
-        echo "Usage: convert_wsl_to_win_path <wsl_path>" >&2
+        log_err "Usage: convert_wsl_to_win_path <wsl_path>"
         return 1
     fi
 
@@ -36,15 +54,15 @@ convert_wsl_to_win_path() {
     fi
 
     if ! command -v wslpath >/dev/null 2>&1; then
-        echo "wslpath not found; cannot convert '$source_path' to Windows path." >&2
+        log_err "wslpath not found; cannot convert '$source_path' to Windows path."
         return 1
     fi
     if ! windows_path=$(wslpath -w "$source_path" 2>/dev/null); then
-        echo "Failed to convert path: $source_path" >&2
+        log_err "Failed to convert path: $source_path"
         return 1
     fi
     if ! _is_windows_path "$windows_path"; then
-        echo "Invalid converted Windows path: $windows_path" >&2
+        log_err "Invalid converted Windows path: $windows_path"
         return 1
     fi
     printf "%s" "$windows_path"
@@ -55,14 +73,14 @@ to_windows_path() { convert_wsl_to_win_path "$@"; }
 convert_win_to_wsl_path() {
     local win_path="$*" clean_path wsl_path drive rest
     if [ -z "$win_path" ]; then
-        echo "Usage: convert_win_to_wsl_path <windows_path>" >&2
+        log_err "Usage: convert_win_to_wsl_path <windows_path>"
         return 1
     fi
 
     clean_path="${win_path%\"}"; clean_path="${clean_path#\"}"
     clean_path="${clean_path%\'}"; clean_path="${clean_path#\'}"
     if [ "${#clean_path}" -ge 3 ] && [ "${clean_path:1:1}" = ":" ] && [[ "$clean_path" != *"/"* ]] && [[ "$clean_path" != *"\\"* ]]; then
-        echo "Invalid Windows path formatting. Use quotes, doubled backslashes, or forward slashes. Example: \"C:\\\\Users\\\\...\\\\python.exe\" or C:/Users/.../python.exe" >&2
+        log_err "Invalid Windows path formatting. Use quotes, doubled backslashes, or forward slashes. Example: \"C:\\\\Users\\\\...\\\\python.exe\" or C:/Users/.../python.exe"
         return 1
     fi
 

@@ -16,20 +16,12 @@ class UpgradeConfigError(ValueError):
 
 
 @dataclass
-class RetryConfig:
-    max_reboot_retries: int = 1
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "RetryConfig":
-        if not isinstance(data, dict):
-            return cls()
-        return cls(max_reboot_retries=max(0, int(data.get("max_reboot_retries", 1))))
-
-
-@dataclass
 class UpgradeItemConfig:
     type: str
     path: str
+    timeout_secs: Optional[int] = None
+    supported_unit_types: List[str] = field(default_factory=list)
+    supported_sub_parts: List[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any], index: int) -> "UpgradeItemConfig":
@@ -41,15 +33,26 @@ class UpgradeItemConfig:
         item_path = str(data.get("path", "")).strip()
         if not item_path:
             raise UpgradeConfigError(f"upgrade_sequence[{index}].path is required")
-        return cls(type=item_type, path=item_path)
+        timeout_raw = data.get("timeout_secs", data.get("timeout", None))
+        timeout_secs = None
+        if timeout_raw is not None:
+            timeout_secs = max(1, int(timeout_raw))
+        supported_unit_types_raw = data.get("supported_unit_types", [])
+        supported_sub_parts_raw = data.get("supported_sub_parts", [])
+        supported_unit_types = [str(x).strip().lower() for x in supported_unit_types_raw] if isinstance(supported_unit_types_raw, list) else []
+        supported_sub_parts = [str(x).strip().upper() for x in supported_sub_parts_raw] if isinstance(supported_sub_parts_raw, list) else []
+        supported_unit_types = [x for x in supported_unit_types if x]
+        supported_sub_parts = [x for x in supported_sub_parts if x]
+        return cls(type=item_type, path=item_path, timeout_secs=timeout_secs, supported_unit_types=supported_unit_types, supported_sub_parts=supported_sub_parts)
 
 
 @dataclass
 class UpgradeTestConfig:
-    retry: RetryConfig = field(default_factory=RetryConfig)
+    max_retries_per_upgrade: int = 1
     upgrade_sequence: List[UpgradeItemConfig] = field(default_factory=list)
     upgrade_log_dir_path: Optional[str] = None
     cycles: int = 1
+    wait_secs_before_next_upgrade: int = 5
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "UpgradeTestConfig":
@@ -72,7 +75,17 @@ class UpgradeTestConfig:
         upgrade_log_dir_path = str(data.get("upgrade_log_dir_path")).strip() if data.get("upgrade_log_dir_path") else None
         if not upgrade_log_dir_path and data.get("upgrade_log_path"):
             upgrade_log_dir_path = str(data.get("upgrade_log_path")).strip()
-        return cls(retry=RetryConfig.from_dict(data.get("retry", {})), upgrade_sequence=sequence, upgrade_log_dir_path=upgrade_log_dir_path, cycles=max(1, int(data.get("cycles", 1))))
+        max_retries_per_upgrade = 1
+        if "max_retries_per_upgrade" in data:
+            max_retries_per_upgrade = max(0, int(data.get("max_retries_per_upgrade", 1)))
+        elif "max_reboot_retries" in data:
+            max_retries_per_upgrade = max(0, int(data.get("max_reboot_retries", 1)))
+        else:
+            retry_data = data.get("retry", {})
+            if isinstance(retry_data, dict):
+                max_retries_per_upgrade = max(0, int(retry_data.get("max_reboot_retries", 1)))
+        wait_secs_before_next_upgrade = max(0, int(data.get("wait_secs_before_next_upgrade", 5)))
+        return cls(max_retries_per_upgrade=max_retries_per_upgrade, upgrade_sequence=sequence, upgrade_log_dir_path=upgrade_log_dir_path, cycles=max(1, int(data.get("cycles", 1))), wait_secs_before_next_upgrade=wait_secs_before_next_upgrade)
 
     @classmethod
     def load_from_file(cls, config_path: str) -> "UpgradeTestConfig":
@@ -88,11 +101,11 @@ class UpgradeTestConfig:
     def get_all_upgrade_paths(self) -> List[str]:
         return [item.path for item in self.upgrade_sequence]
 
-    def with_overrides(self, cycles: Optional[int] = None, max_reboot_retries: Optional[int] = None) -> "UpgradeTestConfig":
+    def with_overrides(self, cycles: Optional[int] = None, max_retries_per_upgrade: Optional[int] = None) -> "UpgradeTestConfig":
         if cycles is not None:
             self.cycles = max(1, int(cycles))
-        if max_reboot_retries is not None:
-            self.retry.max_reboot_retries = max(0, int(max_reboot_retries))
+        if max_retries_per_upgrade is not None:
+            self.max_retries_per_upgrade = max(0, int(max_retries_per_upgrade))
         return self
 
     def get_sequence_by_type(self, item_type: str) -> List[UpgradeItemConfig]:

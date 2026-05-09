@@ -17,7 +17,7 @@ DEFAULT_LOG_OUTPUT_PATH = ACU_LOG_PATH
 LOCAL_LOG_WRAPPER_CMD = f"{Path(__file__).resolve().parents[1] / 't_test_logs_from_local.py'} --mode get_acu_logs"
 ARG_LOG_TYPES = f"{ARGUMENT_LONG_PREFIX}type"
 ARG_DATE_FILTERS = f"{ARGUMENT_LONG_PREFIX}date"
-ARG_LOG_OUTPUT_PATH = f"{ARGUMENT_LONG_PREFIX}log_output_path"
+ARG_LOG_OUTPUT_DIR_PATH = f"{ARGUMENT_LONG_PREFIX}log_output_path"
 ARG_MAX_THREAD_COUNT = f"{ARGUMENT_LONG_PREFIX}max_threads"
 DEFAULT_MAX_THREAD_COUNT = 20
 DEFAULT_EXTRA_DAYS = 2
@@ -33,7 +33,7 @@ def get_tool_templates() -> List[ToolTemplate]:
             name="Get ACU Logs",
             extra_description="Copy flash log files from remote",
             args={
-                ARG_LOG_OUTPUT_PATH: str(DEFAULT_LOG_OUTPUT_PATH),
+                ARG_LOG_OUTPUT_DIR_PATH: str(DEFAULT_LOG_OUTPUT_PATH),
                 ARG_LOG_TYPES: list(DEFAULT_LOG_TYPE_PREFIXES),
                 ARG_LIST_IPS: [f"{SSM_NORMAL_IP_PREFIX}.57", f"{SSM_NORMAL_IP_PREFIX}.59"],
                 ARG_DATE_FILTERS: DEFAULT_DATE_VALUES,
@@ -70,7 +70,7 @@ def parse_args() -> argparse.Namespace:
         help='Date(s) to filter logs (YYYYMMDD format). If provided, only logs starting with these dates will be fetched.',
     )
     parser.add_argument(
-        ARG_LOG_OUTPUT_PATH,
+        ARG_LOG_OUTPUT_DIR_PATH,
         type=str,
         default=str(DEFAULT_LOG_OUTPUT_PATH),
         help='Directory where fetched logs will be stored.',
@@ -323,7 +323,7 @@ def main() -> None:
     log_types: List[str] = get_arg_value(args, ARG_LOG_TYPES)
     ips: List[str] = get_arg_value(args, ARG_LIST_IPS)
     date_filters: Optional[List[str]] = get_arg_value(args, ARG_DATE_FILTERS)
-    log_output_dir = Path(get_arg_value(args, ARG_LOG_OUTPUT_PATH)).expanduser()
+    log_output_dir = Path(get_arg_value(args, ARG_LOG_OUTPUT_DIR_PATH)).expanduser()
     max_thread_count: int = get_arg_value(args, ARG_MAX_THREAD_COUNT)
     log_output_dir.mkdir(parents=True, exist_ok=True)
 

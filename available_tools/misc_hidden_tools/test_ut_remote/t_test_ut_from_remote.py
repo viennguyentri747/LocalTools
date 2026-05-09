@@ -6,8 +6,8 @@ from pathlib import Path
 import sys
 from typing import Dict, List, Tuple
 
-from available_tools.test_tools import test_ins_monitor_msg_on_acu as ins_monitor_tool
-from available_tools.test_tools import test_tail_p_log_on_acu as tail_p_log_tool
+from misc_hidden_tools.test_ut_remote import test_ins_monitor_msg_on_acu as ins_monitor_tool
+from misc_hidden_tools.test_ut_remote import test_tail_p_log_on_acu as tail_p_log_tool
 from dev.dev_common import *
 from dev.dev_common.custom_structures import ForwardedTool
 

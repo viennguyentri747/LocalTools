@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Type
 
-from available_tools.test_tools.common import ARG_LIST_IPS, ARG_LOG_OUTPUT_PATH
+from available_tools.test_tools.common import ARG_LIST_IPS, ARG_LOG_OUTPUT_DIR_PATH
 from available_tools.test_tools.test_ut_log import t_get_acu_logs
 from available_tools.test_tools.test_ut_log.log_test_interface import EUtLogType, TestLogInterface
 from available_tools.test_tools.test_ut_log.t_test_motion_detection_elog import MotionDetectionElogTest
@@ -43,7 +43,7 @@ def _normalize_runtime_path(path_like: Path, *, label: str) -> Path:
 
 def get_tool_templates() -> List[ToolTemplate]:
     args = {
-        ARG_LOG_OUTPUT_PATH: str(t_get_acu_logs.ACU_LOG_PATH),
+        ARG_LOG_OUTPUT_DIR_PATH: str(t_get_acu_logs.ACU_LOG_PATH),
         ARG_LIST_IPS: [UT_77, UT_56],
         ARG_DATE_FILTERS: t_get_acu_logs.DEFAULT_DATE_VALUES,
         ARG_SHOULD_GET_LOG: True,
@@ -68,7 +68,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
 
     parser.add_argument(ARG_TESTS, nargs="+", default=list(DEFAULT_TESTS), choices=sorted(TEST_REGISTRY.keys()), help="Which local log tests to run.")
-    parser.add_argument(ARG_LOG_OUTPUT_PATH, type=Path, default=Path(t_get_acu_logs.ACU_LOG_PATH), help="Base directory where local ACU logs are stored.")
+    parser.add_argument(ARG_LOG_OUTPUT_DIR_PATH, type=Path, default=Path(t_get_acu_logs.ACU_LOG_PATH), help="Base directory where local ACU logs are stored.")
     parser.add_argument(ARG_LIST_IPS, nargs="+", default=list(LIST_MP_IPS), help="UT IP folder(s) under log output path to scan.")
     parser.add_argument(ARG_DATE_FILTERS, nargs="+", default=None, help="Optional date filter(s) (YYYYMMDD). If omitted, all matching files are used.")
     add_arg_bool(parser, ARG_SHOULD_GET_LOG, default=None, help_text="Fetch required ACU logs from UTs before running local log tests.")
@@ -147,7 +147,7 @@ def getToolData() -> ToolData:
 def main(argv: Optional[Sequence[str]] = None) -> None:
     args = parse_args(argv)
     selected_tests: List[str] = get_arg_value(args, ARG_TESTS) or list(DEFAULT_TESTS)
-    log_output_dir = _normalize_runtime_path(Path(get_arg_value(args, ARG_LOG_OUTPUT_PATH)), label="log output path")
+    log_output_dir = _normalize_runtime_path(Path(get_arg_value(args, ARG_LOG_OUTPUT_DIR_PATH)), label="log output path")
     ips: List[str] = get_arg_value(args, ARG_LIST_IPS) or []
     date_filters: Optional[List[str]] = get_arg_value(args, ARG_DATE_FILTERS)
     should_get_log: bool = bool(get_arg_value(args, ARG_SHOULD_GET_LOG))

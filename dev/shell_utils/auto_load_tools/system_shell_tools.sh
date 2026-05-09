@@ -15,10 +15,10 @@ source_shell_config() {
     config_path="$(get_shell_config_path)"
 
     if [[ -f "$config_path" ]]; then
-        echo "[INFO] Sourcing ${config_path} for ${shell_type} to apply user configurations..."
+        log "[INFO] Sourcing ${config_path} for ${shell_type} to apply user configurations..."
         source "$config_path"
     else
-        echo "[WARN] ${config_path} not found. Skipping sourcing."
+        log "[WARN] ${config_path} not found. Skipping sourcing."
     fi
 }
 
@@ -30,7 +30,7 @@ _H_MOUNT="/mnt/h"
 _H_DRIVE="H:"
 
 _h_drive_accessible() { 
-    cmd.exe /c "if exist H:\ (echo True) else (echo False)" 2>/dev/null | tr -d '[:space:]\r\n' | grep -q "True"; 
+    cmd.exe /c "if exist H:\ (exit /b 0) else (exit /b 1)" >/dev/null 2>&1
 }
 
 _h_is_stale() {
@@ -55,22 +55,22 @@ mount_h() {
 
     # Auto-heal stale mount before doing anything
     if _h_is_stale; then
-        echo "[mount_h] Stale mount detected — cleaning up..."
+        log "[mount_h] Stale mount detected - cleaning up..."
         _h_force_unmount
         sleep 1
     fi
 
     # Already healthy?
     if mount | grep -q "${_H_DRIVE} on ${_H_MOUNT}" && ls "${_H_MOUNT}" &>/dev/null; then
-        echo "[mount_h] Already mounted and healthy at ${_H_MOUNT}"
+        log "[mount_h] Already mounted and healthy at ${_H_MOUNT}"
         return 0
     fi
 
     while [ "$attempt" -le "$max_attempts" ]; do
-        echo "[mount_h] Attempt ${attempt}/${max_attempts}..."
+        log "[mount_h] Attempt ${attempt}/${max_attempts}..."
 
         if ! _h_drive_accessible; then
-            echo "[mount_h] H: not visible to Windows — is Google Drive running?"
+            log_err "[mount_h] H: not visible to Windows - is Google Drive running?"
             return 1  # No point retrying if Windows can't see it
         fi
 
@@ -79,28 +79,28 @@ mount_h() {
         if sudo mount -t drvfs "${_H_DRIVE}" "${_H_MOUNT}"; then
             # Verify the mount is actually usable
             if ls "${_H_MOUNT}" &>/dev/null; then
-                echo "[mount_h] Mounted and verified at ${_H_MOUNT}"
+                log "[mount_h] Mounted and verified at ${_H_MOUNT}"
                 return 0
             else
-                echo "[mount_h] Mounted but not readable — retrying..."
+                log "[mount_h] Mounted but not readable - retrying..."
                 _h_force_unmount
             fi
         else
-            echo "[mount_h] mount failed on attempt ${attempt}"
+            log_err "[mount_h] mount failed on attempt ${attempt}"
         fi
 
         sleep $((attempt * 2))  # Back off: 2s, 4s
         ((attempt++))
     done
 
-    echo "[mount_h] All ${max_attempts} attempts failed."
-    echo "[mount_h] Debug: $(mount | grep -i 'h:' || echo 'no H: entries in mount table')"
+    log_err "[mount_h] All ${max_attempts} attempts failed."
+    log_err "[mount_h] Debug: $(mount | grep -i 'h:' || printf 'no H: entries in mount table')"
     return 1
 }
 
 unmount_h() {
     if ! mount | grep -q "${_H_DRIVE} on ${_H_MOUNT}"; then
-        echo "[unmount_h] Not mounted — nothing to do"
+        log "[unmount_h] Not mounted - nothing to do"
         return 0
     fi
 
@@ -108,16 +108,16 @@ unmount_h() {
     local users
     users=$(lsof "${_H_MOUNT}" 2>/dev/null | tail -n +2)
     if [ -n "$users" ]; then
-        echo "[unmount_h] Warning — these processes have open files:"
-        echo "$users"
-        echo "[unmount_h] Attempting lazy unmount..."
-        sudo umount -l "${_H_MOUNT}" && echo "[unmount_h] Lazy unmount queued" && return 0
+        log "[unmount_h] Warning - these processes have open files:"
+        printf "%s\n" "$users"
+        log "[unmount_h] Attempting lazy unmount..."
+        sudo umount -l "${_H_MOUNT}" && log "[unmount_h] Lazy unmount queued" && return 0
     fi
 
     if sudo umount "${_H_MOUNT}"; then
-        echo "[unmount_h] Unmounted ${_H_MOUNT}"
+        log "[unmount_h] Unmounted ${_H_MOUNT}"
     else
-        echo "[unmount_h] Clean unmount failed — forcing lazy unmount"
-        sudo umount -l "${_H_MOUNT}" || { echo "[unmount_h] Could not unmount — reboot may be needed"; return 1; }
+        log_err "[unmount_h] Clean unmount failed - forcing lazy unmount"
+        sudo umount -l "${_H_MOUNT}" || { log_err "[unmount_h] Could not unmount - reboot may be needed"; return 1; }
     fi
 }

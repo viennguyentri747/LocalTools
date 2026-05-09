@@ -14,7 +14,7 @@ _git_qpush() {
 
   # Exit if no remotes are configured
   if [ ${#_remotes[@]} -eq 0 ]; then
-    echo "No remotes found to push to."
+    log "No remotes found to push to."
     return 1
   fi
 
@@ -23,13 +23,13 @@ _git_qpush() {
 
   # Check if there are any changes or extra untracked files to stage
   if command git diff --quiet && command git diff --cached --quiet && [ -z "$(command git ls-files --others --exclude-standard)" ]; then
-    echo "No changes or untracked files to commit. Checking if there is anything to push..."
+    log "No changes or untracked files to commit. Checking if there is anything to push..."
     
     # Check if the local branch is ahead of ANY remote
     any_ahead=0
     for _r in "${_remotes[@]}"; do
       # Count commits on the local branch that are not on the remote branch.
-      ahead=$(command git rev-list --count "${_r}/${_b}..${_b}" 2>/dev/null || echo 0)
+      ahead=$(command git rev-list --count "${_r}/${_b}..${_b}" 2>/dev/null || printf "0")
       if [ "${ahead:-0}" -gt 0 ]; then
         any_ahead=1
         break
@@ -38,31 +38,31 @@ _git_qpush() {
 
     # If no remotes are behind, nothing to do
     if [ "$any_ahead" -eq 0 ]; then
-      echo "Nothing to push. All remotes are up-to-date."
+      log "Nothing to push. All remotes are up-to-date."
       return 0
     fi
     
-    echo "Found unpushed commits. Proceeding ..."
+    log "Found unpushed commits. Proceeding ..."
   else
     # Show what files would be changed
-    echo "Files to be committed:"
+    log "Files to be committed:"
     if ! command git diff --quiet; then
-      echo "  Modified files:"
+      log "  Modified files:"
       command git diff --name-status | sed 's/^/    /'
     fi
     if ! command git diff --cached --quiet; then
-      echo "  Already staged files:"
+      log "  Already staged files:"
       command git diff --cached --name-status | sed 's/^/    /'
     fi
-    echo
+    printf "\n"
 
     # Show untracked files
     _untracked=$(command git ls-files --others --exclude-standard)
     if [ -n "$_untracked" ]; then
-      echo "  Untracked files (will be added):"
-      echo "$_untracked" | sed 's/^/    ?? /'
+      log "  Untracked files (will be added):"
+      printf "%s\n" "$_untracked" | sed 's/^/    ?? /'
     fi
-    echo
+    printf "\n"
 
     # Format the list of remotes for the confirmation message
     _remotes_list="${_remotes[*]}"
@@ -73,18 +73,18 @@ _git_qpush() {
     case "$confirm" in
       [yY])
         # Now do the actual staging and committing
-        echo "--> Staging changes..."
+        log "--> Staging changes..."
         command git add .
         
-        echo "--> Committing changes..."
+        log "--> Committing changes..."
         # The `|| true` prevents the script from exiting if there's nothing to commit.
         if ! command git commit -m "Quick Push"; then
-          echo "Nothing new to commit after staging."
+          log "Nothing new to commit after staging."
           return 0
         fi
         ;;
       *)
-        echo "Quick push cancelled."
+        log "Quick push cancelled."
         return 0
         ;;
     esac
@@ -93,17 +93,17 @@ _git_qpush() {
   # Push to all remotes
   all_pushed=true
   for _r in "${_remotes[@]}"; do
-    echo "--> Pushing to remote '$_r'..."
+    log "--> Pushing to remote '$_r'..."
     if ! command git push "$_r" "$_b"; then
-        echo "!! Failed to push to '$_r'."
+        log_err "!! Failed to push to '$_r'."
         all_pushed=false
     fi
   done
 
   if $all_pushed; then
-    echo "Quick push to all remotes completed successfully!"
+    log "Quick push to all remotes completed successfully!"
   else
-    echo "Quick push completed with one or more failures."
+    log_err "Quick push completed with one or more failures."
   fi
 }
 _git_qlog() {

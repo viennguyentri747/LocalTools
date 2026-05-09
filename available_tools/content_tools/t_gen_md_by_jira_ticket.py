@@ -173,7 +173,7 @@ if __name__ == "__main__":
                         help="The manifest branch to use for generating checkout commands.")
     parser.add_argument(f"{ARG_IS_GEN_CODING_TASK}", type=lambda x: x.lower() == TRUE_STR_VALUE, required=True,
                         help="Is generating coding task content.")
-    parser.add_argument(ARG_HAS_TICKET_CONTEXT, type=lambda x: x.lower() == FALSE_STR_VALUE, required=True, default=False,
+    parser.add_argument(ARG_HAS_TICKET_CONTEXT, type=lambda x: x.lower() == TRUE_STR_VALUE, required=True, default=False,
                         help="Include description/environment from Jira ticket in output content.")
     parser.add_argument(ARG_VAULT_PATH, type=str, required=False, default=None,
                         help="The destination directory for the generated file.")

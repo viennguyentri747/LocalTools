@@ -10,7 +10,7 @@ from available_tools.test_tools.test_ut_log import t_get_acu_logs
 from available_tools.test_tools.test_ut_log import t_get_ut_live_log
 from available_tools.test_tools.test_ut_log import t_test_process_plog_local
 from available_tools.test_tools.test_ut_log import t_test_time_sync_plog
-from available_tools.test_tools.test_ut_since_startup import t_test_all_local_logs
+from available_tools.test_tools import t_test_all_local_logs
 from dev.dev_common import *
 
 ARG_TEST_MODE = f"{ARGUMENT_LONG_PREFIX}mode"

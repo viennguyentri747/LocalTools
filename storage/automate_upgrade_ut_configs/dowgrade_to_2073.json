@@ -1,0 +1,15 @@
+{
+  "max_retries_per_upgrade": 5,
+  "cycles": 1,
+  "wait_secs_before_next_upgrade": 5,
+  "upgrade_log_dir_path": "~/local_tools/storage/logs/upgrade_install",
+  "upgrade_sequence": [
+    {
+      "type": "iesa",
+      "path": "~/local_tools/storage/in_iesa/ow_core_apps-2-0-7-x-1.0.1.230.iesa",
+      "timeout_secs": 3600,
+      "supported_unit_types": ["hd", "fd"],
+      "supported_sub_parts": ["MS", "OS", "PS", "HS"]
+    }
+]
+}

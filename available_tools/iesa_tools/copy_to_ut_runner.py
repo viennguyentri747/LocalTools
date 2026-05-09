@@ -6,11 +6,13 @@ Benefits of using this script vs bash
 - When rerun use latest python code here 
 """
 import argparse
+from enum import Enum
 import os
 from pathlib import Path
 import shlex
 import stat
 import sys
+import threading
 from typing import Callable, Optional
 from dev.dev_common import *
 from dev.dev_iesa.acu_utils import create_install_iesa_cmd
@@ -27,6 +29,11 @@ ARG_REMOTE_HOST_IP = f"{ARGUMENT_LONG_PREFIX}remote_host_ip"
 ARG_PROMPT_BEFORE_EXECUTE = f"{ARGUMENT_LONG_PREFIX}prompt_before_execute"
 DEFAULT_REMOTE_DIR = "/home/root/download"
 DEFAULT_TARGET_IP_PREFIX = "192.168.100."
+
+
+class ERequestCommand(str, Enum):
+    CONTINUE = "continue"
+    RETURN = "return"
 
 
 def _prompt_non_empty(prompt_text: str, default_value: Optional[str] = None) -> str:
@@ -64,7 +71,7 @@ def _get_target_ip(target_ip_arg: Optional[str]) -> str:
     target_ip = target_ip_arg.strip() if target_ip_arg else ""
     if not target_ip:
         target_ip = _prompt_non_empty("Enter target IP", DEFAULT_TARGET_IP_PREFIX)
-    if not ping_host(target_ip, total_pings=2, time_out_per_ping=5, mute=True):
+    if not ping_remote_host(target_ip, total_pings=2, time_out_per_ping=5, mute=True):
         raise ConnectionError(f"Target IP '{target_ip}' is not reachable.")
     return target_ip
 
@@ -139,7 +146,7 @@ def _build_binary_post_copy_cmd(original_md5: str, remote_dir: str, remote_name:
 
 def build_iesa_post_copy_cmd(original_md5: str, remote_dir: str, remote_name: str, prompt_before_execute: bool, quote_values: bool = True, original_md5_display: Optional[str] = None) -> str:
     remote_abs_path = f"{remote_dir.rstrip('/')}/{remote_name}"
-    install_cmd = create_install_iesa_cmd(remote_name, download_dir=remote_dir)
+    install_cmd = create_install_iesa_cmd(remote_name)
     proceed_cmd = f"read -r -p \"MD5 match! Install (y/n)?: \" confirm; [ \"$confirm\" = \"y\" -o \"$confirm\" = \"Y\" ] && {install_cmd}" if prompt_before_execute else f"echo \"MD5 match! Proceeding...\" && {install_cmd}"
     return build_md5_verified_post_copy_cmd(original_md5=original_md5, remote_abs_path=remote_abs_path, on_match_cmd=proceed_cmd, quote_values=quote_values, show_md5_details=True, original_md5_display=original_md5_display, mismatch_message="MD5 MISMATCH! Not running.")
 
@@ -158,7 +165,7 @@ def _wrap_command_with_remote_env(command: str) -> str:
     return f"sh -lc {shlex.quote(wrapped_body)}"
 
 
-def _run_remote_command_with_live_output(remote_host_ip: str, remote_user: str, jump_host_ip: str, command: str, on_line_recv: Optional[Callable[[str], None]] = None, remote_password: Optional[str] = None, jump_user: Optional[str] = None, jump_password: Optional[str] = None) -> int:
+def _run_remote_command_with_live_output(remote_host_ip: str, remote_user: str, jump_host_ip: str, command: str, on_line_recv: Optional[Callable[[str], None]] = None, on_request_next_command: Optional[Callable[[], ERequestCommand]] = None, request_next_cmd_interval: float = 10.0, remote_password: Optional[str] = None, jump_user: Optional[str] = None, jump_password: Optional[str] = None) -> int:
     target_client = jump_client = jump_channel = None
     stdout = stderr = None
     stdout_pending = EMPTY_STR_VALUE
@@ -168,44 +175,56 @@ def _run_remote_command_with_live_output(remote_host_ip: str, remote_user: str, 
         LOG(f"{LOG_PREFIX_MSG_INFO} Running remote command on {remote_host_ip} via jump host {jump_host_ip}. Command: {command}")
         _, stdout, stderr = target_client.exec_command(command, get_pty=True)
         LOG(f"{LOG_PREFIX_MSG_INFO} Live install log started. Press Ctrl+C to stop tailing.")
+        last_request_ts = 0.0
         while True:
-            if stdout.channel.recv_ready():
-                stdout_pending += stdout.channel.recv(4096).decode('utf-8', errors='replace')
-                while "\n" in stdout_pending:
-                    line, stdout_pending = stdout_pending.split("\n", 1)
-                    normalized_line = line.rstrip("\r")
-                    LOG(normalized_line)
-                    if on_line_recv:
-                        on_line_recv(normalized_line)
-            if stderr.channel.recv_stderr_ready():
-                stderr_pending += stderr.channel.recv_stderr(4096).decode('utf-8', errors='replace')
-                while "\n" in stderr_pending:
-                    line, stderr_pending = stderr_pending.split("\n", 1)
-                    normalized_line = line.rstrip(chr(13))
-                    LOG(f"{LOG_PREFIX_MSG_WARNING} {normalized_line}")
-                    if on_line_recv:
-                        on_line_recv(normalized_line)
+            while stdout.channel.recv_ready():
+                chunk = stdout.channel.recv(65536).decode('utf-8', errors='replace')
+                if not chunk:
+                    break
+                stdout_pending += chunk
+            while "\n" in stdout_pending:
+                line, stdout_pending = stdout_pending.split("\n", 1)
+                normalized_line = line.rstrip("\r")
+                LOG(normalized_line)
+                if on_line_recv:
+                    on_line_recv(normalized_line)
+            while stderr.channel.recv_stderr_ready():
+                chunk = stderr.channel.recv_stderr(65536).decode('utf-8', errors='replace')
+                if not chunk:
+                    break
+                stderr_pending += chunk
+            while "\n" in stderr_pending:
+                line, stderr_pending = stderr_pending.split("\n", 1)
+                normalized_line = line.rstrip("\r")
+                LOG(f"{LOG_PREFIX_MSG_WARNING} {normalized_line}")
+                if on_line_recv:
+                    on_line_recv(normalized_line)
             if stdout.channel.exit_status_ready() and not stdout.channel.recv_ready() and not stderr.channel.recv_stderr_ready():
                 break
-            time.sleep(0.1)
+            now_ts = time.time()
+            if on_request_next_command and now_ts - last_request_ts >= request_next_cmd_interval:
+                last_request_ts = now_ts
+                requested_cmd = on_request_next_command()
+                if requested_cmd == ERequestCommand.RETURN:
+                    LOG(f"{LOG_PREFIX_MSG_INFO} Caller requested early return from remote log stream.")
+                    stdout.channel.close()
+                    stderr.channel.close()
+                    return 0
+            time.sleep(0.05)
         if stdout_pending.strip():
             normalized_line = stdout_pending.rstrip("\r")
             LOG(normalized_line)
             if on_line_recv:
                 on_line_recv(normalized_line)
         if stderr_pending.strip():
-            normalized_line = stderr_pending.rstrip(chr(13))
+            normalized_line = stderr_pending.rstrip("\r")
             LOG(f"{LOG_PREFIX_MSG_WARNING} {normalized_line}")
             if on_line_recv:
                 on_line_recv(normalized_line)
         return int(stdout.channel.recv_exit_status())
-    except KeyboardInterrupt:
-        LOG(f"{LOG_PREFIX_MSG_WARNING} Log tail stopped by user.")
-        if stdout and stdout.channel:
-            stdout.channel.close()
-        if stderr and stderr.channel:
-            stderr.channel.close()
-        return 0
+    except Exception as exc:
+        LOG(f"{LOG_PREFIX_MSG_ERROR} Error running remote command on {remote_host_ip} via jump host {jump_host_ip}: {exc}")
+        raise
     finally:
         if stdout:
             stdout.close()
@@ -214,17 +233,38 @@ def _run_remote_command_with_live_output(remote_host_ip: str, remote_user: str, 
         close_ssh_client(target_client, jump_client, jump_channel)
 
 
-def _run_iesa_install_via_python(remote_name: str, remote_dir: str, remote_host_ip: str, remote_user: str, jump_host_ip: str, should_prompt: bool, on_install_line_recv: Optional[Callable[[str], None]], remote_password: Optional[str] = None, jump_user: Optional[str] = None, jump_password: Optional[str] = None) -> None:
+def _run_iesa_install_via_python(remote_name: str, remote_host_ip: str, remote_user: str, jump_host_ip: str, should_prompt: bool, on_install_line_recv: Optional[Callable[[str], None]], on_request_next_command: Optional[Callable[[], ERequestCommand]] = None, remote_password: Optional[str] = None, jump_user: Optional[str] = None, jump_password: Optional[str] = None) -> None:
     if should_prompt and not prompt_confirmation("MD5 match! Install (y/n)?"):
         LOG(f"{LOG_PREFIX_MSG_WARNING} Install skipped by user.")
         return
-    install_and_tail_cmd = _wrap_command_with_remote_env(create_install_iesa_cmd(remote_name, download_dir=remote_dir))
-    LOG(f"{LOG_PREFIX_MSG_INFO} Running remote install + tail command on ACU via UT {jump_host_ip}...")
-   
-    install_rc = _run_remote_command_with_live_output(remote_host_ip=remote_host_ip, remote_user=remote_user, jump_host_ip=jump_host_ip, command=install_and_tail_cmd, on_line_recv=on_install_line_recv, remote_password=remote_password, jump_user=jump_user, jump_password=jump_password)
-    if install_rc != 0:
-        raise RuntimeError(f"Remote install command failed with exit code {install_rc}.")
-    LOG(f"{LOG_PREFIX_MSG_SUCCESS} IESA install command started successfully on remote host {jump_host_ip}.")
+    cache_upgrade_log_path = ACU_CACHE_UPGRADE_LOG_FILE
+    install_and_tail_background_cmd = _wrap_command_with_remote_env(create_install_iesa_cmd(remote_name, cache_upgrade_log_path))
+    LOG(f"{LOG_PREFIX_MSG_INFO} Running remote install command on ACU {remote_host_ip} via UT {jump_host_ip}...")
+    install_stdout, install_stderr = run_ssh_command(host_ip=remote_host_ip, user=remote_user, password=(remote_password if remote_password is not None else ACU_PASSWORD) or EMPTY_STR_VALUE, command=install_and_tail_background_cmd, timeout=60, jump_host_ip=jump_host_ip, jump_user=jump_user or SSM_USER, jump_password=jump_password if jump_password is not None else SSM_PASSWORD)
+    if install_stderr.strip():
+        LOG(f"{LOG_PREFIX_MSG_WARNING} Install command stderr: {install_stderr.strip()}")
+    if install_stdout.strip():
+        LOG(f"{LOG_PREFIX_MSG_INFO} Install command stdout: {install_stdout.strip()}")
+    LOG(f"{LOG_PREFIX_MSG_SUCCESS} IESA install command started successfully on ACU {remote_host_ip}.")
+
+    stop_event = threading.Event()
+
+    def _watch_next_command() -> None:
+        while not stop_event.is_set():
+            if on_request_next_command and on_request_next_command() == ERequestCommand.RETURN:
+                LOG(f"{LOG_PREFIX_MSG_INFO} Caller requested early return from remote log stream.")
+                stop_event.set()
+                return
+            time.sleep(10.0)
+
+    watcher_thread = threading.Thread(target=_watch_next_command, daemon=True)
+    watcher_thread.start()
+    try:
+        LOG(f"{LOG_PREFIX_MSG_INFO} Tailing upgrade logs from {cache_upgrade_log_path}")
+        stream_live_remote_log(host_ip=remote_host_ip, user=remote_user, password=(remote_password if remote_password is not None else ACU_PASSWORD) or EMPTY_STR_VALUE, remote_log_path=cache_upgrade_log_path, jump_host_ip=jump_host_ip, jump_user=jump_user or SSM_USER, jump_password=jump_password if jump_password is not None else SSM_PASSWORD, tail_lines=0, read_timeout=0, stop_event=stop_event, on_line=on_install_line_recv or (lambda _line: None))
+    finally:
+        stop_event.set()
+        watcher_thread.join(timeout=1.0)
 
 
 def main() -> None:
@@ -279,6 +319,7 @@ def main() -> None:
     install_complete_noti_sent = False
     INSTALL_COMPLETE_MSG = "Install complete. Please reboot to boot into the other partition"
     def _on_install_line_recv(line: str) -> None:
+        LOG(line)
         nonlocal install_complete_noti_sent
         if install_complete_noti_sent or INSTALL_COMPLETE_MSG not in line:
             return
@@ -297,7 +338,7 @@ def main() -> None:
         ut_command = _build_iesa_post_copy_cmd(original_md5=original_md5, remote_dir=remote_dir, remote_name=dest_name,
                                                prompt_before_execute=get_arg_value(args, ARG_PROMPT_BEFORE_EXECUTE))
     elif mode == MODE_IESA_PYTHON:
-        _run_iesa_install_via_python(remote_name=dest_name, remote_dir=remote_dir, remote_host_ip=acu_host_ip, remote_user=ACU_USER,
+        _run_iesa_install_via_python(remote_name=dest_name, remote_host_ip=acu_host_ip, remote_user=ACU_USER,
                                      jump_host_ip=target_ip, should_prompt=get_arg_value(args, ARG_PROMPT_BEFORE_EXECUTE), on_install_line_recv=_on_install_line_recv, remote_password=ACU_PASSWORD, jump_user=SSM_USER, jump_password=SSM_PASSWORD)
     else:
         action = "copied" if is_copied else "already up to date (copy skipped)"

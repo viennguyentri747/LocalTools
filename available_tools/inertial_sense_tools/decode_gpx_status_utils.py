@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Dict, List, Union
 
-from dev.dev_common.core_independent_utils import LOG
+from dev.dev_common.core_independent_utils import ELogType, LOG
 from dev.dev_iesa.iesa_repo_utils import get_enum_declaration_from_path
 
 ENUM_GPX_STATUS_NAME = "eGpxStatus"
@@ -76,7 +76,11 @@ _FATAL_DESCRIPTIONS: Dict[int, str] = {
     GpxFatalCode.UNKNOWN: "Unknown fatal",
 }
 
-LOG(f"[IESA] Parsed {ENUM_GPX_STATUS_NAME}: " f"{ {k: hex(v) if isinstance(v, int) else v for k, v in _GPX_STATUS_VALUES.items()} }")
+LOG(f"[IESA] Parsed enum {ENUM_GPX_STATUS_NAME}")
+LOG(
+    f"{ {k: hex(v) if isinstance(v, int) else v for k, v in _GPX_STATUS_VALUES.items()} }",
+    log_type=ELogType.DEBUG,
+)
 
 
 @dataclass

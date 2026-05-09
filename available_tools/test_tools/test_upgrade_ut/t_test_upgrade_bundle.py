@@ -8,10 +8,12 @@ import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from available_tools.test_tools.test_upgrade_ut.bundle_api_helper import apply_bundle, get_component_upgrade_status, get_current_state, get_sdl_stats, proceed_to_next_install_step, start_over_installation, upload_bundle, wait_util_awaiting_next
+from available_tools.test_tools.test_upgrade_ut.common_utils import EUpgradeResult, check_target_support, run_acu_cmd_via_ut, run_acu_cmd_via_ut_with_retry
 from dev.dev_common import *
+from dev.dev_common.constants import ACU_IP, ACU_PASSWORD, ACU_USER, SSM_PASSWORD, SSM_USER
 
 DEFAULT_MONITOR_INTERVAL_SECS = 2
 DEFAULT_MONITOR_TIMEOUT_SECS = 6000
@@ -36,6 +38,11 @@ class InstallBundleReturnCode(Enum):
 @dataclass(frozen=True)
 class BundleRuntime:
     ssm_ip: str
+    ut_user: str = SSM_USER
+    ut_password: str = SSM_PASSWORD
+    acu_ip: str = ACU_IP
+    acu_user: str = ACU_USER
+    acu_password: str = ACU_PASSWORD
 
 
 def _resolve_path(path: str, base_path: Optional[str] = None) -> str:
@@ -67,6 +74,39 @@ def _prepare_install(base_url: str) -> bool:
         LOG("ERROR: timeout waiting for upload_sw_bundle")
         return False
     return True
+
+
+def _run_acu_cmd_via_ut(runtime: BundleRuntime, command: str, timeout_secs: int = 20) -> str:
+    return run_acu_cmd_via_ut(
+        ut_ip=runtime.ssm_ip, acu_ip=runtime.acu_ip, acu_user=runtime.acu_user, acu_password=runtime.acu_password, ut_user=runtime.ut_user, ut_password=runtime.ut_password, command=command, timeout_secs=timeout_secs
+    )
+
+
+def _run_acu_cmd_via_ut_with_retry(runtime: BundleRuntime, command: str, timeout_secs: int, secs_between_each_retry: float = 2.0) -> str:
+    return run_acu_cmd_via_ut_with_retry(
+        ut_ip=runtime.ssm_ip, acu_ip=runtime.acu_ip, acu_user=runtime.acu_user, acu_password=runtime.acu_password, ut_user=runtime.ut_user, ut_password=runtime.ut_password, command=command, timeout_secs=timeout_secs, secs_between_each_retry=secs_between_each_retry
+    )
+
+
+def can_start_upgrade(runtime: BundleRuntime, timeout: int, supported_unit_types: Optional[List[str]] = None, supported_sub_parts: Optional[List[str]] = None) -> Tuple[bool, str]:
+    if timeout <= 0:
+        return False, f"invalid pre-upgrade timeout: {timeout}s"
+    support_check = check_target_support(
+        ut_ip=runtime.ssm_ip,
+        acu_ip=runtime.acu_ip,
+        acu_user=runtime.acu_user,
+        acu_password=runtime.acu_password,
+        ut_user=runtime.ut_user,
+        ut_password=runtime.ut_password,
+        supported_unit_types=supported_unit_types,
+        supported_sub_parts=supported_sub_parts,
+        timeout_secs=timeout,
+    )
+    if support_check == EUpgradeResult.FAIL:
+        return False, "target support check failed"
+    if support_check == EUpgradeResult.SHOULD_SKIP:
+        return False, "target not supported for this item"
+    return True, "ready"
 
 
 def _monitor_installation(base_url: str, interval_secs: int = DEFAULT_MONITOR_INTERVAL_SECS, max_timeout_secs: int = DEFAULT_MONITOR_TIMEOUT_SECS, no_state_change_timeout_secs: int = DEFAULT_NO_STATE_CHANGE_TIMEOUT_SECS) -> InstallBundleReturnCode:
@@ -112,7 +152,7 @@ def _monitor_installation(base_url: str, interval_secs: int = DEFAULT_MONITOR_IN
     return InstallBundleReturnCode.FAIL_TIMEOUT
 
 
-def run_once_upgrade(runtime: BundleRuntime, bundle_path: str, *, base_path: Optional[str] = None) -> int:
+def run_once_upgrade(runtime: BundleRuntime, bundle_path: str, *, base_path: Optional[str] = None, supported_unit_types: Optional[List[str]] = None, supported_sub_parts: Optional[List[str]] = None, start_timeout_secs: int = 180) -> int:
     bundle_path = _resolve_path(bundle_path, base_path=base_path)
     if not os.path.isfile(bundle_path):
         LOG(f"ERROR: bundle file not found: {bundle_path}")
@@ -123,6 +163,10 @@ def run_once_upgrade(runtime: BundleRuntime, bundle_path: str, *, base_path: Opt
     base_url = f"http://{runtime.ssm_ip.strip()}"
     LOG(f"Installing bundle once: {os.path.basename(bundle_path)}")
     try:
+        can_start_ok, can_start_msg = can_start_upgrade(runtime, timeout=start_timeout_secs, supported_unit_types=supported_unit_types, supported_sub_parts=supported_sub_parts)
+        if not can_start_ok:
+            LOG(f"ERROR: pre-upgrade check failed: {can_start_msg}")
+            return 1
         if not _prepare_install(base_url):
             return 1
         if not upload_bundle(base_url, bundle_path):

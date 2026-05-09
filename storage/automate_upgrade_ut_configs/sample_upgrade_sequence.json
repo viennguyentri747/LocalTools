@@ -1,17 +1,19 @@
 {
-  "retry": {
-    "max_reboot_retries": 1
-  },
+  "max_retries_per_upgrade": 5,
   "cycles": 3,
-  "upgrade_log_dir_path": "logs/upgrade_install",
+  "upgrade_log_dir_path": "~/local_tools/storage/logs/upgrade_install",
   "upgrade_sequence": [
     {
       "type": "iesa",
-      "path": "~/local_tools/storage/in_iesa/ow_core_apps-release-master-1.0.0.196.iesa"
+      "path": "~/local_tools/storage/in_iesa/ESA1W-7229_ImproveKimUpgrade_May2.iesa",
+      "timeout_secs": 1800,
+      "unsupported_unit_types": []
     },
     {
       "type": "iesa",
-      "path": "~/local_tools/storage/in_iesa/ESA1W-7229_ImproveKimUpgrade_May2.iesa"
+      "path": "~/local_tools/storage/in_iesa/ow_core_apps-release-master-1.0.0.196.iesa",
+      "timeout_secs": 1800,
+      "unsupported_unit_types": ["aero", "manpack"]
     }
   ]
 }

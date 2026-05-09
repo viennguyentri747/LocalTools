@@ -3,7 +3,7 @@ import sys
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
-from available_tools.inertial_sense_tools.decode_ins_status_utils import (  # noqa: E402
+from available_tools.inertial_sense_tools.decode_ins_status_utils import (
     InsStatus,
     decode_ins_status,
     INS_STATUS_GPS_AIDING_POS,

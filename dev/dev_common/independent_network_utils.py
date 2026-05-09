@@ -23,7 +23,7 @@ def open_ssh_client(host_ip: str, user: str, password: Optional[str] = None, tim
         try:
             jump_client.connect(**jump_connect_kwargs)
         except Exception as exc:
-            LOG(f"Failed to connect to {jump_host_ip}, exception {exc}", file=sys.stderr)
+            LOG(f"Failed to connect to jump host {jump_host_ip}, exception {exc}", file=sys.stderr)
             raise
 
         jump_transport = jump_client.get_transport()
@@ -33,10 +33,11 @@ def open_ssh_client(host_ip: str, user: str, password: Optional[str] = None, tim
         jump_channel = jump_transport.open_channel('direct-tcpip', (host_ip, 22), ('127.0.0.1', 0))
         connect_kwargs["sock"] = jump_channel
     try:
-        LOG(f"Connecting to remote host {host_ip} using args {connect_kwargs}", file=sys.stderr)
+        LOG(f"Connecting to remote host {host_ip} via {jump_host_ip if jump_host_ip else 'direct connection'}", file=sys.stderr)
+        LOG(f"Connect args: {connect_kwargs}", file=sys.stderr, log_type=ELogType.DEBUG)
         target_client.connect(**connect_kwargs)
     except Exception as exc:
-        LOG(f"Failed to connect to {host_ip}, exception {exc}", file=sys.stderr)
+        LOG(f"Failed to connect to {host_ip} from {jump_host_ip if jump_host_ip else 'direct connection'}, exception {exc}", file=sys.stderr)
         close_ssh_client(target_client, jump_client, jump_channel)
         raise
     return target_client, jump_client, jump_channel
@@ -59,6 +60,7 @@ def run_ssh_command(host_ip: str, user: str, password: str, command: str, timeou
     jump_client = None
     jump_channel = None
     try:
+        LOG(f"Running command '{command}' on target host {host_ip}" + (f" via jump host {jump_host_ip}" if jump_host_ip else ""), file=sys.stderr)
         target_client, jump_client, jump_channel = open_ssh_client(host_ip=host_ip, user=user, password=password, timeout=timeout, jump_host_ip=jump_host_ip,
                                                                    jump_user=jump_user, jump_password=jump_password)
         _, stdout, stderr = target_client.exec_command(command, timeout=timeout)

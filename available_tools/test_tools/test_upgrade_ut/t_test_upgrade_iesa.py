@@ -2,10 +2,8 @@
 from __future__ import annotations
 
 import argparse
-from enum import Enum
 import hashlib
 import os
-import re
 import sys
 import time
 from dataclasses import dataclass
@@ -14,10 +12,10 @@ from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
 from available_tools.iesa_tools.copy_to_ut_runner import ERequestCommand, _run_iesa_install_via_python
-from available_tools.test_tools.test_upgrade_ut.bundle_api_helper import get_update_status
 from available_tools.test_tools.test_upgrade_ut.common_utils import EUpgradeResult, check_target_support, run_acu_cmd_via_ut, run_acu_cmd_via_ut_with_retry
 from dev.dev_common import *
 from dev.dev_common.constants import ACU_IP, ACU_PASSWORD, ACU_USER, CHECKSUM_TYPE_MD5, SSM_PASSWORD, SSM_USER
+from dev.dev_iesa.iesa_ut_install_utils import EUpgradeComponent, _read_current_bootpart, _read_current_root_partition, are_upgrade_components_final
 from dev.dev_common.network_utils import copy_to_remote_via_jump_host, get_remote_file_checksum
 
 REMOTE_DOWNLOAD_DIR = "/home/root/download"
@@ -56,25 +54,6 @@ class UpgradeCheckState:
     bootpart_before: Optional[str] = None
     expected_bootpart_after: Optional[str] = None
     success_log_first_seen_at: Optional[float] = None
-
-
-class EUpgradeComponent(str, Enum):
-    CNX = "CNX"
-    MDM = "MDM"
-    AIM = "AIM"
-
-
-def are_upgrade_components_final(base_url: str, components: List[EUpgradeComponent]) -> Tuple[bool, str]:
-    update_status = get_update_status(base_url=base_url) or {}
-    final_states = {"update_success", "update_fail"}
-    normalized_status: dict[str, str] = {}
-    for component in components:
-        component_key = component.value
-        component_state = str(update_status.get(component_key, "")).strip().lower()
-        normalized_status[component_key] = component_state
-    is_final = all(normalized_status[c.value] in final_states for c in components)
-    status_msg = ", ".join(f"{c.value}={normalized_status[c.value] or 'N/A'}" for c in components)
-    return is_final, status_msg
 
 
 def _resolve_path(path: str, base_path: Optional[str] = None) -> str:
@@ -178,33 +157,6 @@ def _run_acu_cmd_via_ut_with_retry(runtime: IesaRuntime, command: str, timeout_s
     )
 
 
-def _extract_partition(raw_text: str) -> Optional[str]:
-    for pattern in [r"mmcblk1p([23])", r"\b([23])\b"]:
-        match = re.search(pattern, raw_text)
-        if match:
-            return match.group(1)
-    return None
-
-
-def _read_current_bootpart(runtime: IesaRuntime, cmd_runner: Optional[Callable[[str], str]] = None) -> str:
-    runner = cmd_runner or (lambda cmd: _run_acu_cmd_via_ut(runtime, cmd))
-    raw_output = runner(f"cat {BOOTPART_FILE_PATH}")
-    parsed = _extract_partition(raw_output)
-    if not parsed:
-        raise RuntimeError(f"Cannot parse bootpart from output: '{raw_output}'")
-    return parsed
-
-
-def _read_current_root_partition(runtime: IesaRuntime, cmd_runner: Optional[Callable[[str], str]] = None) -> str:
-    runner = cmd_runner or (lambda cmd: _run_acu_cmd_via_ut(runtime, cmd))
-    command = "lsblk -no NAME,MOUNTPOINT | awk '/mmcblk1p[23]/ && $2 == \"/\" { n = $1; sub(/.*mmcblk1p/, \"\", n); print n }'"
-    raw_output = runner(command)
-    parsed = _extract_partition(raw_output)
-    if not parsed:
-        raise RuntimeError(f"Cannot parse current root partition from output: '{raw_output}'")
-    return parsed
-
-
 def can_start_upgrade(runtime: IesaRuntime, timeout: int, supported_unit_types: Optional[List[str]] = None, supported_sub_parts: Optional[List[str]] = None) -> Tuple[EUpgradeResult, str, Optional[UpgradeCheckState]]:
     if timeout <= 0:
         return EUpgradeResult.FAIL, f"invalid pre-upgrade timeout: {timeout}s", None
@@ -252,8 +204,8 @@ def can_start_upgrade(runtime: IesaRuntime, timeout: int, supported_unit_types: 
         LOG(f"Pre-upgrade wait: update status not final yet ({last_update_status_msg or 'N/A'}), retrying in {sleep_secs:.1f}s")
         time.sleep(sleep_secs)
 
-    current_root_partition = _read_current_root_partition(runtime, cmd_runner=_run_precheck_cmd)
-    current_bootpart = _read_current_bootpart(runtime, cmd_runner=_run_precheck_cmd)
+    current_root_partition = _read_current_root_partition(cmd_runner=_run_precheck_cmd)
+    current_bootpart = _read_current_bootpart(cmd_runner=_run_precheck_cmd, bootpart_file_path=BOOTPART_FILE_PATH)
     if current_bootpart != current_root_partition:
         return EUpgradeResult.ABORT, f"bootpart mismatch before upgrade (bootpart={current_bootpart}, current_root={current_root_partition}). Please verify UT/ACU partition state first.", None
     else:
@@ -300,7 +252,7 @@ def evaluate_iesa_upgrade_completion(runtime: IesaRuntime, state: UpgradeCheckSt
         return False, f"success log marker seen but only {elapsed_sec_after_success_log:.1f}s elapsed (<{MIN_SECS_AFTER_SUSCESS_LOG}s)"
     if state.install_line_count < MIN_INSTALL_LOG_LINES:
         return False, f"install log lines check failed ({state.install_line_count}/{MIN_INSTALL_LOG_LINES})"
-    bootpart_after = _read_current_bootpart(runtime)
+    bootpart_after = _read_current_bootpart(cmd_runner=lambda cmd: _run_acu_cmd_via_ut(runtime, cmd), bootpart_file_path=BOOTPART_FILE_PATH)
     is_bootpart_changed_ok = bool(state.expected_bootpart_after and bootpart_after == state.expected_bootpart_after)
     if not is_bootpart_changed_ok:
         return False, f"bootpart check failed (before={state.bootpart_before}, after={bootpart_after}, expected={state.expected_bootpart_after})"

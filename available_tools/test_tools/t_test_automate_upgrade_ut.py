@@ -11,11 +11,10 @@ from typing import List, Optional
 
 from available_tools.test_tools.test_upgrade_ut import t_test_upgrade_bundle, t_test_upgrade_iesa
 from available_tools.test_tools.test_upgrade_ut.common_utils import EUpgradeResult, run_acu_cmd_via_ut
-from available_tools.test_tools.test_upgrade_ut.t_test_upgrade_iesa import EUpgradeComponent, are_upgrade_components_final
+from dev.dev_iesa.iesa_ut_install_utils import check_safe_reboot_ut
 from available_tools.test_tools.test_upgrade_ut.upgrade_config import UPGRADE_TYPE_BUNDLE, UPGRADE_TYPE_IESA, UpgradeConfigError, UpgradeItemConfig, UpgradeTestConfig
 from dev.dev_common import *
 from dev.dev_common.constants import ACU_IP, ACU_PASSWORD, ACU_USER, SSM_PASSWORD, SSM_USER
-from dev.dev_common.independent_network_utils import run_ssh_command
 from dev.dev_common.network_utils import ping_remote_host_via_jump_host
 
 ARG_CONFIG = f"{ARGUMENT_LONG_PREFIX}config"
@@ -100,12 +99,6 @@ def _log_msg(msg: str, log_handler: UpgradeLogHandler) -> None:
     log_handler.log(msg)
 
 
-def _run_acu_cmd_via_ut(ut_ip: str, command: str, timeout: int = 20) -> str:
-    return run_acu_cmd_via_ut(
-        ut_ip=ut_ip, acu_ip=ACU_IP, acu_user=ACU_USER, acu_password=ACU_PASSWORD, ut_user=SSM_USER, ut_password=SSM_PASSWORD, command=command, timeout_secs=timeout
-    )
-
-
 def _run_upgrade_one_item(ssm_ip: str, item: UpgradeItemConfig, log_handler: UpgradeLogHandler, *, config_path: str) -> EUpgradeResult:
     try:
         if item.type == UPGRADE_TYPE_BUNDLE:
@@ -137,7 +130,7 @@ def _run_upgrade_one_item(ssm_ip: str, item: UpgradeItemConfig, log_handler: Upg
 
             is_success_upgrade = run_result == EUpgradeResult.SUCCESS
             LOG(f"IESA run result before post-handling: {'success' if is_success_upgrade else 'failed'}")
-            if not handle_post_upgrade_iesa(is_success_upgrade=is_success_upgrade, ut_ip=ssm_ip):
+            if not check_safe_reboot_ut(ut_ip=ssm_ip, should_ping_after_reboot=True):
                 LOG(f"ERROR: post-upgrade handling failed (is_success_upgrade={is_success_upgrade})")
                 return EUpgradeResult.FAIL
             return run_result
@@ -156,55 +149,6 @@ def handle_pre_upgrade_iesa(ut_ip: str, timeout_secs_acu_reachable: int = 300) -
         return True
     LOG(f"ERROR: ACU is not reachable via UT {ut_ip} within {timeout_secs_acu_reachable}s.")
     return False
-
-def handle_post_upgrade_iesa(is_success_upgrade: bool, ut_ip: str, timeout_before_reboot_secs: int = 240, ping_timeout_after_reboot_secs: int = 300) -> bool:
-    LOG(f"Post-upgrade handling started (upgrade_result={'success' if is_success_upgrade else 'failed'})")
-    deadline_ts = time.time() + max(1, timeout_before_reboot_secs)
-    while time.time() < deadline_ts:
-        try:
-            running_procs = _run_acu_cmd_via_ut(ut_ip, "ps | grep -E \"\\.iesa|insense_cltool\" | grep -v grep", timeout=10)
-            if running_procs.strip():
-                LOG(f"Post-upgrade wait: iesa/cltool process is still running on ACU: {running_procs.strip()}")
-                time.sleep(10)
-                continue
-            is_update_status_final, update_status_msg = are_upgrade_components_final(
-                base_url=f"http://{ut_ip}",
-                components=[EUpgradeComponent.CNX, EUpgradeComponent.MDM, EUpgradeComponent.AIM],
-            )
-            if not is_update_status_final:
-                LOG(f"Post-upgrade wait: update status is not final yet ({update_status_msg})")
-                time.sleep(10)
-                continue
-            LOG(f"Post-upgrade condition passed: no iesa/cltool process and update status final ({update_status_msg})")
-            break
-        except Exception as exc:
-            LOG(f"Post-upgrade wait: ACU check failed, retrying in 10s: {exc}")
-            time.sleep(10)
-    else:
-        LOG(f"ERROR: timeout waiting post-upgrade conditions before reboot ({timeout_before_reboot_secs}s)")
-        return False
-
-    try:
-        run_ssh_command(
-            host_ip=ut_ip,
-            user=SSM_USER,
-            password=SSM_PASSWORD,
-            command="nohup sh -c 'sleep 10; reboot' >/dev/null 2>&1 &",
-            timeout=10,
-        )
-        LOG(f"Post-upgrade action: reboot command issued on UT {ut_ip}")
-        sleep_secs_before_ping = 5
-        LOG(f"Post-upgrade action: sleeping {sleep_secs_before_ping}s before ACU reachability check after reboot")
-        time.sleep(sleep_secs_before_ping)
-        is_reachable_after_reboot = ping_remote_host_via_jump_host( remote_host_ip=ACU_IP, jump_host_ip=ut_ip, jump_user=SSM_USER, jump_password=SSM_PASSWORD, max_wait_sec=ping_timeout_after_reboot_secs, retry_interval_sec=5.0, ping_count=1, ping_timeout_sec=2, ssh_timeout_sec=10, check_jump_host_reachable=True, mute=False, )
-        if not is_reachable_after_reboot:
-            LOG(f"ERROR: ACU is not reachable via UT {ut_ip} after reboot within {ping_timeout_after_reboot_secs}s")
-            return False
-        LOG(f"Post-upgrade validation passed: ACU is reachable via UT {ut_ip} after reboot")
-        return True
-    except Exception as exc:
-        LOG(f"ERROR: failed to issue reboot command on UT {ut_ip}: {exc}")
-        return False
 
 def handle_post_upgrade_bundle(ut_ip: str) -> bool:
     # Do nothing!!

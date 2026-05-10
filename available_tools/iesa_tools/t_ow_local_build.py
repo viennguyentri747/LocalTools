@@ -36,6 +36,7 @@ ARG_MAKE_CLEAN = f"{ARGUMENT_LONG_PREFIX}make_clean"
 ARG_IS_DEBUG_BUILD = f"{ARGUMENT_LONG_PREFIX}is_debug_build"
 ARG_OW_BUILD_TYPE = f"{ARGUMENT_LONG_PREFIX}build_type"
 ARG_RUN_VIA_PYTHON = f"{ARGUMENT_LONG_PREFIX}run_via_python"
+ARG_USE_LOCAL_GIT_REPO = f"{ARGUMENT_LONG_PREFIX}use_local_git_repo"
 PREFIX_OW_BUILD_ARTIFACT = f"iesa_test_"
 WIN_CMD_INVOCATION = get_win_python_runner_cmd_invocation("available_tools.iesa_tools.t_ow_local_build")
 IESA_TEST_DIFF_FILE_PREFIX = f"iesa_test_diff_"
@@ -129,6 +130,8 @@ def main() -> None:
                         help="Enable debug build (true or false). Defaults to false.")
     parser.add_argument(ARG_RUN_VIA_PYTHON, type=lambda x: x.lower() == TRUE_STR_VALUE, default=False,
                         help="Display Python-based UT copy runner command instead of the legacy shell copy command (true or false). Defaults to false.")
+    parser.add_argument(ARG_USE_LOCAL_GIT_REPO, type=lambda x: x.lower() == TRUE_STR_VALUE, default=False,
+                        help="Use local git-repo mirror via --repo-url (true or false). Defaults to false.")
     args = parser.parse_args()
     LOG(
         textwrap.dedent(
@@ -147,6 +150,7 @@ def main() -> None:
     make_clean: bool = get_arg_value(args, ARG_MAKE_CLEAN)
     is_debug_build: bool = get_arg_value(args, ARG_IS_DEBUG_BUILD)
     run_via_python: bool = get_arg_value(args, ARG_RUN_VIA_PYTHON)
+    use_local_git_repo: bool = get_arg_value(args, ARG_USE_LOCAL_GIT_REPO)
     # Update overwrite repos no git suffix
     overwrite_repos = [get_path_no_suffix(r, GIT_SUFFIX) for r in overwrite_repos]
     init_ow_build_log()
@@ -181,7 +185,7 @@ def main() -> None:
         append_build_log(f"TISDK ref: {tisdk_ref}")
     actual_manifest, repo_change_details = setup_prebuild(
         build_type, manifest_source, ow_manifest_branch, base_remote_manifest_branch, tisdk_ref, overwrite_repos,
-        current_branch, tisdk_ref_from_ci_yml)
+        current_branch, tisdk_ref_from_ci_yml, use_local_git_repo=use_local_git_repo)
 
     run_build(build_type, get_arg_value(args, ARG_INTERACTIVE), make_clean, is_debug_build)
     # Always display binary build finish + command to copy
@@ -298,7 +302,7 @@ def main() -> None:
 # ───────────────────────────  helpers / actions  ─────────────────────── #
 
 
-def setup_prebuild(build_type: str, manifest_source: str, ow_manifest_branch: str, base_remote_manifest_branch: str, input_tisdk_ref: Optional[str], overwrite_repos: List[str], current_local_branch: str, tisdk_ref_from_ci_yml: Optional[str] = None) -> Tuple[IesaManifest, List[Dict[str, Any]]]:
+def setup_prebuild(build_type: str, manifest_source: str, ow_manifest_branch: str, base_remote_manifest_branch: str, input_tisdk_ref: Optional[str], overwrite_repos: List[str], current_local_branch: str, tisdk_ref_from_ci_yml: Optional[str] = None, use_local_git_repo: bool = False) -> Tuple[IesaManifest, List[Dict[str, Any]]]:
     remove_tmp_build()
     
     ow_sw_path_str = str(OW_SW_PATH)
@@ -376,7 +380,7 @@ def setup_prebuild(build_type: str, manifest_source: str, ow_manifest_branch: st
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build setup...")
     # Sync other repos from manifest of REMOTE OW_SW
     manifest_snapshot_path = init_and_sync_from_remote(ow_manifest_branch, manifest_source=manifest_source,
-                                                       use_current_ow_branch=True)
+                                                       use_current_ow_branch=True, use_local_git_repo=use_local_git_repo)
 
     # {repo → relative path from build folder}, use local as they should be the same
     actual_manifest: IesaManifest = parse_local_gl_iesa_manifest(manifest_snapshot_path)
@@ -548,7 +552,7 @@ def get_tisdk_ref_from_ci_yml(file_path: str) -> Optional[str]:
     return tisdk_refs[0]
 
 
-def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, use_current_ow_branch: bool, skip_repo_update=False) -> Path:
+def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, use_current_ow_branch: bool, skip_repo_update=False, use_local_git_repo: bool = False) -> Path:
     LOG(f"{MAIN_STEP_LOG_PREFIX} Init and Sync repo at {OW_SW_BUILD_FOLDER_PATH}...")
     repo_root_for_manifest = str(OW_SW_PATH)
     if is_platform_windows():
@@ -559,8 +563,7 @@ def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, u
     #if not skip_repo_update:
     #    _update_repo_if_needed()
     
-    use_local_git_repo = True
-    extra_repo_args = f" --repo-url={GIT_REPO_PATH} --repo-rev=v2.61" if use_local_git_repo else ""
+    extra_repo_args = f" --repo-url={GIT_REPO_LOCAL_PATH} --repo-rev=v2.61" if use_local_git_repo else " --repo-rev=v2.61"
     run_shell(f"repo init {manifest_repo_url} -b {manifest_repo_branch} -m {IESA_MANIFEST_RELATIVE_PATH}{extra_repo_args}", cwd=OW_SW_BUILD_FOLDER_PATH)
 
     # Construct the full path to the manifest file
@@ -685,20 +688,7 @@ def override_fetched_repo_with_local_repo(repo_name: str, repo_rel_path_vs_tmp_b
 
 def collect_repo_changes(repo_name: str, repo_path: Path, base_ref: str, relative_path_vs_tmp_build: str = EMPTY_STR_VALUE) -> Dict[str, Any]:
     if not repo_path.exists():
-        LOG(f"WARNING: Repo path '{repo_path}' not found when collecting changes for '{repo_name}'.")
-        return {
-            "repo_name": repo_name,
-            "relative_path_vs_tmp_build": relative_path_vs_tmp_build,
-            "expected_base_ref": base_ref,
-            "actual_ref": None,
-            "actual_commit": None,
-            "expected_base_commit": None,
-            "ref_relation_vs_base_ref": "repo_not_found",
-            "ref_matches_base_ref": False,
-            "status_lines": [],
-            "has_changes": False,
-            "diff_file_path": None,
-        }
+        LOG_EXCEPTION_STR(f"WARNING: Repo path '{repo_path}' not found when collecting changes for '{repo_name}'.")
 
     changes: List[str] = git_get_porcelain_status_lines(repo_path)
     if changes:
@@ -708,14 +698,14 @@ def collect_repo_changes(repo_name: str, repo_path: Path, base_ref: str, relativ
     else:
         LOG(f"\nNo changes detected in {repo_name}.")
 
-    actual_ref = git_get_current_branch(repo_path) or "HEAD"
-    actual_commit = git_resolve_ref_to_commit(repo_path, "HEAD")
-    expected_base_commit = git_resolve_ref_to_commit(repo_path, base_ref)
-    if not expected_base_commit:
+    current_branch = git_get_current_branch(repo_path) or "HEAD"
+    current_commit_hash = git_resolve_ref_to_commit(repo_path, "HEAD")
+    base_commit_hash = git_resolve_ref_to_commit(repo_path, base_ref)
+    if not base_commit_hash:
         LOG(f"ERROR: Required base ref '{base_ref}' could not be resolved in '{repo_path}'.", file=sys.stderr)
         sys.exit(1)
     ref_relation_vs_base_ref = git_get_ref_relation(repo_path, base_ref, "HEAD")
-    ref_matches_base_ref = bool(expected_base_commit and actual_commit and expected_base_commit == actual_commit)
+    ref_matches_base_ref = bool(base_commit_hash and current_commit_hash and base_commit_hash == current_commit_hash)
 
     changed_files_base_vs_head: List[str] = git_get_changed_files_against_ref(repo_path, f"{base_ref}..HEAD")
     changed_files_base_vs_worktree: List[str] = git_get_changed_files_against_ref(repo_path, base_ref)
@@ -727,10 +717,10 @@ def collect_repo_changes(repo_name: str, repo_path: Path, base_ref: str, relativ
     return {
         "repo_name": repo_name,
         "relative_path_vs_tmp_build": relative_path_vs_tmp_build,
-        "expected_base_ref": base_ref,
-        "actual_ref": actual_ref,
-        "actual_commit": actual_commit,
-        "expected_base_commit": expected_base_commit,
+        "current_branch": current_branch,
+        "current_commit_hash": current_commit_hash,
+        "base_ref": base_ref,
+        "base_commit_hash": base_commit_hash,
         "ref_relation_vs_base_ref": ref_relation_vs_base_ref,
         "ref_matches_base_ref": ref_matches_base_ref,
         "status_lines": changes,

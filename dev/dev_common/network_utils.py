@@ -62,7 +62,7 @@ def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_pa
                         retry_interval: float = 5.0) -> None:
     """Continuously tail a remote log file or read from a serial device until interrupted or stop_event is set.
     Automatically retries on connection loss or timeout."""
-    LOG(f"Getting live log at {remote_log_path} from {host_ip} via jump host {jump_host_ip}")
+    LOG(f"Getting live log at {remote_log_path} from {host_ip}" + f"via jump host {jump_host_ip}" if jump_host_ip else EMPTY_STR_VALUE)
     on_line = on_line or (lambda line: print(line, flush=True))
     is_device = remote_log_path.startswith("/dev/")
     if is_device:

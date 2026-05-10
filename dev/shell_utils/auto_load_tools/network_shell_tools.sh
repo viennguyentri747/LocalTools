@@ -7,9 +7,7 @@ target_acu_ip="$nor_ip_prefix.254"
 ut_pass='use4Tst!'
 nir_nuc_pass='nirnuc123'
 _nir_nuc_user='snuc'
-_nir_nuc_ip_prefix='10.1.26'
-_nir_nuc_last_octet='92'
-_nir_nuc_host="${_nir_nuc_ip_prefix}.${_nir_nuc_last_octet}"
+_nir_nuc_host="10.1.26.92"
 _nir_nuc_dst_base="/home/${_nir_nuc_user}/vien"
 NOTE_PERMANENT_COMMAND='May need to copy key to UT (for permanent login) before running this command first time. Try to run login_permanent OR login_permanent_lab'
 LEGACY_RSA_SSH_OPTS=(-o HostKeyAlgorithms=+ssh-rsa)
@@ -159,7 +157,7 @@ ssh_ssm() {
 }
 
 ssh_nir_nuc() {
-    sshpass -p "$nir_nuc_pass" ssh -t -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -- "${_nir_nuc_user}@${_nir_nuc_host}"
+    sshpass -p "$nir_nuc_pass" ssh -t -X -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -- "${_nir_nuc_user}@${_nir_nuc_host}"
 }
 
 sync_nir_nuc() {

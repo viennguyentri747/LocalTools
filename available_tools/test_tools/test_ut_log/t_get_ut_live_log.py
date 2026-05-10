@@ -1,11 +1,13 @@
 #!/usr/local/bin/local_python
 import argparse
+from enum import Enum
 import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import threading
 import sys
-from typing import List, Optional
+from datetime import datetime
+from typing import Callable, List, Optional
 from dev.dev_common import *
 from dev.dev_common.core_independent_utils import read_value_from_credential_file
 from dev.dev_common.network_utils import ping_remote_host_via_jump_host
@@ -22,6 +24,7 @@ ARG_READ_TIMEOUT = f"{ARGUMENT_LONG_PREFIX}read_timeout"
 ARG_TAIL_LINES = f"{ARGUMENT_LONG_PREFIX}tail_lines"
 ARG_STREAM_DURATION_SECS = f"{ARGUMENT_LONG_PREFIX}stream_duration_secs"
 ARG_CAPTURE_LOG_PATH = f"{ARGUMENT_LONG_PREFIX}log_path"
+ARG_STREAM_SAME_FILE = f"{ARGUMENT_LONG_PREFIX}stream_same_file"
 
 DEFAULT_GNSS_LOG_PATH = "/var/log/gnss.log"
 DEFAULT_INS_MONITOR_LOG_PATH = "/var/log/ins_monitor_log"
@@ -29,6 +32,11 @@ DEFAULT_LIVE_LOG_FILENAME = "live.log"
 LIVE_LOG_FILE_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 LIVE_LOG_FILE_BACKUP_COUNT = 5
 DEFAULT_REACHABLE_WAIT_SECS = 300
+
+
+class ELogStreamMode(str, Enum):
+    OverrideSingleFile = "OverrideSingleFile"
+    CreateNewFile = "CreateNewFile"
 
 
 def get_tool_templates() -> List[ToolTemplate]:
@@ -63,7 +71,13 @@ def parse_args() -> argparse.Namespace:
                         help="Stop streaming after this many seconds. Use 0 to stream until interrupted.")
     parser.add_argument(ARG_CAPTURE_LOG_PATH, default=None,
                         help="Optional local output log path. Auto-generated when omitted.")
+    parser.add_argument(ARG_STREAM_SAME_FILE, type=lambda value: str(value).lower() in {"1", "true", "t", "yes", "y"}, default=True,
+                        help="Write to same file (True, default) or create timestamped file path (False).")
     return parser.parse_args()
+
+
+def _get_log_stream_mode(stream_same_file: bool) -> ELogStreamMode:
+    return ELogStreamMode.OverrideSingleFile if stream_same_file else ELogStreamMode.CreateNewFile
 
 
 def _build_default_capture_path(host_ip: str, jump_host_ip: Optional[str], remote_log_path: str) -> Path:
@@ -72,13 +86,22 @@ def _build_default_capture_path(host_ip: str, jump_host_ip: Optional[str], remot
     return Path(DEFAULT_LOG_OUTPUT_PATH) / target_ip / f"{log_name}.live.log"
 
 
-def build_live_log_handlers(log_path: str, should_clear_log_first: bool = True) -> List[logging.Handler]:
+def _resolve_capture_path_by_mode(log_path: str, log_stream_mode: ELogStreamMode) -> Path:
+    base_log_path = Path(log_path)
+    if log_stream_mode == ELogStreamMode.OverrideSingleFile:
+        return base_log_path
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return base_log_path.parent / base_log_path.stem / ts / base_log_path.name
+
+
+def build_live_log_handlers(log_path: str, log_stream_mode: ELogStreamMode = ELogStreamMode.OverrideSingleFile) -> List[logging.Handler]:
     """Handle where to send live log messages (file + rotation)"""
-    LOG(f"{LOG_PREFIX_MSG_INFO} Build live log handlers. log_path={log_path}")
+    resolved_log_path = _resolve_capture_path_by_mode(log_path=log_path, log_stream_mode=log_stream_mode)
+    LOG(f"{LOG_PREFIX_MSG_INFO} Build live log handlers. log_path={resolved_log_path}, mode={log_stream_mode.value}")
     handlers: List[logging.Handler] = [logging.StreamHandler(sys.stdout)]
-    log_file = Path(log_path)
+    log_file = resolved_log_path
     log_file.parent.mkdir(parents=True, exist_ok=True)
-    if should_clear_log_first:
+    if log_stream_mode == ELogStreamMode.OverrideSingleFile:
         with open(log_file, "w", encoding="utf-8") as file_obj:
             file_obj.write("")
     handlers.append(RotatingFileHandler(log_file, maxBytes=LIVE_LOG_FILE_MAX_BYTES,
@@ -90,7 +113,8 @@ def build_live_log_handlers(log_path: str, should_clear_log_first: bool = True) 
 
 def stream_live_remote_log_to_file(host_ip: str, remote_log_path: str, user: str = SSM_USER, password: Optional[str] = None, jump_host_ip: Optional[str] = None,
                         jump_user: Optional[str] = None, jump_password: Optional[str] = None, timeout: int = 5, read_timeout: int = 60, tail_lines: int = 0,
-                        stream_duration_secs: float = 0.0, log_path: Optional[str] = None, should_clear_log_first: bool = True) -> None:
+                        stream_duration_secs: float = 0.0, log_path: Optional[str] = None, log_stream_mode: ELogStreamMode = ELogStreamMode.OverrideSingleFile,
+                        on_line_recv: Optional[Callable[[str], None]] = None) -> None:
     password = password or read_value_from_credential_file(CREDENTIALS_FILE_PATH, UT_PWD_KEY_NAME)
     if not password:
         raise ValueError(f"Missing UT password in {CREDENTIALS_FILE_PATH} with key {UT_PWD_KEY_NAME}")
@@ -114,7 +138,7 @@ def stream_live_remote_log_to_file(host_ip: str, remote_log_path: str, user: str
         raise RuntimeError(f"{host_ip} is not reachable{via_text} within {DEFAULT_REACHABLE_WAIT_SECS}s")
     resolved_log_path = log_path or str(_build_default_capture_path(host_ip=host_ip, jump_host_ip=jump_host_ip, remote_log_path=remote_log_path))
     LOG(f"{LOG_PREFIX_MSG_INFO} Capture live log to {resolved_log_path}")
-    handlers = build_live_log_handlers(log_path=resolved_log_path, should_clear_log_first=should_clear_log_first)
+    handlers = build_live_log_handlers(log_path=resolved_log_path, log_stream_mode=log_stream_mode)
     stop_event = threading.Event()
     stop_timer: Optional[threading.Timer] = None
     if stream_duration_secs < 0:
@@ -123,8 +147,12 @@ def stream_live_remote_log_to_file(host_ip: str, remote_log_path: str, user: str
         stop_timer = threading.Timer(stream_duration_secs, stop_event.set)
         stop_timer.daemon = True
         stop_timer.start()
+    def _on_line(line: str) -> None:
+        if on_line_recv:
+            on_line_recv(line)
+        LOG(line, show_time=True, handlers=handlers)
     try:
-        stream_live_remote_log(host_ip=host_ip, user=user, password=password, remote_log_path=remote_log_path, timeout=timeout, jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=resolved_jump_password, tail_lines=tail_lines, read_timeout=read_timeout, stop_event=stop_event, on_line=lambda line: LOG(line, show_time=True, handlers=handlers))
+        stream_live_remote_log(host_ip=host_ip, user=user, password=password, remote_log_path=remote_log_path, timeout=timeout, jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=resolved_jump_password, tail_lines=tail_lines, read_timeout=read_timeout, stop_event=stop_event, on_line=_on_line)
     finally:
         if stop_timer:
             stop_timer.cancel()
@@ -139,8 +167,7 @@ def stream_live_remote_log_to_file(host_ip: str, remote_log_path: str, user: str
 def main() -> int:
     args = parse_args()
     try:
-        stream_live_remote_log_to_file(host_ip=args.host_ip, remote_log_path=args.remote_path, user=args.user, jump_host_ip=args.jump_host_ip, jump_user=args.jump_user, timeout=args.timeout,
-                            read_timeout=args.read_timeout, tail_lines=args.tail_lines, stream_duration_secs=args.stream_duration_secs, log_path=args.log_path)
+        stream_live_remote_log_to_file(host_ip=args.host_ip, remote_log_path=args.remote_path, user=args.user, jump_host_ip=args.jump_host_ip, jump_user=args.jump_user, timeout=args.timeout, read_timeout=args.read_timeout, tail_lines=args.tail_lines, stream_duration_secs=args.stream_duration_secs, log_path=args.log_path, log_stream_mode=_get_log_stream_mode(args.stream_same_file))
     except KeyboardInterrupt:
         LOG(f"{LOG_PREFIX_MSG_WARNING} Stopped by user.")
         return 130

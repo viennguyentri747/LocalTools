@@ -1,6 +1,5 @@
 #!/usr/local/bin/local_python
-import shutil
-from available_tools.iesa_tools.t_ow_local_build import IESA_OUT_ARTIFACT_PATH, append_build_log, ensure_temp_build_output_dir, init_ow_build_log
+from available_tools.iesa_tools.t_ow_local_build import IESA_OUT_ARTIFACT_PATH, append_build_log, init_ow_build_log
 from dev.dev_common import *
 from dev.dev_iesa import *
 

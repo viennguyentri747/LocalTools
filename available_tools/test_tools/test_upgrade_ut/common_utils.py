@@ -6,6 +6,7 @@ from enum import Enum
 from typing import List, Optional
 
 from dev.dev_common import LOG
+from dev.dev_common.constants import ACU_IP, ACU_PASSWORD, ACU_USER, SSM_PASSWORD, SSM_USER
 from dev.dev_common.independent_network_utils import run_ssh_command
 
 
@@ -16,7 +17,7 @@ class EUpgradeResult(str, Enum):
     ABORT = "abort"
 
 
-def run_acu_cmd_via_ut(ut_ip: str, acu_ip: str, acu_user: str, acu_password: str, ut_user: str, ut_password: str, command: str, timeout_secs: int = 20) -> str:
+def run_acu_cmd_via_ut(ut_ip: str, command: str, timeout_secs: int = 20, acu_ip: str = ACU_IP, acu_user: str = ACU_USER, acu_password: str = ACU_PASSWORD, ut_user: str = SSM_USER, ut_password: str = SSM_PASSWORD) -> str:
     stdout, stderr = run_ssh_command(
         host_ip=acu_ip,
         user=acu_user,
@@ -32,7 +33,7 @@ def run_acu_cmd_via_ut(ut_ip: str, acu_ip: str, acu_user: str, acu_password: str
     return stdout.strip()
 
 
-def run_acu_cmd_via_ut_with_retry(ut_ip: str, acu_ip: str, acu_user: str, acu_password: str, ut_user: str, ut_password: str, command: str, timeout_secs: int, secs_between_each_retry: float = 2.0) -> str:
+def run_acu_cmd_via_ut_with_retry(ut_ip: str, command: str, timeout_secs: int, secs_between_each_retry: float = 2.0, acu_ip: str = ACU_IP, acu_user: str = ACU_USER, acu_password: str = ACU_PASSWORD, ut_user: str = SSM_USER, ut_password: str = SSM_PASSWORD) -> str:
     max_wait = max(1, int(timeout_secs))
     deadline = time.time() + max_wait
     last_exc: Optional[Exception] = None
@@ -41,7 +42,7 @@ def run_acu_cmd_via_ut_with_retry(ut_ip: str, acu_ip: str, acu_user: str, acu_pa
         if remain <= 0:
             break
         try:
-            return run_acu_cmd_via_ut(ut_ip=ut_ip, acu_ip=acu_ip, acu_user=acu_user, acu_password=acu_password, ut_user=ut_user, ut_password=ut_password, command=command, timeout_secs=min(20, remain))
+            return run_acu_cmd_via_ut(ut_ip=ut_ip, command=command, timeout_secs=min(20, remain), acu_ip=acu_ip, acu_user=acu_user, acu_password=acu_password, ut_user=ut_user, ut_password=ut_password)
         except Exception as exc:
             last_exc = exc
             sleep_secs = min(max(0.0, secs_between_each_retry), max(0.0, deadline - time.time()))

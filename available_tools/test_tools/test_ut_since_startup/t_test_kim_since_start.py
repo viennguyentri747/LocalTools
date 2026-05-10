@@ -6,7 +6,7 @@ from typing import List
 from dev.dev_common import *
 from dev.dev_common.custom_structures import ToolData
 from dev.dev_common.tools_utils import ToolTemplate, build_examples_epilog
-from available_tools.test_tools.test_ut_log.t_get_ut_live_log import stream_live_remote_log_to_file
+from available_tools.test_tools.test_ut_log.t_get_ut_live_log import ELogStreamMode, stream_live_remote_log_to_file
 from available_tools.test_tools.test_ut_log.t_get_acu_logs import DEFAULT_LOG_OUTPUT_PATH
 from available_tools.test_tools.test_ut_log.t_test_ins_status_ins_monitor_log import (
     compute_time_diff_stats,
@@ -89,7 +89,7 @@ def main() -> int:
 
     LOG(f"{LOG_PREFIX_MSG_INFO} Capture live INS monitor log to {log_path}")
     try:
-        stream_live_remote_log_to_file(host_ip=host_ip, remote_log_path=remote_path, jump_host_ip=jump_host_ip, read_timeout=read_timeout, tail_lines=tail_lines, stream_duration_secs=stream_duration_secs, log_path=str(log_path))
+        stream_live_remote_log_to_file(host_ip=host_ip, remote_log_path=remote_path, jump_host_ip=jump_host_ip, read_timeout=read_timeout, tail_lines=tail_lines, stream_duration_secs=stream_duration_secs, log_path=str(log_path), log_stream_mode=ELogStreamMode.OverrideSingleFile)
     except Exception as exc:
         LOG(f"{LOG_PREFIX_MSG_ERROR} Capture live INS monitor log failed: {exc}")
         return 1

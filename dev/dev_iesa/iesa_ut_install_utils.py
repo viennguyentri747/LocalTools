@@ -9,8 +9,8 @@ from typing import Callable, List, Optional, Tuple
 from available_tools.test_tools.test_upgrade_ut.bundle_api_helper import get_update_status
 from available_tools.test_tools.test_upgrade_ut.common_utils import run_acu_cmd_via_ut
 from dev.dev_common import LOG
-from dev.dev_common.constants import ACU_IP, ACU_PASSWORD, ACU_USER, SSM_PASSWORD, SSM_USER
-from dev.dev_common.independent_network_utils import run_ssh_command
+from dev.dev_common.constants import ACU_IP, ACU_PASSWORD, ACU_USER, API_SYSTEM_REBOOT_ENDPOINT, SSM_PASSWORD, SSM_USER
+from dev.dev_common.core_independent_utils import run_shell
 from dev.dev_common.network_utils import ping_remote_host_via_jump_host
 
 
@@ -65,32 +65,32 @@ def check_safe_reboot_ut(ut_ip: str, timeout_before_reboot_secs: int = 240, shou
             running_procs = run_acu_cmd_via_ut(ut_ip=ut_ip, command="ps | grep -E \"\\.iesa|insense_cltool\" | grep -v grep",
                                                timeout_secs=10, acu_ip=acu_ip, acu_user=acu_user, acu_password=acu_password, ut_user=ut_user, ut_password=ut_password)
             if running_procs.strip():
-                LOG(f"Post-upgrade wait: iesa/cltool process is still running on ACU: {running_procs.strip()}")
+                LOG(f"Safe reboot wait: iesa/cltool process is still running on ACU: {running_procs.strip()}")
                 time.sleep(10)
                 continue
             is_update_status_final, update_status_msg = are_upgrade_components_final(
                 base_url=f"http://{ut_ip}", components=[EUpgradeComponent.CNX, EUpgradeComponent.MDM, EUpgradeComponent.AIM])
             if not is_update_status_final:
-                LOG(f"Post-upgrade wait: update status is not final yet ({update_status_msg})")
+                LOG(f"Safe reboot wait: update status is not final yet ({update_status_msg})")
                 time.sleep(10)
                 continue
             LOG(f"Post-upgrade condition passed: no iesa/cltool process and update status final ({update_status_msg})")
             break
         except Exception as exc:
-            LOG(f"Post-upgrade wait: ACU check failed, retrying in 10s: {exc}")
+            LOG(f"Safe reboot wait: ACU check failed, retrying in 10s: {exc}")
             time.sleep(10)
     else:
         LOG(f"ERROR: timeout waiting post-upgrade conditions before reboot ({timeout_before_reboot_secs}s)")
         return False
 
     try:
-        sleep_secs_before_reboot: int = 10
-        run_ssh_command(host_ip=ut_ip, user=ut_user, password=ut_password, command=f"nohup sh -c 'sleep {sleep_secs_before_reboot}; reboot' >/dev/null 2>&1 &", timeout=10)
-        LOG(f"Post-upgrade action: reboot command issued on UT {ut_ip}")
-        sleep_secs_before_continue: int = sleep_secs_before_reboot + 5
-        LOG(f"Post-upgrade action: sleeping {sleep_secs_before_continue}s before continuing")
-        time.sleep(sleep_secs_before_continue)
+        reboot_url = f"http://{ut_ip}{API_SYSTEM_REBOOT_ENDPOINT}"
+        run_shell(["curl", "-X", "GET", reboot_url], capture_output=True, text=True, check_throw_exception_on_exit_code=True, timeout=10)
+        LOG(f"Post-upgrade action: reboot API issued to UT {ut_ip} ({reboot_url})")
         if should_ping_after_reboot:
+            secs_sleep_before_ping = 5
+            LOG(f"Post-upgrade action: waiting for {secs_sleep_before_ping} seconds before checking ACU reachability after reboot")
+            time.sleep(secs_sleep_before_ping)
             is_reachable_after_reboot = ping_remote_host_via_jump_host(remote_host_ip=acu_ip, jump_host_ip=ut_ip, jump_user=ut_user, jump_password=ut_password,
                                                                     max_wait_sec=ping_timeout_after_reboot_secs, retry_interval_sec=5.0, ping_count=1, ping_timeout_sec=2, ssh_timeout_sec=10, check_jump_host_reachable=True, mute=False)
             if not is_reachable_after_reboot:

@@ -79,18 +79,19 @@ def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_pa
         stdout = stderr = None
 
         try:
-            target_client, jump_client, jump_channel = open_ssh_client(
-                host_ip=host_ip, user=user, password=password, timeout=timeout,
-                jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=jump_password)
-            _, stdout, stderr = target_client.exec_command(remote_cmd)
-            channel_read_timeout = 1.0
-            stdout.channel.settimeout(channel_read_timeout)
             last_output_time = time.time()
             waiting_start_time = last_output_time
             waiting_last_second = -1
             waiting_last_text_len = 0
             saw_first_log = False
 
+            target_client, jump_client, jump_channel = open_ssh_client(
+                host_ip=host_ip, user=user, password=password, timeout=timeout,
+                jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=jump_password)
+            _, stdout, stderr = target_client.exec_command(remote_cmd)
+            channel_read_timeout = 1.0
+            stdout.channel.settimeout(channel_read_timeout)
+           
             while not (stop_event and stop_event.is_set()):
                 if target_client.get_transport() is None or not target_client.get_transport().is_active():
                     raise ConnectionError(f"SSH connection lost for {host_ip}")

@@ -13,6 +13,7 @@ import subprocess
 import sys
 import textwrap
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from urllib.parse import urlparse
 from dev.dev_common import *
 from dev.dev_common.gitlab_utils import *
 from dev.dev_iesa import *
@@ -20,6 +21,7 @@ import yaml
 import traceback
 
 from available_tools.iesa_tools.copy_to_ut_runner import MODE_BINARY_SHELL_CMD, MODE_IESA_PYTHON, MODE_IESA_SHELL_CMD, build_binary_post_copy_cmd_for_shell_echo
+from dev.dev_common.custom_structures import LOCAL_REPO_MAPPING
 
 GITLAB_CI_YML_PATH = OW_SW_PATH / ".gitlab-ci.yml"
 # Need to put this here because we will go into docker environment from OW_SW_PATH
@@ -62,7 +64,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_TISDK_REF: BRANCH_AERO_MASTER,
                 ARG_MAKE_CLEAN: True,
                 ARG_IS_DEBUG_BUILD: True,
-                ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME],
+                ARG_OVERWRITE_REPOS: [IESA_INSENSE_SDK_REPO_NAME, IESA_INTELLIAN_PKG_REPO_NAME],
             },
             need_sudo_on_wsl=True,
             # override_cmd_invocation=WIN_CMD_INVOCATION,
@@ -78,7 +80,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_BASE_REMOTE_MANIFEST_BRANCH: BRANCH_AERO_MASTER,
                 ARG_MAKE_CLEAN: True,
                 ARG_IS_DEBUG_BUILD: True,
-                ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME],
+                ARG_OVERWRITE_REPOS: [IESA_INSENSE_SDK_REPO_NAME, IESA_INTELLIAN_PKG_REPO_NAME],
             },
             need_sudo_on_wsl=True,
             # override_cmd_invocation=WIN_CMD_INVOCATION,
@@ -261,7 +263,7 @@ def main() -> None:
                     f'sudo chmod -R 755 {shlex.quote(str(new_iesa_output_abs_path))} && {shlex.quote(str(COPY_TO_UT_RUNNER_PATH))} '
                     f'--mode {MODE_IESA_PYTHON} '
                     f'--local_path {shlex.quote(str(new_iesa_output_abs_path))} '
-                    f'--prompt_before_execute true'
+                    f'--prompt_before_execute false'
                 )
             display_content_to_copy(command_to_display, purpose="Copy IESA to target IP", is_copy_to_clipboard=True)
             append_build_log("Copy IESA command:")
@@ -304,7 +306,6 @@ def main() -> None:
 
 def setup_prebuild(build_type: str, manifest_source: str, ow_manifest_branch: str, base_remote_manifest_branch: str, input_tisdk_ref: Optional[str], overwrite_repos: List[str], current_local_branch: str, tisdk_ref_from_ci_yml: Optional[str] = None, use_local_git_repo: bool = False) -> Tuple[IesaManifest, List[Dict[str, Any]]]:
     remove_tmp_build()
-    
     ow_sw_path_str = str(OW_SW_PATH)
     bsp_symlink_rel_for_build = BSP_SYMLINK_PATH_FOR_BUILD.relative_to(OW_SW_PATH).as_posix()
     def _extract_porcelain_path(status_line: str) -> str:
@@ -312,17 +313,19 @@ def setup_prebuild(build_type: str, manifest_source: str, ow_manifest_branch: st
         return path_part.split(" -> ", 1)[1].strip() if " -> " in path_part else path_part
 
     # PRE-BUILD CHECK
+    git_refresh_index(OW_SW_PATH)
     LOG(f"{MAIN_STEP_LOG_PREFIX} Pre-build check...")
-    ow_local_status_lines = [
-        line for line in git_get_porcelain_status_lines(OW_SW_PATH)
-        if _extract_porcelain_path(line) != bsp_symlink_rel_for_build # exclude BSP symlink since we will override it anyway
+    
+    ow_changed_files = [
+        path for path in git_get_changed_file_paths(OW_SW_PATH)
+        if path != bsp_symlink_rel_for_build  # exclude BSP symlink since we will override it anyway
     ]
-    if ow_local_status_lines:
-        status_preview = "\n".join(ow_local_status_lines[:20])
+    if ow_changed_files:
+        status_preview = "\n".join(ow_changed_files[:20])
         LOG(
             "ERROR: Local OW repo has uncommitted or untracked changes. Please commit + push before running prebuild.\n"
             f"Repo: {ow_sw_path_str}\n"
-            f"Detected changes ({len(ow_local_status_lines)}):\n{status_preview}",
+            f"Detected changes ({len(ow_changed_files)}):\n{status_preview}",
             file=sys.stderr,
         )
         show_noti(
@@ -330,6 +333,7 @@ def setup_prebuild(build_type: str, manifest_source: str, ow_manifest_branch: st
             message="OW repo has local changes. Commit + push all changes, then rerun.",
         )
         sys.exit(1)
+
     LOG("Checking OW branch is ahead/descendant of base remote manifest branch fetched from remote. If it is not ahead then something is wrong and require manual intervention!")
     ow_git_remote = DEFAULT_OW_GIT_REMOTE
     ow_branch_is_descendant = git_is_local_branch_descendant_of_remote_branch(
@@ -599,9 +603,68 @@ def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, u
     if not manifest or not is_manifest_valid(manifest):
         LOG_EXCEPTION_STR("Parsed manifest is invalid or empty.")
 
+    configure_git_credentials_for_manifest(manifest)
+    #try:
     run_shell("repo sync", cwd=OW_SW_BUILD_FOLDER_PATH)
+    #finally:
+    #    cleanup_git_credentials_for_manifest(manifest)
+
+    #run_shell("repo sync", cwd=OW_SW_BUILD_FOLDER_PATH)
     return manifest_full_path
 
+
+def configure_git_credentials_for_manifest(manifest: IesaManifest):
+    """
+    Inject GitLab credentials into git config so repo sync can authenticate
+    without interactive prompts. One insteadOf rule per unique fetch base URL.
+    """
+    all_repo_names = manifest.get_all_repo_names()
+    LOG("Configuring git credentials...")
+    configured_urls = set()
+
+    for repo_name in all_repo_names:
+        LOG(f"Configuring credentials for repo '{repo_name}'...")
+        fetch_url = manifest.get_full_repo_url_by_repo_name(repo_name)
+        if not fetch_url or fetch_url in configured_urls:
+            LOG(f"Fetch URL '{fetch_url}' already configured, skipping.")
+            continue
+        repo_info = LOCAL_REPO_MAPPING.get_by_name(repo_name)
+        access_token = repo_info.gl_access_token if repo_info else None
+        if not access_token:
+            LOG(f"No token found for repo '{repo_name}' with fetch URL '{fetch_url}', skipping.")
+            continue
+
+        parsed = urlparse(fetch_url)
+        authed_url = f"https://oauth2:{access_token}@{parsed.netloc}{parsed.path}"
+
+        LOG(f"Configuring credentials for: {fetch_url}, parsed: {parsed}, authed: {authed_url}")
+        run_shell(f'git config --global url."{authed_url}".insteadOf "{fetch_url}"')
+        LOG(f"Configured credentials for: {fetch_url}")
+        configured_urls.add(fetch_url)
+
+
+def cleanup_git_credentials_for_manifest(manifest: IesaManifest):
+    """Remove injected credentials from git config after sync."""
+    LOG("Cleaning up git credentials...")
+
+    cleaned_urls = set()
+
+    for repo_name in manifest.get_all_repo_names():
+        fetch_url = manifest.get_full_repo_url_by_repo_name(repo_name)
+        if not fetch_url or fetch_url in cleaned_urls:
+            continue
+
+        repo_info = LOCAL_REPO_MAPPING.get_by_name(repo_name)
+        access_token = repo_info.gl_access_token if repo_info else None
+        if not access_token:
+            continue
+
+        parsed = urlparse(fetch_url)
+        authed_url = f"https://oauth2:{access_token}@{parsed.netloc}{parsed.path}"
+
+        run_shell(f'git config --global --unset url."{authed_url}".insteadOf', check_throw_exception_on_exit_code=False)
+        LOG(f"Removed credentials for: {fetch_url}")
+        cleaned_urls.add(fetch_url)
 
 def get_base_manifest_from_remote_branch(base_remote_manifest_branch: str) -> IesaManifest:
     remote_base_ref = git_get_remote_branch_ref(base_remote_manifest_branch, DEFAULT_OW_GIT_REMOTE)

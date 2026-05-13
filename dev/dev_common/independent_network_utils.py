@@ -1,46 +1,43 @@
 import sys
+import time
 from typing import Optional, Tuple
 import paramiko
 from dev.dev_common.core_independent_utils import LOG, ELogType
 
 
 def open_ssh_client(host_ip: str, user: str, password: Optional[str] = None, timeout: int = 5, jump_host_ip: Optional[str] = None,
-                    jump_user: Optional[str] = None, jump_password: Optional[str] = None) -> Tuple[paramiko.SSHClient, Optional[paramiko.SSHClient], Optional[paramiko.Channel]]:
+                    jump_user: Optional[str] = None, jump_password: Optional[str] = None, retry_count: int = 2, retry_delay_sec: float = 1.0) -> Tuple[paramiko.SSHClient, Optional[paramiko.SSHClient], Optional[paramiko.Channel]]:
     """Open an SSH client, optionally tunneled through a jump host."""
-    target_client = paramiko.SSHClient()
-    target_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    auth_kwargs = dict(password=password, look_for_keys=not password, allow_agent=not password)
-    connect_kwargs = dict(hostname=host_ip, username=user, timeout=timeout, **auth_kwargs)
-    jump_client = None
-    jump_channel = None
-    if jump_host_ip:
-        jump_client = paramiko.SSHClient()
-        jump_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        jump_connect_kwargs = dict(hostname=jump_host_ip, username=jump_user or user, timeout=timeout,
-                                   password=jump_password or password, look_for_keys=not (jump_password or password), allow_agent=not (jump_password or password))
-
-        LOG(f"Connecting to jump host {jump_host_ip} using jump args {jump_connect_kwargs}", file=sys.stderr, log_type=ELogType.DEBUG)
+    if retry_count < 0: raise ValueError(f"retry_count must be >= 0, got {retry_count}")
+    max_attempts, last_exc = retry_count + 1, None
+    for attempt in range(1, max_attempts + 1):
+        target_client, jump_client, jump_channel = paramiko.SSHClient(), None, None
+        target_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        auth_kwargs = dict(password=password, look_for_keys=not password, allow_agent=not password)
+        connect_kwargs = dict(hostname=host_ip, username=user, timeout=timeout, **auth_kwargs)
         try:
-            jump_client.connect(**jump_connect_kwargs)
-        except Exception as exc:
-            LOG(f"Failed to connect to jump host {jump_host_ip}, exception {exc}", file=sys.stderr)
-            raise
+            if jump_host_ip:
+                jump_client = paramiko.SSHClient()
+                jump_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                jump_connect_kwargs = dict(hostname=jump_host_ip, username=jump_user or user, timeout=timeout, password=jump_password or password,
+                                           look_for_keys=not (jump_password or password), allow_agent=not (jump_password or password))
+                LOG(f"[Attempt {attempt}/{max_attempts}] Connecting to jump host {jump_host_ip} using jump args {jump_connect_kwargs}", file=sys.stderr, log_type=ELogType.DEBUG)
+                jump_client.connect(**jump_connect_kwargs)
+                jump_transport = jump_client.get_transport()
+                if jump_transport is None: raise RuntimeError(f"Jump host transport unavailable: {jump_host_ip}")
+                jump_channel = jump_transport.open_channel('direct-tcpip', (host_ip, 22), ('127.0.0.1', 0))
+                connect_kwargs["sock"] = jump_channel
 
-        jump_transport = jump_client.get_transport()
-        if jump_transport is None:
+            LOG(f"[Attempt {attempt}/{max_attempts}] Connecting to remote host {host_ip} via {jump_host_ip if jump_host_ip else 'direct connection'}", file=sys.stderr)
+            LOG(f"Connect args: {connect_kwargs}", file=sys.stderr, log_type=ELogType.DEBUG)
+            target_client.connect(**connect_kwargs)
+            return target_client, jump_client, jump_channel
+        except Exception as exc:
+            last_exc = exc
+            LOG(f"Attempt {attempt}/{max_attempts} failed connecting to {host_ip} from {jump_host_ip if jump_host_ip else 'direct connection'}, exception {exc}", file=sys.stderr)
             close_ssh_client(target_client, jump_client, jump_channel)
-            raise RuntimeError(f"Jump host transport unavailable: {jump_host_ip}")
-        jump_channel = jump_transport.open_channel('direct-tcpip', (host_ip, 22), ('127.0.0.1', 0))
-        connect_kwargs["sock"] = jump_channel
-    try:
-        LOG(f"Connecting to remote host {host_ip} via {jump_host_ip if jump_host_ip else 'direct connection'}", file=sys.stderr)
-        LOG(f"Connect args: {connect_kwargs}", file=sys.stderr, log_type=ELogType.DEBUG)
-        target_client.connect(**connect_kwargs)
-    except Exception as exc:
-        LOG(f"Failed to connect to {host_ip} from {jump_host_ip if jump_host_ip else 'direct connection'}, exception {exc}", file=sys.stderr)
-        close_ssh_client(target_client, jump_client, jump_channel)
-        raise
-    return target_client, jump_client, jump_channel
+            if attempt < max_attempts and retry_delay_sec > 0: time.sleep(retry_delay_sec)
+    raise last_exc if last_exc else RuntimeError(f"Failed to connect to {host_ip} from {jump_host_ip if jump_host_ip else 'direct connection'}")
 
 
 def close_ssh_client(target_client: Optional[paramiko.SSHClient], jump_client: Optional[paramiko.SSHClient] = None,

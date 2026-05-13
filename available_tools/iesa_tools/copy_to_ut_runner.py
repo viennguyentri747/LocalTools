@@ -27,7 +27,7 @@ ARG_TARGET_IP = f"{ARGUMENT_LONG_PREFIX}target_ip"
 ARG_DEST_NAME = f"{ARGUMENT_LONG_PREFIX}dest_name"
 ARG_REMOTE_DIR = f"{ARGUMENT_LONG_PREFIX}remote_dir"
 ARG_REMOTE_HOST_IP = f"{ARGUMENT_LONG_PREFIX}remote_host_ip"
-ARG_PROMPT_BEFORE_EXECUTE = f"{ARGUMENT_LONG_PREFIX}prompt_before_execute"
+ARG_PROMPT_BEFORE_EACH_EXECUTE = f"{ARGUMENT_LONG_PREFIX}prompt_before_execute"
 DEFAULT_REMOTE_DIR = "/home/root/download"
 DEFAULT_TARGET_IP_PREFIX = "192.168.100."
 
@@ -137,7 +137,8 @@ def build_binary_post_copy_cmd(original_md5: str, remote_dir: str, remote_name: 
 
 
 def build_binary_post_copy_cmd_for_shell_echo(remote_dir: str = DEFAULT_REMOTE_DIR) -> str:
-    escaped_cmd = build_binary_post_copy_cmd(original_md5="\"$original_md5\"", remote_dir=remote_dir, remote_name="$DEST_NAME", binary_name="$BIN_NAME", quote_values=False).replace("\\", "\\\\").replace("\"", "\\\"")
+    escaped_cmd = build_binary_post_copy_cmd(original_md5="\"$original_md5\"", remote_dir=remote_dir, remote_name="$DEST_NAME",
+                                             binary_name="$BIN_NAME", quote_values=False).replace("\\", "\\\\").replace("\"", "\\\"")
     return escaped_cmd.replace("$(", "\\$(").replace("$actual_md5", "\\$actual_md5")
 
 
@@ -155,6 +156,7 @@ def build_iesa_post_copy_cmd(original_md5: str, remote_dir: str, remote_name: st
 def _build_iesa_post_copy_cmd(original_md5: str, remote_dir: str, remote_name: str, prompt_before_execute: bool) -> str:
     return build_iesa_post_copy_cmd(original_md5=original_md5, remote_dir=remote_dir, remote_name=remote_name, prompt_before_execute=prompt_before_execute)
 
+
 def _log_checksums(local_md5: str, remote_md5: Optional[str], remote_abs_path: str, stage: str) -> None:
     LOG(f"{LOG_PREFIX_MSG_INFO} Local md5 ({stage}): {local_md5}")
     LOG(f"{LOG_PREFIX_MSG_INFO} Remote md5 ({stage}) {remote_abs_path}: {remote_md5 or 'MISSING'}")
@@ -171,9 +173,11 @@ def _run_iesa_install_via_python(remote_name: str, remote_host_ip: str, remote_u
         LOG(f"{LOG_PREFIX_MSG_WARNING} Install skipped by user.")
         return
     cache_upgrade_log_path = ACU_CACHE_UPGRADE_LOG_FILE
-    install_and_tail_background_cmd = _wrap_command_with_remote_env(create_install_iesa_cmd(remote_name, cache_upgrade_log_path))
+    install_and_tail_background_cmd = _wrap_command_with_remote_env(
+        create_install_iesa_cmd(remote_name, cache_upgrade_log_path))
     LOG(f"{LOG_PREFIX_MSG_INFO} Running remote install command on ACU {remote_host_ip} via UT {jump_host_ip}...")
-    install_stdout, install_stderr = run_ssh_command(host_ip=remote_host_ip, user=remote_user, password=(remote_password if remote_password is not None else ACU_PASSWORD) or EMPTY_STR_VALUE, command=install_and_tail_background_cmd, timeout=60, jump_host_ip=jump_host_ip, jump_user=jump_user or SSM_USER, jump_password=jump_password if jump_password is not None else SSM_PASSWORD)
+    install_stdout, install_stderr = run_ssh_command(host_ip=remote_host_ip, user=remote_user, password=(remote_password if remote_password is not None else ACU_PASSWORD) or EMPTY_STR_VALUE,
+                                                     command=install_and_tail_background_cmd, timeout=60, jump_host_ip=jump_host_ip, jump_user=jump_user or SSM_USER, jump_password=jump_password if jump_password is not None else SSM_PASSWORD)
     if install_stderr.strip():
         LOG(f"{LOG_PREFIX_MSG_WARNING} Install command stderr: {install_stderr.strip()}")
     if install_stdout.strip():
@@ -194,29 +198,33 @@ def _run_iesa_install_via_python(remote_name: str, remote_host_ip: str, remote_u
     watcher_thread.start()
     try:
         LOG(f"{LOG_PREFIX_MSG_INFO} Tailing upgrade logs from {cache_upgrade_log_path}")
+
         def _on_line(line: str) -> None:
             if on_install_line_recv and on_install_line_recv(line):
                 LOG(f"{LOG_PREFIX_MSG_INFO} Install completion detected for UT {jump_host_ip}. Stopping remote log stream.'")
                 stop_event.set()
-        stream_live_remote_log(host_ip=remote_host_ip, user=remote_user, password=(remote_password if remote_password is not None else ACU_PASSWORD) or EMPTY_STR_VALUE, remote_log_path=cache_upgrade_log_path, jump_host_ip=jump_host_ip, jump_user=jump_user or SSM_USER, jump_password=jump_password if jump_password is not None else SSM_PASSWORD, tail_lines=0, read_timeout=0, stop_event=stop_event, on_line=_on_line)
+        stream_live_remote_log(host_ip=remote_host_ip, user=remote_user, password=(remote_password if remote_password is not None else ACU_PASSWORD) or EMPTY_STR_VALUE, remote_log_path=cache_upgrade_log_path,
+                               jump_host_ip=jump_host_ip, jump_user=jump_user or SSM_USER, jump_password=jump_password if jump_password is not None else SSM_PASSWORD, tail_lines=0, read_timeout=0, stop_event=stop_event, on_line=_on_line)
     finally:
         stop_event.set()
         watcher_thread.join(timeout=1.0)
 
-def handle_post_upgrade_iesa(ut_ip: str, timeout_before_reboot_secs: int = 240, ping_timeout_after_reboot_secs: int = 300) -> bool:
-    return check_safe_reboot_ut(ut_ip=ut_ip, timeout_before_reboot_secs=timeout_before_reboot_secs, should_ping_after_reboot=False, ping_timeout_after_reboot_secs=ping_timeout_after_reboot_secs)
+
+def handle_post_upgrade_iesa(ut_ip: str, timeout_before_reboot_secs: int = 240) -> bool:
+    return check_safe_reboot_ut(ut_ip=ut_ip, timeout_before_reboot_secs=timeout_before_reboot_secs, should_ping_after_reboot=True)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Copy binary or IESA artifact to ACU through a UT jump host.")
-    parser.add_argument(ARG_MODE, choices=[MODE_BINARY_SHELL_CMD, MODE_IESA_SHELL_CMD, MODE_IESA_PYTHON, MODE_NO_SETUP], required=True, help="Copy mode.")
+    parser.add_argument(ARG_MODE, choices=[MODE_BINARY_SHELL_CMD, MODE_IESA_SHELL_CMD,
+                        MODE_IESA_PYTHON, MODE_NO_SETUP], required=True, help="Copy mode.")
     parser.add_argument(ARG_LOCAL_PATH, required=True, help="Local file path or binary output directory.")
     parser.add_argument(ARG_TARGET_IP, default=EMPTY_STR_VALUE, help="Target UT IP used as the SSH jump host.")
     parser.add_argument(ARG_DEST_NAME, default=EMPTY_STR_VALUE, help="Optional destination filename on ACU.")
     parser.add_argument(ARG_REMOTE_DIR, default=DEFAULT_REMOTE_DIR,
                         help=f"Remote ACU directory. Defaults to {DEFAULT_REMOTE_DIR}.")
     parser.add_argument(ARG_REMOTE_HOST_IP, default=ACU_IP, help=f"Remote ACU IP. Defaults to {ACU_IP}.")
-    add_arg_bool(parser, ARG_PROMPT_BEFORE_EXECUTE, default=True,
+    add_arg_bool(parser, ARG_PROMPT_BEFORE_EACH_EXECUTE, default=False,
                  help_text="Prompt before executing the IESA install command")
     args = parser.parse_args()
 
@@ -228,13 +236,14 @@ def main() -> None:
     target_ip = _get_target_ip(get_arg_value(args, ARG_TARGET_IP))
     dest_name = get_arg_value(args, ARG_DEST_NAME) or local_file.name
     remote_abs_path = f"{remote_dir}/{dest_name}"
-
+    should_prompt = get_arg_value(args, ARG_PROMPT_BEFORE_EACH_EXECUTE)
     _ensure_local_file_accessible(local_file)
     original_md5 = get_file_md5sum(str(local_file)).lower()
     remote_md5_before = get_remote_file_checksum(remote_host_ip=acu_host_ip, remote_path=remote_abs_path, remote_user=ACU_USER,
                                                  password=ACU_PASSWORD, checksum_type=CHECKSUM_TYPE_MD5, jump_host_ip=target_ip,
                                                  jump_user=SSM_USER, jump_password=SSM_PASSWORD)
-    _log_checksums(local_md5=original_md5, remote_md5=remote_md5_before, remote_abs_path=remote_abs_path, stage="before copy")
+    _log_checksums(local_md5=original_md5, remote_md5=remote_md5_before,
+                   remote_abs_path=remote_abs_path, stage="before copy")
 
     is_copied = False
     if remote_md5_before == original_md5:
@@ -247,21 +256,24 @@ def main() -> None:
         remote_md5_after = get_remote_file_checksum(remote_host_ip=acu_host_ip, remote_path=remote_abs_path, remote_user=ACU_USER,
                                                     password=ACU_PASSWORD, checksum_type=CHECKSUM_TYPE_MD5, jump_host_ip=target_ip,
                                                     jump_user=SSM_USER, jump_password=SSM_PASSWORD)
-        _log_checksums(local_md5=original_md5, remote_md5=remote_md5_after, remote_abs_path=remote_abs_path, stage="after copy")
+        _log_checksums(local_md5=original_md5, remote_md5=remote_md5_after,
+                       remote_abs_path=remote_abs_path, stage="after copy")
         if remote_md5_after != original_md5:
-            raise RuntimeError(f"Checksum mismatch after copy. local={original_md5}, remote={remote_md5_after or 'MISSING'}, path={remote_abs_path}")
+            raise RuntimeError(
+                f"Checksum mismatch after copy. local={original_md5}, remote={remote_md5_after or 'MISSING'}, path={remote_abs_path}")
         is_copied = True
         LOG_LINE_SEPARATOR()
         LOG("SCP copy completed successfully")
         show_noti(title="Copy Complete", message=f"File copied to {target_ip}", no_log_on_success=True)
 
-
     INSTALL_COMPLETE_MSG = "Install complete. Please reboot to boot into the other partition"
+
     def _on_install_iesa_line_recv(line: str) -> bool:
         LOG(line)
         if INSTALL_COMPLETE_MSG not in line:
             return False
-        show_noti(title="IESA Install Complete", message=f"{INSTALL_COMPLETE_MSG} ({target_ip})", no_log_on_success=True)
+        show_noti(title="IESA Install Complete",
+                  message=f"{INSTALL_COMPLETE_MSG} ({target_ip})", no_log_on_success=True)
         return True
 
     ut_command: Optional[str] = None
@@ -273,17 +285,20 @@ def main() -> None:
         LOG_LINE_SEPARATOR()
     elif mode == MODE_IESA_SHELL_CMD:
         purpose = f"Setup IESA on target IP {target_ip}"
-        ut_command = _build_iesa_post_copy_cmd(original_md5=original_md5, remote_dir=remote_dir, remote_name=dest_name,
-                                               prompt_before_execute=get_arg_value(args, ARG_PROMPT_BEFORE_EXECUTE))
+        ut_command = _build_iesa_post_copy_cmd(
+            original_md5=original_md5, remote_dir=remote_dir, remote_name=dest_name, prompt_before_execute=should_prompt)
     elif mode == MODE_IESA_PYTHON:
         _run_iesa_install_via_python(remote_name=dest_name, remote_host_ip=acu_host_ip, remote_user=ACU_USER,
-                                     jump_host_ip=target_ip, should_prompt=get_arg_value(args, ARG_PROMPT_BEFORE_EXECUTE), on_install_line_recv=_on_install_iesa_line_recv, remote_password=ACU_PASSWORD, jump_user=SSM_USER, jump_password=SSM_PASSWORD)
-        if prompt_confirmation("Handle post-upgrade steps now (y/n)?"):
-            if not handle_post_upgrade_iesa(ut_ip=target_ip):
-                raise RuntimeError(f"Post-upgrade handling failed for UT {target_ip}.")
-
+                                     jump_host_ip=target_ip, should_prompt=should_prompt, on_install_line_recv=_on_install_iesa_line_recv, remote_password=ACU_PASSWORD, jump_user=SSM_USER, jump_password=SSM_PASSWORD)
+        if should_prompt:
+            if prompt_confirmation("Handle post-upgrade steps now (y/n)?"):
+                if not handle_post_upgrade_iesa(ut_ip=target_ip):
+                    raise RuntimeError(f"Post-upgrade handling failed for UT {target_ip}.")
+            else:
+                LOG(f"{LOG_PREFIX_MSG_INFO} Skipped post-upgrade handling by user choice.")
         else:
-            LOG(f"{LOG_PREFIX_MSG_INFO} Skipped post-upgrade handling by user choice.")
+            handle_post_upgrade_iesa(ut_ip=target_ip)
+
     else:
         action = "copied" if is_copied else "already up to date (copy skipped)"
         LOG(f"File {action}. Run on target UT {target_ip}!!")

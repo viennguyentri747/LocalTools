@@ -587,6 +587,25 @@ def git_stage_and_commit(repo_path: Path, message: str, *, show_diff: bool = Fal
         LOG_EXCEPTION(e)
         return False
 
+def git_get_changed_file_paths(repo_path: Path | str) -> List[str]:
+    """Returns list of actually changed file paths (content changes only).
+    
+    Unlike git status, this uses git diff --name-only which compares actual
+    content, avoiding phantom modifications from stale stat/ctime issues.
+    """
+    result = run_shell(
+        [CMD_GIT, "diff", "--name-only"],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check_throw_exception_on_exit_code=False,
+    )
+    if result.returncode != 0:
+        LOG(f"WARNING: git diff --name-only failed in '{repo_path}' with code {result.returncode}.",
+            file=sys.stderr)
+        return []
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
 
 def git_get_porcelain_status_lines(repo_path: Path, exclude_pattern: str | None = None) -> List[str]:
     """Returns filtered list of porcelain status lines."""
@@ -600,7 +619,6 @@ def git_get_porcelain_status_lines(repo_path: Path, exclude_pattern: str | None 
 
     status_lines: List[str] = [line for line in result.stdout.splitlines() if line.strip()]
     return status_lines
-
 
 def git_get_staged_files(repo_path: Path | str) -> List[str]:
     """Returns list of staged file paths."""
@@ -616,3 +634,26 @@ def git_get_staged_files(repo_path: Path | str) -> List[str]:
 def git_has_staged_changes(repo_path: Path | str) -> bool:
     """Returns True when the git index contains staged changes."""
     return bool(git_get_staged_files(repo_path))
+
+def git_refresh_index(repo_path: Path | str) -> bool:
+    """Forces git to re-examine all tracked files and update the index cache.
+    
+    Useful when git status reports phantom modifications (files appear dirty
+    but have no actual content changes). This can happen when file timestamps
+    or stat info changes without content changing (e.g. NFS mounts, Docker
+    volumes, build scripts touching files).
+    
+    Returns True if the refresh succeeded, False otherwise.
+    """
+    result = run_shell(
+        [CMD_GIT, "update-index", "--really-refresh"],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check_throw_exception_on_exit_code=False,
+    )
+    if result.returncode != 0:
+        LOG(f"WARNING: git update-index --really-refresh failed in '{repo_path}' with code {result.returncode}.",
+            file=sys.stderr)
+        return False
+    return True

@@ -104,6 +104,13 @@ LOCAL_REPO_MAPPING: LocalReposMapping = LocalReposMapping(
         gl_project_path=f"{INTELLIAN_ADC_GROUP}/{GERRIT_OW}/{IESA_UPGRADE_REPO_NAME}",
         token_key_name=GL_UPGRADE_TOKEN_KEY_NAME
     ),
+
+    IesaLocalRepoInfo(
+        IESA_THIRD_PARTY_APPS_REPO_NAME,
+        repo_local_path=CORE_REPOS_PATH / IESA_THIRD_PARTY_APPS_REPO_NAME,
+        gl_project_path=f"{INTELLIAN_ADC_GROUP}/{IESA_THIRD_PARTY_APPS_REPO_NAME}",
+        token_key_name=GL_THIRD_PARTY_APPS_TOKEN_KEY_NAME
+    ),
 )
 
 

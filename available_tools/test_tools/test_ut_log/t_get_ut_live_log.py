@@ -41,9 +41,9 @@ class ELogStreamMode(str, Enum):
 
 def get_tool_templates() -> List[ToolTemplate]:
     return [
-        ToolTemplate(name="Tail GNSS log", extra_description="Direct tail on an SSM host",
+        ToolTemplate(name="Tail GNSS live log", extra_description="Direct tail on an SSM host",
                      args={ARG_HOST_IP: f"{SSM_NORMAL_IP_PREFIX}.57", ARG_REMOTE_PATH: DEFAULT_GNSS_LOG_PATH, ARG_STREAM_DURATION_SECS: 60.0}),
-        ToolTemplate(name="Tail INS monitor log", extra_description="Tail ACU log through an SSM jump host",
+        ToolTemplate(name="Tail INS monitor live log", extra_description="Tail ACU log through an SSM jump host",
                      args={ARG_HOST_IP: ACU_IP, ARG_JUMP_HOST_IP: f"{SSM_NORMAL_IP_PREFIX}.57", ARG_REMOTE_PATH: DEFAULT_INS_MONITOR_LOG_PATH, ARG_STREAM_DURATION_SECS: 60.0}),
     ]
 
@@ -113,38 +113,26 @@ def build_live_log_handlers(log_path: str, log_stream_mode: ELogStreamMode = ELo
 
 def stream_live_remote_log_to_file(host_ip: str, remote_log_path: str, user: str = SSM_USER, password: Optional[str] = None, jump_host_ip: Optional[str] = None,
                         jump_user: Optional[str] = None, jump_password: Optional[str] = None, timeout: int = 5, read_timeout: int = 60, tail_lines: int = 0,
-                        stream_duration_secs: float = 0.0, log_path: Optional[str] = None, log_stream_mode: ELogStreamMode = ELogStreamMode.OverrideSingleFile,
-                        on_line_recv: Optional[Callable[[str], None]] = None) -> None:
+                        stream_duration_secs: float = 30.0, log_path: Optional[str] = None, log_stream_mode: ELogStreamMode = ELogStreamMode.OverrideSingleFile,
+                        on_line_recv: Optional[Callable[[str], None]] = None, stop_event: Optional[threading.Event] = None) -> None:
     password = password or read_value_from_credential_file(CREDENTIALS_FILE_PATH, UT_PWD_KEY_NAME)
     if not password:
         raise ValueError(f"Missing UT password in {CREDENTIALS_FILE_PATH} with key {UT_PWD_KEY_NAME}")
     resolved_jump_user = jump_user or user
     resolved_jump_password = jump_password or password
-    is_reachable = ping_remote_host_via_jump_host(
-        remote_host_ip=host_ip,
-        jump_host_ip=jump_host_ip,
-        jump_user=resolved_jump_user,
-        jump_password=resolved_jump_password,
-        max_wait_sec=DEFAULT_REACHABLE_WAIT_SECS,
-        retry_interval_sec=5.0,
-        ping_count=1,
-        ping_timeout_sec=2,
-        ssh_timeout_sec=10,
-        check_jump_host_reachable=True,
-        mute=False,
-    )
+    is_reachable = ping_remote_host_via_jump_host( remote_host_ip=host_ip, jump_host_ip=jump_host_ip, jump_user=resolved_jump_user, jump_password=resolved_jump_password, max_wait_sec=DEFAULT_REACHABLE_WAIT_SECS, retry_interval_sec=5.0, ping_count=1, ping_timeout_sec=2, ssh_timeout_sec=10, check_jump_host_reachable=True, mute=False, )
     if not is_reachable:
         via_text = f" via jump host {jump_host_ip}" if jump_host_ip else EMPTY_STR_VALUE
         raise RuntimeError(f"{host_ip} is not reachable{via_text} within {DEFAULT_REACHABLE_WAIT_SECS}s")
     resolved_log_path = log_path or str(_build_default_capture_path(host_ip=host_ip, jump_host_ip=jump_host_ip, remote_log_path=remote_log_path))
     LOG(f"{LOG_PREFIX_MSG_INFO} Capture live log to {resolved_log_path}")
     handlers = build_live_log_handlers(log_path=resolved_log_path, log_stream_mode=log_stream_mode)
-    stop_event = threading.Event()
+    effective_stop_event = stop_event or threading.Event()
     stop_timer: Optional[threading.Timer] = None
     if stream_duration_secs < 0:
         raise ValueError(f"{ARG_STREAM_DURATION_SECS} must be >= 0")
     if stream_duration_secs > 0:
-        stop_timer = threading.Timer(stream_duration_secs, stop_event.set)
+        stop_timer = threading.Timer(stream_duration_secs, effective_stop_event.set)
         stop_timer.daemon = True
         stop_timer.start()
     def _on_line(line: str) -> None:
@@ -152,7 +140,7 @@ def stream_live_remote_log_to_file(host_ip: str, remote_log_path: str, user: str
             on_line_recv(line)
         LOG(line, show_time=True, handlers=handlers)
     try:
-        stream_live_remote_log(host_ip=host_ip, user=user, password=password, remote_log_path=remote_log_path, timeout=timeout, jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=resolved_jump_password, tail_lines=tail_lines, read_timeout=read_timeout, stop_event=stop_event, on_line=_on_line)
+        stream_live_remote_log(host_ip=host_ip, user=user, password=password, remote_log_path=remote_log_path, timeout=timeout, jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=resolved_jump_password, tail_lines=tail_lines, read_timeout=read_timeout, stop_event=effective_stop_event, on_line=_on_line)
     finally:
         if stop_timer:
             stop_timer.cancel()

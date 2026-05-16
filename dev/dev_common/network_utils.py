@@ -55,7 +55,35 @@ def get_remote_file_checksum(remote_host_ip: str, remote_path: str, remote_user:
         f"Could not parse remote checksum output for '{remote_path}' on {remote_host_ip}. Raw stdout='{stdout.strip()}' stderr='{stderr.strip()}'")
 
 
-def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_path: str, timeout: int = 5,
+def copy_remote_file_if_needed(local_path: str | Path, remote_host_ip: str, remote_dest_path: str, remote_user: str = ACU_USER, password: Optional[str] = None,
+                               jump_host_ip: Optional[str] = None, jump_user: Optional[str] = None, jump_password: Optional[str] = None, checksum_type: str = CHECKSUM_TYPE_MD5,
+                               checksum_timeout: int = 20, copy_timeout: int = 300, sleep_after_copy_secs: float = 1.0, recursive: Optional[bool] = False) -> Tuple[bool, str, Optional[str], Optional[str]]:
+    """Copy local file to remote only when checksum differs. Returns (is_copied, local_checksum, remote_checksum_before, remote_checksum_after)."""
+    if checksum_type != CHECKSUM_TYPE_MD5:
+        raise ValueError(f"Unsupported checksum_type='{checksum_type}'. copy_remote_file_if_needed currently supports '{CHECKSUM_TYPE_MD5}' only.")
+    local_abs_path: Path = Path(local_path).expanduser().resolve()
+    local_checksum = get_file_md5sum(local_abs_path)
+    remote_checksum_before = get_remote_file_checksum(remote_host_ip=remote_host_ip, remote_path=remote_dest_path, remote_user=remote_user, password=password,
+                                                      checksum_type=checksum_type, timeout=checksum_timeout, jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=jump_password)
+    if remote_checksum_before == local_checksum:
+        LOG(f"MD5 checksums local={local_checksum} == remote={remote_checksum_before}. Skipping copy of {local_abs_path} to {remote_host_ip}:{remote_dest_path}")
+        return False, local_checksum, remote_checksum_before, remote_checksum_before
+    if jump_host_ip:
+        LOG(f"MD5 checksums local={local_checksum} != remote={remote_checksum_before}. Copying {local_abs_path} to {remote_host_ip}:{remote_dest_path} via jump host {jump_host_ip}")
+        copy_to_remote_via_jump_host(local_path=local_abs_path, remote_host_ip=remote_host_ip, remote_dest_path=remote_dest_path, jump_host_ip=jump_host_ip, remote_user=remote_user,
+                                     password=password, jump_user=jump_user, jump_password=jump_password, recursive=recursive, timeout=copy_timeout)
+    else:
+        copy_to_remote(local_path=local_abs_path, remote_host_ip=remote_host_ip, remote_dest_path=remote_dest_path, remote_user=remote_user, password=password, recursive=recursive, timeout=copy_timeout)
+    if sleep_after_copy_secs > 0:
+        time.sleep(sleep_after_copy_secs)
+    remote_checksum_after = get_remote_file_checksum(remote_host_ip=remote_host_ip, remote_path=remote_dest_path, remote_user=remote_user, password=password,
+                                                     checksum_type=checksum_type, timeout=checksum_timeout, jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=jump_password)
+    if remote_checksum_after != local_checksum:
+        raise RuntimeError(f"Checksum mismatch after copy. local={local_checksum}, remote={remote_checksum_after or 'MISSING'}, path={remote_dest_path}")
+    return True, local_checksum, remote_checksum_before, remote_checksum_after
+
+
+def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_path: str, connect_timeout: int = 5,
                         jump_host_ip: Optional[str] = None, jump_user: Optional[str] = None,
                         jump_password: Optional[str] = None, tail_lines: int = 0, read_timeout: int = 900,
                         poll_interval: float = 0.1, stop_event=None, on_line: Optional[Callable[[str], None]] = None,
@@ -86,7 +114,7 @@ def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_pa
             saw_first_log = False
 
             target_client, jump_client, jump_channel = open_ssh_client(
-                host_ip=host_ip, user=user, password=password, timeout=timeout,
+                host_ip=host_ip, user=user, password=password, timeout=connect_timeout,
                 jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=jump_password)
             _, stdout, stderr = target_client.exec_command(remote_cmd)
             channel_read_timeout = 1.0

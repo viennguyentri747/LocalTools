@@ -294,7 +294,7 @@ def main() -> None:
             "log_path": str(LOG_OUT_PATH),
         },
         "md5sum": {
-            "iesa_artifact": get_file_md5sum_safe(iesa_artifact_path) if iesa_artifact_path else None,
+            "iesa_artifact": get_file_md5sum(iesa_artifact_path) if iesa_artifact_path else None,
             "binary_directory_files": get_binary_directory_md5_map(OW_SW_BUILD_BINARY_OUTPUT_PATH),
         },
     }
@@ -890,18 +890,8 @@ def get_binary_directory_md5_map(binary_directory: Path) -> Dict[str, Optional[s
     for file_path in sorted(binary_directory.rglob("*")):
         if not file_path.is_file():
             continue
-        md5_map[file_path.name] = get_file_md5sum_safe(file_path)
+        md5_map[file_path.name] = get_file_md5sum(file_path)
     return md5_map
-
-
-def get_file_md5sum_safe(file_path: Path) -> Optional[str]:
-    if not file_path.exists() or not file_path.is_file():
-        return None
-    try:
-        return get_file_md5sum(str(file_path))
-    except Exception as e:
-        LOG(f"WARNING: Failed to calculate md5sum for '{file_path}': {e}. Saving null md5 in metadata.", file=sys.stderr)
-        return None
 
 
 def write_build_metadata(metadata_payload: Dict[str, Any]) -> Path:

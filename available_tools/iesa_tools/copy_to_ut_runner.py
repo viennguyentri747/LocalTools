@@ -13,10 +13,10 @@ import shlex
 import stat
 import sys
 import threading
-from typing import Callable, Optional
+from typing import Callable, Optional, Tuple
 from dev.dev_common import *
 from dev.dev_iesa.acu_utils import create_install_iesa_cmd
-from dev.dev_iesa.iesa_ut_install_utils import check_safe_reboot_ut
+from dev.dev_iesa.iesa_ut_install_utils import EIesaPrecheckResult, IesaPrecheckState, check_safe_reboot_ut, run_iesa_upgrade_precheck
 
 MODE_BINARY_SHELL_CMD = "binary_shell_cmd"
 MODE_IESA_SHELL_CMD = "iesa_shell_cmd"
@@ -35,6 +35,14 @@ DEFAULT_TARGET_IP_PREFIX = "192.168.100."
 class ERequestCommand(str, Enum):
     CONTINUE = "continue"
     RETURN = "return"
+
+
+class EIesaInstallResult(str, Enum):
+    CANNOT_START = "cannot_start"
+    INSTALL_TIMEOUT = "install_timeout"
+    INSTALL_SUCCESS = "install_success"
+    INSTALL_FAILED = "install_failed"
+    USER_SKIPPED = "user_skipped"
 
 
 def _prompt_non_empty(prompt_text: str, default_value: Optional[str] = None) -> str:
@@ -168,16 +176,37 @@ def _wrap_command_with_remote_env(command: str) -> str:
     return f"sh -lc {shlex.quote(wrapped_body)}"
 
 
-def _run_iesa_install_via_python(remote_name: str, remote_host_ip: str, remote_user: str, jump_host_ip: str, should_prompt: bool, on_install_line_recv: Optional[Callable[[str], bool]], on_request_next_command: Optional[Callable[[], ERequestCommand]] = None, remote_password: Optional[str] = None, jump_user: Optional[str] = None, jump_password: Optional[str] = None) -> None:
+def _run_iesa_install_via_python(remote_name: str, remote_host_ip: str, remote_user: str, jump_host_ip: str, should_prompt: bool, on_install_line_recv: Optional[Callable[[str], bool]],
+                                 on_request_next_command: Optional[Callable[[], ERequestCommand]] = None, on_request_return_result: Optional[Callable[[], EIesaInstallResult]] = None,
+                                 on_precheck_ready: Optional[Callable[[IesaPrecheckState], None]] = None, precheck_timeout_secs: int = 180, remote_password: Optional[str] = None,
+                                 jump_user: Optional[str] = None, jump_password: Optional[str] = None) -> Tuple[EIesaInstallResult, str, Optional[IesaPrecheckState]]:
     if should_prompt and not prompt_confirmation("MD5 match! Install (y/n)?"):
         LOG(f"{LOG_PREFIX_MSG_WARNING} Install skipped by user.")
-        return
+        return EIesaInstallResult.USER_SKIPPED, "install skipped by user", None
+    precheck_remote_password = (remote_password if remote_password is not None else ACU_PASSWORD) or EMPTY_STR_VALUE
+    precheck_jump_user = jump_user or SSM_USER
+    precheck_jump_password = jump_password if jump_password is not None else SSM_PASSWORD
+
+    def _run_precheck_cmd(command: str) -> str:
+        stdout, stderr = run_ssh_command(host_ip=remote_host_ip, user=remote_user, password=precheck_remote_password, command=command, timeout=20,
+                                         jump_host_ip=jump_host_ip, jump_user=precheck_jump_user, jump_password=precheck_jump_password)
+        if stderr.strip():
+            LOG(f"{LOG_PREFIX_MSG_WARNING} Pre-upgrade command stderr: {stderr.strip()}")
+        return stdout.strip()
+
+    precheck_result, precheck_msg, precheck_state = run_iesa_upgrade_precheck(base_url=f"http://{jump_host_ip}", cmd_runner=_run_precheck_cmd, timeout_secs=precheck_timeout_secs)
+    if precheck_result != EIesaPrecheckResult.READY or not precheck_state:
+        return EIesaInstallResult.CANNOT_START, f"pre-upgrade check failed ({precheck_result}): {precheck_msg}", None
+    if on_precheck_ready:
+        on_precheck_ready(precheck_state)
     cache_upgrade_log_path = ACU_CACHE_UPGRADE_LOG_FILE
-    install_and_tail_background_cmd = _wrap_command_with_remote_env(
-        create_install_iesa_cmd(remote_name, cache_upgrade_log_path))
+    install_and_tail_background_cmd = _wrap_command_with_remote_env(create_install_iesa_cmd(remote_name, cache_upgrade_log_path))
     LOG(f"{LOG_PREFIX_MSG_INFO} Running remote install command on ACU {remote_host_ip} via UT {jump_host_ip}...")
-    install_stdout, install_stderr = run_ssh_command(host_ip=remote_host_ip, user=remote_user, password=(remote_password if remote_password is not None else ACU_PASSWORD) or EMPTY_STR_VALUE,
-                                                     command=install_and_tail_background_cmd, timeout=60, jump_host_ip=jump_host_ip, jump_user=jump_user or SSM_USER, jump_password=jump_password if jump_password is not None else SSM_PASSWORD)
+    try:
+        install_stdout, install_stderr = run_ssh_command(host_ip=remote_host_ip, user=remote_user, password=precheck_remote_password, command=install_and_tail_background_cmd, timeout=60,
+                                                         jump_host_ip=jump_host_ip, jump_user=precheck_jump_user, jump_password=precheck_jump_password)
+    except Exception as exc:
+        return EIesaInstallResult.CANNOT_START, f"install command failed to start: {exc}", precheck_state
     if install_stderr.strip():
         LOG(f"{LOG_PREFIX_MSG_WARNING} Install command stderr: {install_stderr.strip()}")
     if install_stdout.strip():
@@ -185,11 +214,16 @@ def _run_iesa_install_via_python(remote_name: str, remote_host_ip: str, remote_u
     LOG(f"{LOG_PREFIX_MSG_SUCCESS} IESA install command started successfully on ACU {remote_host_ip}.")
 
     stop_event = threading.Event()
+    install_result: EIesaInstallResult = EIesaInstallResult.INSTALL_FAILED
+    install_reason = "install log stream ended without explicit success marker"
 
     def _watch_next_command() -> None:
+        nonlocal install_result, install_reason
         while not stop_event.is_set():
             if on_request_next_command and on_request_next_command() == ERequestCommand.RETURN:
                 LOG(f"{LOG_PREFIX_MSG_INFO} Caller requested early return from remote log stream.")
+                install_result = on_request_return_result() if on_request_return_result else EIesaInstallResult.INSTALL_TIMEOUT
+                install_reason = "caller requested return from install log stream"
                 stop_event.set()
                 return
             time.sleep(10.0)
@@ -200,14 +234,21 @@ def _run_iesa_install_via_python(remote_name: str, remote_host_ip: str, remote_u
         LOG(f"{LOG_PREFIX_MSG_INFO} Tailing upgrade logs from {cache_upgrade_log_path}")
 
         def _on_line(line: str) -> None:
+            nonlocal install_result, install_reason
             if on_install_line_recv and on_install_line_recv(line):
                 LOG(f"{LOG_PREFIX_MSG_INFO} Install completion detected for UT {jump_host_ip}. Stopping remote log stream.'")
+                install_result = EIesaInstallResult.INSTALL_SUCCESS
+                install_reason = "install completion marker detected"
                 stop_event.set()
-        stream_live_remote_log(host_ip=remote_host_ip, user=remote_user, password=(remote_password if remote_password is not None else ACU_PASSWORD) or EMPTY_STR_VALUE, remote_log_path=cache_upgrade_log_path,
-                               jump_host_ip=jump_host_ip, jump_user=jump_user or SSM_USER, jump_password=jump_password if jump_password is not None else SSM_PASSWORD, tail_lines=0, read_timeout=0, stop_event=stop_event, on_line=_on_line)
+        stream_live_remote_log(host_ip=remote_host_ip, user=remote_user, password=precheck_remote_password, remote_log_path=cache_upgrade_log_path, jump_host_ip=jump_host_ip, jump_user=precheck_jump_user,
+                               jump_password=precheck_jump_password, tail_lines=0, read_timeout=0, stop_event=stop_event, on_line=_on_line)
+    except Exception as exc:
+        install_result = EIesaInstallResult.INSTALL_FAILED
+        install_reason = f"install log streaming failed: {exc}"
     finally:
         stop_event.set()
         watcher_thread.join(timeout=1.0)
+    return install_result, install_reason, precheck_state
 
 
 def handle_post_upgrade_iesa(ut_ip: str, timeout_before_reboot_secs: int = 240) -> bool:
@@ -238,29 +279,13 @@ def main() -> None:
     remote_abs_path = f"{remote_dir}/{dest_name}"
     should_prompt = get_arg_value(args, ARG_PROMPT_BEFORE_EACH_EXECUTE)
     _ensure_local_file_accessible(local_file)
-    original_md5 = get_file_md5sum(str(local_file)).lower()
-    remote_md5_before = get_remote_file_checksum(remote_host_ip=acu_host_ip, remote_path=remote_abs_path, remote_user=ACU_USER,
-                                                 password=ACU_PASSWORD, checksum_type=CHECKSUM_TYPE_MD5, jump_host_ip=target_ip,
-                                                 jump_user=SSM_USER, jump_password=SSM_PASSWORD)
-    _log_checksums(local_md5=original_md5, remote_md5=remote_md5_before,
-                   remote_abs_path=remote_abs_path, stage="before copy")
-
-    is_copied = False
-    if remote_md5_before == original_md5:
+    is_copied, original_md5, remote_md5_before, remote_md5_after = copy_remote_file_if_needed(local_path=local_file, remote_host_ip=acu_host_ip, remote_dest_path=remote_abs_path, remote_user=ACU_USER,
+                                                                                               password=ACU_PASSWORD, jump_host_ip=target_ip, jump_user=SSM_USER, jump_password=SSM_PASSWORD, checksum_type=CHECKSUM_TYPE_MD5)
+    _log_checksums(local_md5=original_md5, remote_md5=remote_md5_before, remote_abs_path=remote_abs_path, stage="before copy")
+    if not is_copied:
         LOG(f"{LOG_PREFIX_MSG_INFO} Remote file already matches local file. Skipping copy: {remote_abs_path}")
     else:
-        copy_to_remote_via_jump_host(local_path=local_file, remote_host_ip=acu_host_ip, remote_dest_path=remote_abs_path,
-                                     jump_host_ip=target_ip, remote_user=ACU_USER, password=ACU_PASSWORD,
-                                     jump_user=SSM_USER, jump_password=SSM_PASSWORD, recursive=False)
-        time.sleep(1)
-        remote_md5_after = get_remote_file_checksum(remote_host_ip=acu_host_ip, remote_path=remote_abs_path, remote_user=ACU_USER,
-                                                    password=ACU_PASSWORD, checksum_type=CHECKSUM_TYPE_MD5, jump_host_ip=target_ip,
-                                                    jump_user=SSM_USER, jump_password=SSM_PASSWORD)
-        _log_checksums(local_md5=original_md5, remote_md5=remote_md5_after,
-                       remote_abs_path=remote_abs_path, stage="after copy")
-        if remote_md5_after != original_md5:
-            raise RuntimeError(
-                f"Checksum mismatch after copy. local={original_md5}, remote={remote_md5_after or 'MISSING'}, path={remote_abs_path}")
+        _log_checksums(local_md5=original_md5, remote_md5=remote_md5_after, remote_abs_path=remote_abs_path, stage="after copy")
         is_copied = True
         LOG_LINE_SEPARATOR()
         LOG("SCP copy completed successfully")
@@ -288,8 +313,18 @@ def main() -> None:
         ut_command = _build_iesa_post_copy_cmd(
             original_md5=original_md5, remote_dir=remote_dir, remote_name=dest_name, prompt_before_execute=should_prompt)
     elif mode == MODE_IESA_PYTHON:
-        _run_iesa_install_via_python(remote_name=dest_name, remote_host_ip=acu_host_ip, remote_user=ACU_USER,
-                                     jump_host_ip=target_ip, should_prompt=should_prompt, on_install_line_recv=_on_install_iesa_line_recv, remote_password=ACU_PASSWORD, jump_user=SSM_USER, jump_password=SSM_PASSWORD)
+        install_result, install_reason, _ = _run_iesa_install_via_python(remote_name=dest_name, remote_host_ip=acu_host_ip, remote_user=ACU_USER, jump_host_ip=target_ip,
+                                                                          should_prompt=should_prompt, on_install_line_recv=_on_install_iesa_line_recv, remote_password=ACU_PASSWORD,
+                                                                          jump_user=SSM_USER, jump_password=SSM_PASSWORD)
+        if install_result == EIesaInstallResult.CANNOT_START:
+            raise RuntimeError(f"IESA install cannot start: {install_reason}")
+        if install_result == EIesaInstallResult.INSTALL_TIMEOUT:
+            raise RuntimeError(f"IESA install timed out: {install_reason}")
+        if install_result == EIesaInstallResult.INSTALL_FAILED:
+            raise RuntimeError(f"IESA install failed: {install_reason}")
+        if install_result == EIesaInstallResult.USER_SKIPPED:
+            LOG(f"{LOG_PREFIX_MSG_INFO} IESA install skipped by user.")
+            return
         if should_prompt:
             if prompt_confirmation("Handle post-upgrade steps now (y/n)?"):
                 if not handle_post_upgrade_iesa(ut_ip=target_ip):

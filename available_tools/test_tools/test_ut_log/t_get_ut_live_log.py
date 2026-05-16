@@ -7,7 +7,7 @@ from pathlib import Path
 import threading
 import sys
 from datetime import datetime
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Sequence, Tuple
 from dev.dev_common import *
 from dev.dev_common.core_independent_utils import read_value_from_credential_file
 from dev.dev_common.network_utils import ping_remote_host_via_jump_host
@@ -37,6 +37,46 @@ DEFAULT_REACHABLE_WAIT_SECS = 300
 class ELogStreamMode(str, Enum):
     OverrideSingleFile = "OverrideSingleFile"
     CreateNewFile = "CreateNewFile"
+
+
+class RotateWithDiscardHandler(RotatingFileHandler):
+    def __init__(self, log_file: Path, should_keep: Callable[[List[Path]], List[Tuple[Path, bool]]], max_bytes: int = LIVE_LOG_FILE_MAX_BYTES, backup_count: int = LIVE_LOG_FILE_BACKUP_COUNT):
+        self._log_file = Path(log_file)
+        self._should_keep = should_keep
+        self._did_cleanup = False
+        super().__init__(str(self._log_file), maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8")
+
+    def _run_discard_if_needed(self) -> None:
+        if self._did_cleanup:
+            return
+        self._did_cleanup = True
+        candidates: List[Path] = [self._log_file]
+        candidates.extend(sorted(self._log_file.parent.glob(f"{self._log_file.name}.*")))
+        decisions: List[Tuple[Path, bool]] = [(item, True) for item in candidates]
+        try:
+            decisions = self._should_keep(candidates)
+        except Exception as exc:
+            LOG(f"{LOG_PREFIX_MSG_WARNING} should_keep callback failed for {self._log_file}: {exc}")
+            decisions = [(item, True) for item in candidates]
+        keep_map = {Path(path): bool(should_keep) for path, should_keep in decisions}
+        for candidate in candidates:
+            if keep_map.get(Path(candidate), True):
+                continue
+            try:
+                if candidate.exists():
+                    candidate.unlink()
+            except Exception as exc:
+                LOG(f"{LOG_PREFIX_MSG_WARNING} Failed to discard log file {candidate}: {exc}")
+
+    def close(self) -> None:
+        try:
+            super().close()
+        finally:
+            self._run_discard_if_needed()
+
+
+# Keep the misspelled alias for compatibility with existing user notes/usages.
+RotateWithDisacardHandler = RotateWithDiscardHandler
 
 
 def get_tool_templates() -> List[ToolTemplate]:
@@ -94,7 +134,29 @@ def _resolve_capture_path_by_mode(log_path: str, log_stream_mode: ELogStreamMode
     return base_log_path.parent / base_log_path.stem / ts / base_log_path.name
 
 
-def build_live_log_handlers(log_path: str, log_stream_mode: ELogStreamMode = ELogStreamMode.OverrideSingleFile) -> List[logging.Handler]:
+def close_live_log_handlers(handlers: Sequence[logging.Handler]) -> None:
+    for handler in handlers:
+        try:
+            handler.flush()
+            handler.close()
+        except Exception:
+            pass
+
+
+def start_stop_timer(stream_duration_secs: float, stop_event: threading.Event) -> Optional[threading.Timer]:
+    if stream_duration_secs < 0:
+        raise ValueError(f"{ARG_STREAM_DURATION_SECS} must be >= 0")
+    if stream_duration_secs == 0:
+        return None
+    stop_timer = threading.Timer(stream_duration_secs, stop_event.set)
+    stop_timer.daemon = True
+    stop_timer.start()
+    return stop_timer
+
+
+def build_live_log_handlers(log_path: str, log_stream_mode: ELogStreamMode = ELogStreamMode.OverrideSingleFile,
+                            should_keep: Optional[Callable[[List[Path]], List[Tuple[Path, bool]]]] = None,
+                            max_bytes: int = LIVE_LOG_FILE_MAX_BYTES, backup_count: int = LIVE_LOG_FILE_BACKUP_COUNT) -> List[logging.Handler]:
     """Handle where to send live log messages (file + rotation)"""
     resolved_log_path = _resolve_capture_path_by_mode(log_path=log_path, log_stream_mode=log_stream_mode)
     LOG(f"{LOG_PREFIX_MSG_INFO} Build live log handlers. log_path={resolved_log_path}, mode={log_stream_mode.value}")
@@ -104,8 +166,12 @@ def build_live_log_handlers(log_path: str, log_stream_mode: ELogStreamMode = ELo
     if log_stream_mode == ELogStreamMode.OverrideSingleFile:
         with open(log_file, "w", encoding="utf-8") as file_obj:
             file_obj.write("")
-    handlers.append(RotatingFileHandler(log_file, maxBytes=LIVE_LOG_FILE_MAX_BYTES,
-                    backupCount=LIVE_LOG_FILE_BACKUP_COUNT))
+    if should_keep is None:
+        handlers.append(RotatingFileHandler(log_file, maxBytes=max_bytes,
+                        backupCount=backup_count, encoding="utf-8"))
+    else:
+        handlers.append(RotateWithDiscardHandler(log_file=log_file, should_keep=should_keep,
+                        max_bytes=max_bytes, backup_count=backup_count))
     for handler in handlers:
         handler.setFormatter(logging.Formatter("%(message)s"))
     return handlers
@@ -113,7 +179,7 @@ def build_live_log_handlers(log_path: str, log_stream_mode: ELogStreamMode = ELo
 
 def stream_live_remote_log_to_file(host_ip: str, remote_log_path: str, user: str = SSM_USER, password: Optional[str] = None, jump_host_ip: Optional[str] = None,
                         jump_user: Optional[str] = None, jump_password: Optional[str] = None, timeout: int = 5, read_timeout: int = 60, tail_lines: int = 0,
-                        stream_duration_secs: float = 30.0, log_path: Optional[str] = None, log_stream_mode: ELogStreamMode = ELogStreamMode.OverrideSingleFile,
+                        handlers: Optional[Sequence[logging.Handler]] = None,
                         on_line_recv: Optional[Callable[[str], None]] = None, stop_event: Optional[threading.Event] = None) -> None:
     password = password or read_value_from_credential_file(CREDENTIALS_FILE_PATH, UT_PWD_KEY_NAME)
     if not password:
@@ -124,44 +190,45 @@ def stream_live_remote_log_to_file(host_ip: str, remote_log_path: str, user: str
     if not is_reachable:
         via_text = f" via jump host {jump_host_ip}" if jump_host_ip else EMPTY_STR_VALUE
         raise RuntimeError(f"{host_ip} is not reachable{via_text} within {DEFAULT_REACHABLE_WAIT_SECS}s")
-    resolved_log_path = log_path or str(_build_default_capture_path(host_ip=host_ip, jump_host_ip=jump_host_ip, remote_log_path=remote_log_path))
-    LOG(f"{LOG_PREFIX_MSG_INFO} Capture live log to {resolved_log_path}")
-    handlers = build_live_log_handlers(log_path=resolved_log_path, log_stream_mode=log_stream_mode)
+    owns_handlers = handlers is None
+    resolved_handlers: List[logging.Handler] = list(handlers) if handlers else [logging.StreamHandler(sys.stdout)]
+    for handler in resolved_handlers:
+        if handler.formatter is None:
+            handler.setFormatter(logging.Formatter("%(message)s"))
     effective_stop_event = stop_event or threading.Event()
-    stop_timer: Optional[threading.Timer] = None
-    if stream_duration_secs < 0:
-        raise ValueError(f"{ARG_STREAM_DURATION_SECS} must be >= 0")
-    if stream_duration_secs > 0:
-        stop_timer = threading.Timer(stream_duration_secs, effective_stop_event.set)
-        stop_timer.daemon = True
-        stop_timer.start()
     def _on_line(line: str) -> None:
         if on_line_recv:
             on_line_recv(line)
-        LOG(line, show_time=True, handlers=handlers)
+        LOG(line, show_time=True, handlers=resolved_handlers)
     try:
         stream_live_remote_log(host_ip=host_ip, user=user, password=password, remote_log_path=remote_log_path, timeout=timeout, jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=resolved_jump_password, tail_lines=tail_lines, read_timeout=read_timeout, stop_event=effective_stop_event, on_line=_on_line)
     finally:
-        if stop_timer:
-            stop_timer.cancel()
-        for handler in handlers:
-            try:
-                handler.flush()
-                handler.close()
-            except Exception:
-                pass
+        if owns_handlers:
+            close_live_log_handlers(resolved_handlers)
 
 
 def main() -> int:
     args = parse_args()
+    resolved_log_path = args.log_path or str(_build_default_capture_path(host_ip=args.host_ip, jump_host_ip=args.jump_host_ip, remote_log_path=args.remote_path))
+    LOG(f"{LOG_PREFIX_MSG_INFO} Capture live log to {resolved_log_path}")
+    handlers = build_live_log_handlers(log_path=resolved_log_path, log_stream_mode=_get_log_stream_mode(args.stream_same_file))
+    stop_event = threading.Event()
+    stop_timer: Optional[threading.Timer] = None
     try:
-        stream_live_remote_log_to_file(host_ip=args.host_ip, remote_log_path=args.remote_path, user=args.user, jump_host_ip=args.jump_host_ip, jump_user=args.jump_user, timeout=args.timeout, read_timeout=args.read_timeout, tail_lines=args.tail_lines, stream_duration_secs=args.stream_duration_secs, log_path=args.log_path, log_stream_mode=_get_log_stream_mode(args.stream_same_file))
+        stop_timer = start_stop_timer(stream_duration_secs=args.stream_duration_secs, stop_event=stop_event)
+        stream_live_remote_log_to_file(host_ip=args.host_ip, remote_log_path=args.remote_path, user=args.user, jump_host_ip=args.jump_host_ip,
+                                       jump_user=args.jump_user, timeout=args.timeout, read_timeout=args.read_timeout, tail_lines=args.tail_lines,
+                                       handlers=handlers, stop_event=stop_event)
     except KeyboardInterrupt:
         LOG(f"{LOG_PREFIX_MSG_WARNING} Stopped by user.")
         return 130
     except Exception as exc:
         LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to stream '{args.remote_path}' from {args.host_ip}: {exc}")
         return 1
+    finally:
+        if stop_timer:
+            stop_timer.cancel()
+        close_live_log_handlers(handlers)
     return 0
 
 

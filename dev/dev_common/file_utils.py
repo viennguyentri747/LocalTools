@@ -125,12 +125,6 @@ def make_path_writable_recursively(path: Path) -> None:
         _chmod_path(path, stat.S_IWUSR)
 
 
-def get_file_md5sum(file_path: str) -> str:
-    with open(file_path, 'rb') as f:
-        md5 = hashlib.md5(f.read()).hexdigest()
-    return md5
-
-
 def read_file_content(file_path: str, encoding='utf-8', errors=None) -> str:
     """Reads the content of a file and returns it as a string."""
     with open(file_path, 'r', encoding=encoding, errors=errors) as f:

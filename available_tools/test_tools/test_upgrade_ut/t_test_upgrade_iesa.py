@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import os
 import sys
 import time
@@ -11,12 +10,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
-from available_tools.iesa_tools.copy_to_ut_runner import ERequestCommand, _run_iesa_install_via_python
-from available_tools.test_tools.test_upgrade_ut.common_utils import EUpgradeResult, check_target_support, run_acu_cmd_via_ut, run_acu_cmd_via_ut_with_retry
+from available_tools.iesa_tools.copy_to_ut_runner import EIesaInstallResult, ERequestCommand, _run_iesa_install_via_python
+from available_tools.test_tools.test_upgrade_ut.common_utils import EUpgradeResult, check_target_support, run_acu_cmd_via_ut
 from dev.dev_common import *
-from dev.dev_common.constants import ACU_IP, ACU_PASSWORD, ACU_USER, CHECKSUM_TYPE_MD5, SSM_PASSWORD, SSM_USER
-from dev.dev_iesa.iesa_ut_install_utils import EUpgradeComponent, _read_current_bootpart, _read_current_root_partition, are_upgrade_components_final
-from dev.dev_common.network_utils import copy_to_remote_via_jump_host, get_remote_file_checksum
+from dev.dev_common.constants import ACU_IP, ACU_PASSWORD, ACU_USER, SSM_PASSWORD, SSM_USER
+from dev.dev_iesa.iesa_ut_install_utils import EUpgradeComponent, IesaPrecheckState, _read_current_bootpart, are_upgrade_components_final
+from dev.dev_common.network_utils import copy_remote_file_if_needed
 
 REMOTE_DOWNLOAD_DIR = "/home/root/download"
 BOOTPART_FILE_PATH = "/run/media/boot/bootpart.txt"
@@ -65,14 +64,6 @@ def _resolve_path(path: str, base_path: Optional[str] = None) -> str:
     return str(candidate.resolve())
 
 
-def _calc_md5(file_path: str) -> str:
-    digest = hashlib.md5()
-    with open(file_path, "rb") as file_obj:
-        for chunk in iter(lambda: file_obj.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest().lower()
-
-
 def _resolve_log_path(log_path: Optional[str], iesa_path: str, base_path: Optional[str]) -> Optional[str]:
     if not log_path:
         return None
@@ -100,49 +91,14 @@ def _build_install_logger(log_path: Optional[str]) -> Callable[[str], None]:
 
 
 def _copy_if_needed(runtime: IesaRuntime, local_iesa_path: str, remote_path: str) -> None:
-    local_md5 = _calc_md5(local_iesa_path)
-    remote_md5 = get_remote_file_checksum(
-        remote_host_ip=runtime.acu_ip,
-        remote_path=remote_path,
-        remote_user=runtime.acu_user,
-        password=runtime.acu_password,
-        checksum_type=CHECKSUM_TYPE_MD5,
-        jump_host_ip=runtime.ut_ip,
-        jump_user=runtime.ut_user,
-        jump_password=runtime.ut_password,
-        timeout=20,
-    )
+    is_copied, local_md5, remote_md5, remote_md5_after = copy_remote_file_if_needed(local_path=local_iesa_path, remote_host_ip=runtime.acu_ip, remote_dest_path=remote_path, remote_user=runtime.acu_user,
+                                                                                      password=runtime.acu_password, jump_host_ip=runtime.ut_ip, jump_user=runtime.ut_user, jump_password=runtime.ut_password)
     LOG(f"Local md5: {local_md5}")
     LOG(f"Remote md5 before copy: {remote_md5 or 'MISSING'}")
-    if remote_md5 == local_md5:
+    if not is_copied:
         LOG(f"Remote IESA already matches local file, skipping copy: {remote_path}")
         return
-    copy_to_remote_via_jump_host(
-        local_path=local_iesa_path,
-        remote_host_ip=runtime.acu_ip,
-        remote_dest_path=remote_path,
-        jump_host_ip=runtime.ut_ip,
-        remote_user=runtime.acu_user,
-        password=runtime.acu_password,
-        jump_user=runtime.ut_user,
-        jump_password=runtime.ut_password,
-        recursive=False,
-        timeout=300,
-    )
-    remote_md5_after = get_remote_file_checksum(
-        remote_host_ip=runtime.acu_ip,
-        remote_path=remote_path,
-        remote_user=runtime.acu_user,
-        password=runtime.acu_password,
-        checksum_type=CHECKSUM_TYPE_MD5,
-        jump_host_ip=runtime.ut_ip,
-        jump_user=runtime.ut_user,
-        jump_password=runtime.ut_password,
-        timeout=20,
-    )
     LOG(f"Remote md5 after copy: {remote_md5_after or 'MISSING'}")
-    if remote_md5_after != local_md5:
-        raise RuntimeError(f"Checksum mismatch after copy. local={local_md5}, remote={remote_md5_after or 'MISSING'}, path={remote_path}")
 
 
 def _run_acu_cmd_via_ut(runtime: IesaRuntime, command: str, timeout_secs: int = 20) -> str:
@@ -151,22 +107,9 @@ def _run_acu_cmd_via_ut(runtime: IesaRuntime, command: str, timeout_secs: int = 
     )
 
 
-def _run_acu_cmd_via_ut_with_retry(runtime: IesaRuntime, command: str, timeout_secs: int, secs_between_each_retry: float = 2.0) -> str:
-    return run_acu_cmd_via_ut_with_retry(
-        ut_ip=runtime.ut_ip, acu_ip=runtime.acu_ip, acu_user=runtime.acu_user, acu_password=runtime.acu_password, ut_user=runtime.ut_user, ut_password=runtime.ut_password, command=command, timeout_secs=timeout_secs, secs_between_each_retry=secs_between_each_retry
-    )
-
-
 def can_start_upgrade(runtime: IesaRuntime, timeout: int, supported_unit_types: Optional[List[str]] = None, supported_sub_parts: Optional[List[str]] = None) -> Tuple[EUpgradeResult, str, Optional[UpgradeCheckState]]:
     if timeout <= 0:
         return EUpgradeResult.FAIL, f"invalid pre-upgrade timeout: {timeout}s", None
-    precheck_deadline = time.time() + timeout
-
-    def _run_precheck_cmd(command: str) -> str:
-        remain_timeout = int(precheck_deadline - time.time())
-        if remain_timeout <= 0:
-            raise TimeoutError(f"pre-upgrade timeout exceeded while running '{command}'")
-        return _run_acu_cmd_via_ut_with_retry(runtime, command, timeout_secs=remain_timeout, secs_between_each_retry=2.0)
 
     support_check = check_target_support(
         ut_ip=runtime.ut_ip,
@@ -183,65 +126,7 @@ def can_start_upgrade(runtime: IesaRuntime, timeout: int, supported_unit_types: 
         return EUpgradeResult.FAIL, "target support check failed", None
     if support_check == EUpgradeResult.SHOULD_SKIP:
         return EUpgradeResult.SHOULD_SKIP, "target not supported for this item", None
-
-    last_update_status_msg = ""
-    while True:
-        try:
-            is_update_status_final, update_status_msg = are_upgrade_components_final(
-                base_url=f"http://{runtime.ut_ip}",
-                components=[EUpgradeComponent.CNX, EUpgradeComponent.MDM, EUpgradeComponent.AIM],
-            )
-            last_update_status_msg = update_status_msg
-            if is_update_status_final:
-                LOG(f"Pre-upgrade condition passed: update status is final before starting upgrade ({update_status_msg})")
-                break
-        except Exception as exc:
-            last_update_status_msg = f"error: {exc}"
-        remain_wait = precheck_deadline - time.time()
-        if remain_wait <= 0:
-            return EUpgradeResult.FAIL, f"update status did not become final within precheck timeout ({last_update_status_msg or 'N/A'})", None
-        sleep_secs = min(2.0, remain_wait)
-        LOG(f"Pre-upgrade wait: update status not final yet ({last_update_status_msg or 'N/A'}), retrying in {sleep_secs:.1f}s")
-        time.sleep(sleep_secs)
-
-    current_root_partition = _read_current_root_partition(cmd_runner=_run_precheck_cmd)
-    current_bootpart = _read_current_bootpart(cmd_runner=_run_precheck_cmd, bootpart_file_path=BOOTPART_FILE_PATH)
-    if current_bootpart != current_root_partition:
-        return EUpgradeResult.ABORT, f"bootpart mismatch before upgrade (bootpart={current_bootpart}, current_root={current_root_partition}). Please verify UT/ACU partition state first.", None
-    else:
-        LOG(f"Pre-upgrade condition passed: current_root_partition={current_root_partition}, bootpart={current_bootpart}")
-
-    iesa_upgrade_state = ""
-    while True:
-        iesa_upgrade_state = _run_precheck_cmd("SYSTEMD_LOG_LEVEL=notice systemctl is-active iesa_upgrade")
-        if iesa_upgrade_state.strip().lower() == "active":
-            LOG("Pre-upgrade condition passed: iesa_upgrade service is active on ACU")
-            break
-        remain_wait = precheck_deadline - time.time()
-        if remain_wait <= 0:
-            return EUpgradeResult.FAIL, f"iesa_upgrade service did not become active within precheck timeout (last_state={iesa_upgrade_state or 'N/A'})", None
-        sleep_secs = min(2.0, remain_wait)
-        LOG(f"Pre-upgrade wait: iesa_upgrade service state={iesa_upgrade_state or 'N/A'}, retrying in {sleep_secs:.1f}s")
-        time.sleep(sleep_secs)
-    running_iesa = _run_precheck_cmd("ps | grep -E \"\\.iesa\" | grep -v grep")
-    if running_iesa.strip():
-        return EUpgradeResult.FAIL, f"iesa process is still running on ACU: {running_iesa.strip()}", None
-    else:
-        LOG(f"Pre-upgrade condition passed: iesa process is not running on ACU")
-    running_cltool = ""
-    while True:
-        running_cltool = _run_precheck_cmd("ps | grep -i insense_cltool | grep -v grep")
-        if not running_cltool.strip():
-            LOG("Pre-upgrade condition passed: insense_cltool process is not running on ACU")
-            break
-        remain_wait = precheck_deadline - time.time()
-        if remain_wait <= 0:
-            return EUpgradeResult.FAIL, f"insense_cltool process is still running on ACU: {running_cltool.strip()}", None
-        sleep_secs = min(2.0, remain_wait)
-        LOG(f"Pre-upgrade wait: insense_cltool process still running on ACU: {running_cltool.strip()} (retrying in {sleep_secs:.1f}s)")
-        time.sleep(sleep_secs)
-    state = UpgradeCheckState(bootpart_before=current_bootpart, expected_bootpart_after=("3" if current_bootpart == "2" else "2"))
-    return EUpgradeResult.SUCCESS, "ready", state
+    return EUpgradeResult.SUCCESS, "target support check passed", None
 
 
 def evaluate_iesa_upgrade_completion(runtime: IesaRuntime, state: UpgradeCheckState) -> Tuple[bool, str]:
@@ -283,7 +168,7 @@ def run_once_upgrade(runtime: IesaRuntime, iesa_path: str, timeout_secs: int, lo
         LOG(f"ERROR: timeout_secs ({timeout_secs}s) must be greater than start_timeout_secs ({start_timeout_secs}s)")
         return EUpgradeResult.FAIL
     try:
-        precheck_result, can_start_msg, check_state = can_start_upgrade(runtime, timeout=start_timeout_secs, supported_unit_types=supported_unit_types, supported_sub_parts=supported_sub_parts)
+        precheck_result, can_start_msg, _ = can_start_upgrade(runtime, timeout=start_timeout_secs, supported_unit_types=supported_unit_types, supported_sub_parts=supported_sub_parts)
     except Exception as exc:
         LOG(f"ERROR: pre-upgrade check failed with exception: {exc}")
         return EUpgradeResult.ABORT
@@ -291,22 +176,25 @@ def run_once_upgrade(runtime: IesaRuntime, iesa_path: str, timeout_secs: int, lo
     if precheck_result != EUpgradeResult.SUCCESS:
         LOG(f"ERROR: pre-upgrade check result = {precheck_result}: {can_start_msg}")
         return precheck_result
-    elif not check_state:
-        LOG("ERROR: pre-upgrade check state is missing")
-        return EUpgradeResult.FAIL
 
     try:
         _copy_if_needed(runtime, iesa_path, remote_path)
         file_log_callback = _build_install_logger(resolved_log_path)
+        check_state: Optional[UpgradeCheckState] = None
 
-        def _combined_install_line_recv(line: str) -> None:
+        def _on_precheck_ready(state: IesaPrecheckState) -> None:
+            nonlocal check_state
+            check_state = UpgradeCheckState(bootpart_before=state.bootpart_before, expected_bootpart_after=state.expected_bootpart_after)
+
+        def _combined_install_line_recv(line: str) -> bool:
             file_log_callback(line)
-            if line.strip():
+            if check_state and line.strip():
                 check_state.install_line_count += 1
-            if check_state.success_log_first_seen_at is None and UPGRADE_SUCCESS_LOG_MARKER in line:
+            if check_state and check_state.success_log_first_seen_at is None and UPGRADE_SUCCESS_LOG_MARKER in line:
                 check_state.success_log_first_seen_at = time.time()
             if on_install_line_recv:
                 on_install_line_recv(line)
+            return False
 
         completion: dict[str, Tuple[bool, str]] = {"result": (False, "not evaluated yet")}
         start_time = time.time()
@@ -322,6 +210,9 @@ def run_once_upgrade(runtime: IesaRuntime, iesa_path: str, timeout_secs: int, lo
                 stop_requested = True
                 LOG(f"ERROR: IESA upgrade timeout reached ({elapsed:.1f}s/{timeout_secs}s)")
                 return ERequestCommand.RETURN
+            if not check_state:
+                completion["result"] = (False, "waiting for pre-upgrade state")
+                return ERequestCommand.CONTINUE
             is_done, reason = evaluate_iesa_upgrade_completion(runtime, check_state)
             completion["result"] = (is_done, reason)
             if is_done:
@@ -331,18 +222,30 @@ def run_once_upgrade(runtime: IesaRuntime, iesa_path: str, timeout_secs: int, lo
             else:
                 return ERequestCommand.CONTINUE
 
-        _run_iesa_install_via_python(
-            remote_name=package_name,
-            remote_host_ip=runtime.acu_ip,
-            remote_user=runtime.acu_user,
-            jump_host_ip=runtime.ut_ip,
-            should_prompt=False,
-            on_install_line_recv=_combined_install_line_recv,
-            on_request_next_command=_on_request_next_command,
-            remote_password=runtime.acu_password,
-            jump_user=runtime.ut_user,
-            jump_password=runtime.ut_password,
-        )
+        def _on_request_return_result() -> EIesaInstallResult:
+            final_ok, final_reason = completion["result"]
+            if final_ok:
+                return EIesaInstallResult.INSTALL_SUCCESS
+            if "timed out" in final_reason.lower():
+                return EIesaInstallResult.INSTALL_TIMEOUT
+            return EIesaInstallResult.INSTALL_FAILED
+
+        install_result, install_reason, _ = _run_iesa_install_via_python(remote_name=package_name, remote_host_ip=runtime.acu_ip, remote_user=runtime.acu_user, jump_host_ip=runtime.ut_ip,
+                                                                          should_prompt=False, on_install_line_recv=_combined_install_line_recv, on_request_next_command=_on_request_next_command,
+                                                                          on_request_return_result=_on_request_return_result, on_precheck_ready=_on_precheck_ready, precheck_timeout_secs=start_timeout_secs,
+                                                                          remote_password=runtime.acu_password, jump_user=runtime.ut_user, jump_password=runtime.ut_password)
+        if install_result == EIesaInstallResult.CANNOT_START:
+            LOG(f"ERROR: IESA install cannot start: {install_reason}")
+            return EUpgradeResult.ABORT if "bootpart mismatch" in install_reason.lower() else EUpgradeResult.FAIL
+        if install_result == EIesaInstallResult.INSTALL_TIMEOUT:
+            LOG(f"ERROR: IESA install timed out: {install_reason}")
+            return EUpgradeResult.FAIL
+        if install_result == EIesaInstallResult.INSTALL_FAILED:
+            LOG(f"ERROR: IESA install failed: {install_reason}")
+            return EUpgradeResult.FAIL
+        if install_result == EIesaInstallResult.USER_SKIPPED:
+            LOG("ERROR: IESA install was skipped unexpectedly in non-interactive mode")
+            return EUpgradeResult.FAIL
         final_ok, final_reason = completion["result"]
         if not final_ok:
             LOG(f"ERROR: IESA completion check failed: {final_reason}")

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import re
 import shlex
+from enum import Enum
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
@@ -23,6 +24,14 @@ class TemplateArgs:
 @dataclass(frozen=True)
 class SearchPattern:
     """Individual search pattern within a grouped search."""
+    regex_c_builder: Callable[[str, bool], str]
+
+@dataclass(frozen=True)
+class PatternSpec:
+    """Single source of truth for pattern metadata + matcher builder."""
+    key: str
+    display_name: str
+    group: "PatternGroup"
     regex_c_builder: Callable[[str, bool], str]
 
 
@@ -57,56 +66,46 @@ PATTERN_KEY_FUNCTION_DECLARATION = "c-function-declaration"
 # PATTERN_KEY_FUNCTION_CALL = "c-function-call"
 PATTERN_KEY_SYMBOL_USAGE = "c-symbol-usage"
 
-PATTERNS_KEYS_DISPLAY_NAME_MAP: Dict[str, str] = {
-    PATTERN_KEY_FUNCTION_DEFINITION: "Function DEF",
-    PATTERN_KEY_FUNCTION_DECLARATION: "Function DECL",
-    PATTERN_KEY_VARIABLE_DEFINITION: "Variable DEF",
-    PATTERN_KEY_CLASS_STRUCT_DEFINITION: "Class/Struct DEF",
-    PATTERN_KEY_MACRO_DEFINITION: "Macro DEF",
-    PATTERN_KEY_TYPEDEF_DEFINITION: "Typedef DEF",
-    PATTERN_KEY_ENUM_DEFINITION: "Enum DEF",
-    PATTERN_KEY_ENUM_VALUE_DEFINITION: "Enum Value DEF",
-    # PATTERN_KEY_FUNCTION_CALL: "Function CALL",
-    PATTERN_KEY_SYMBOL_USAGE: "Symbol REF",
-}
+class PatternGroup(str, Enum):
+    DEFINITION = "definition"
+    DECLARATION = "declaration"
+    USAGE = "usage"
 
-DEFINITION_PATTERN_KEYS = [
-    PATTERN_KEY_CLASS_STRUCT_DEFINITION,
-    PATTERN_KEY_TYPEDEF_DEFINITION,
-    PATTERN_KEY_FUNCTION_DEFINITION,
-    PATTERN_KEY_ENUM_DEFINITION,
-    PATTERN_KEY_ENUM_VALUE_DEFINITION,
-    PATTERN_KEY_MACRO_DEFINITION,
-    PATTERN_KEY_VARIABLE_DEFINITION,
-]
+_pattern_specs_cache: Optional[List[PatternSpec]] = None
 
-DECLARATION_PATTERN_KEYS = [
-    PATTERN_KEY_FUNCTION_DECLARATION,
-]
+def _get_pattern_specs() -> List[PatternSpec]:
+    global _pattern_specs_cache
+    if _pattern_specs_cache is None:
+        _pattern_specs_cache = [
+            PatternSpec(PATTERN_KEY_CLASS_STRUCT_DEFINITION, "Class/Struct DEF", PatternGroup.DEFINITION, regex_c_class_struct_definition),
+            PatternSpec(PATTERN_KEY_TYPEDEF_DEFINITION, "Typedef DEF", PatternGroup.DEFINITION, regex_c_typedef_definition),
+            PatternSpec(PATTERN_KEY_FUNCTION_DEFINITION, "Function DEF", PatternGroup.DEFINITION, regex_c_function_definition),
+            PatternSpec(PATTERN_KEY_ENUM_DEFINITION, "Enum DEF", PatternGroup.DEFINITION, regex_c_enum_definition),
+            PatternSpec(PATTERN_KEY_ENUM_VALUE_DEFINITION, "Enum Value DEF", PatternGroup.DEFINITION, regex_c_enum_value_definition),
+            PatternSpec(PATTERN_KEY_MACRO_DEFINITION, "Macro DEF", PatternGroup.DEFINITION, regex_c_macro_definition),
+            PatternSpec(PATTERN_KEY_VARIABLE_DEFINITION, "Variable DEF", PatternGroup.DEFINITION, regex_c_variable_definition),
+            PatternSpec(PATTERN_KEY_FUNCTION_DECLARATION, "Function DECL", PatternGroup.DECLARATION, regex_c_function_declaration),
+            # PatternSpec(PATTERN_KEY_FUNCTION_CALL, "Function CALL", PatternGroup.USAGE, regex_c_function_call),
+            PatternSpec(PATTERN_KEY_SYMBOL_USAGE, "Symbol REF", PatternGroup.USAGE, regex_c_symbol_usage),
+        ]
+    return _pattern_specs_cache
 
-USAGE_PATTERN_KEYS = [
-    # PATTERN_KEY_FUNCTION_CALL,
-    PATTERN_KEY_SYMBOL_USAGE,
-]
+def _get_pattern_display_name_map() -> Dict[str, str]:
+    return {spec.key: spec.display_name for spec in _get_pattern_specs()}
+
+def _get_pattern_keys_by_group(group: PatternGroup) -> List[str]:
+    return [spec.key for spec in _get_pattern_specs() if spec.group == group]
 
 def get_patterns_map() -> Dict[str, SearchPattern]:
-    registry: Dict[str, SearchPattern] = {
-        PATTERN_KEY_FUNCTION_DEFINITION: SearchPattern(regex_c_function_definition),
-        PATTERN_KEY_VARIABLE_DEFINITION: SearchPattern(regex_c_variable_definition),
-        PATTERN_KEY_CLASS_STRUCT_DEFINITION: SearchPattern(regex_c_class_struct_definition),
-        PATTERN_KEY_MACRO_DEFINITION: SearchPattern(regex_c_macro_definition),
-        PATTERN_KEY_TYPEDEF_DEFINITION: SearchPattern(regex_c_typedef_definition),
-        PATTERN_KEY_ENUM_DEFINITION: SearchPattern(regex_c_enum_definition),
-        PATTERN_KEY_ENUM_VALUE_DEFINITION: SearchPattern(regex_c_enum_value_definition),
-        PATTERN_KEY_FUNCTION_DECLARATION: SearchPattern(regex_c_function_declaration),
-        # PATTERN_KEY_FUNCTION_CALL: SearchPattern(regex_c_function_call),
-        PATTERN_KEY_SYMBOL_USAGE: SearchPattern(regex_c_symbol_usage),
-    }
-    return registry
+    return {spec.key: SearchPattern(spec.regex_c_builder) for spec in _get_pattern_specs()}
 
 
 def quote(s: str) -> str:
     return shlex.quote(s)
+
+def _escape_for_sed_replacement(text: str, delimiter: str = "|") -> str:
+    escaped = text.replace("\\", "\\\\").replace("&", r"\&")
+    return escaped.replace(delimiter, f"\\{delimiter}") if delimiter else escaped
 
 def _get_shell_for_fzf() -> str:
     shell_name = get_shell_name()
@@ -216,6 +215,7 @@ def build_fzf_rgrep_c_command(
 ) -> str:
     """Build the fzf command with an inline reload command."""
     base_rg_command = build_rg_base_command(template_args, file_exts, is_regex_filter_pattern=True)
+    pattern_display_names = _get_pattern_display_name_map()
     search_dir = str(template_args.search_path)
     search_dir_arg = quote(search_dir)
 
@@ -229,12 +229,13 @@ def build_fzf_rgrep_c_command(
     for pattern_key, pattern in ordered_patterns_with_keys:
         regex_template = pattern.regex_c_builder(SYMBOL_PLACEHOLDER_STR, template_args.literal_symbol_input)
         regex_expression = shell_regex(regex_template)
-        pattern_display_name = PATTERNS_KEYS_DISPLAY_NAME_MAP[pattern_key]
+        pattern_display_name = pattern_display_names[pattern_key]
+        pattern_display_name_sed = _escape_for_sed_replacement(pattern_display_name, "|")
         conditional_command = (
             # Using --color=always ensures the output is colored even when piped.
             f'output=$({base_rg_command} -e "{regex_expression}" {search_dir_arg} 2>/dev/null); '
             f'if [ -n "$output" ]; then '
-            f'printf "%s\\n" "$output" | sed "s/^/[{pattern_display_name}] /"; '
+            f'printf "%s\\n" "$output" | sed "s|^|[{pattern_display_name_sed}] |"; '
             f'fi'
         )
         command_parts.append(conditional_command)
@@ -410,10 +411,11 @@ def regex_c_class_struct_definition(symbol: str, literal: bool) -> str:
         rf"(?:typedef\s+)?"
         rf"(?:(?:static|extern|inline|virtual|explicit|constexpr|friend)\s+)*"
         rf"(class|struct)"
-        rf"(?:\s+(?:alignas|__declspec|__attribute__)\s*\([^)]*\))?"
-        rf"(?:\s+(?:final|abstract))?"
-        rf"(?:\s+{symbol_name}\b)?"  # Optional tag name
-        rf"(?:\s*\{{[^}}]*\}}\s*{symbol_name}\b)?"  # Or typedef alias after closing brace
+        rf"(?:\s+(?:alignas|__declspec|__attribute__)\s*\([^)]*\))*"
+        rf"\s+{symbol_name}"  # Require the target type name for symbol search
+        rf"(?:\s+(?:final|abstract))*"
+        rf"(?:\s*:[^{{;]*)?"  # Optional inheritance clause
+        rf"\s*(?=\{{|;|$)"  # `{` may be on this line or on a following line via `\s*`
     )
 
 
@@ -456,27 +458,40 @@ def regex_c_enum_value_definition(symbol: str, literal: bool) -> str:
     return rf"^\s*{sym}\s*{optional_enum_assigment}\s*,?\s*$"
 
 
-# def regex_c_function_call(symbol: str, literal: bool) -> str:
-#     sym = build_symbol_regex(symbol, literal, just_match_prefix=True)
-#     definition_guard = _strip_line_start_anchor(regex_c_function_definition(symbol, literal))
-#     declaration_guard = _strip_line_start_anchor(regex_c_function_declaration(symbol, literal))
-#     # Build negative lookaheads to avoid matching definitions/declarations
-#     guards = "".join(rf"(?!{guard})" for guard in (definition_guard, declaration_guard))
-#     return rf"^{guards}.*{sym}\s*\("
+def regex_c_function_call(symbol: str, literal: bool) -> str:
+     sym = build_symbol_regex(symbol, literal, just_match_prefix=True)
+     definition_guard = _strip_line_start_anchor(regex_c_function_definition(symbol, literal))
+     declaration_guard = _strip_line_start_anchor(regex_c_function_declaration(symbol, literal))
+     # Build negative lookaheads to avoid matching definitions/declarations
+     guards = "".join(rf"(?!{guard})" for guard in (definition_guard, declaration_guard))
+     return rf"^{guards}.*{sym}\s*\("
 
 
 def regex_c_symbol_usage(symbol: str, literal: bool) -> str:
+    """Anything that not including definition/declarrtion"""
     sym = build_symbol_regex(symbol, literal, just_match_prefix=True)
-    definition_guard = _strip_line_start_anchor(regex_c_function_definition(symbol, literal))
-    declaration_guard = _strip_line_start_anchor(regex_c_function_declaration(symbol, literal))
-    # Build negative lookaheads to avoid matching definitions/declarations
-    guards = "".join(rf"(?!{guard})" for guard in (definition_guard, declaration_guard))
-    return rf"^{guards}.*{sym}\s*\("
-
+    # Guard against all definition/declaration types
+    guards_sources = [
+        regex_c_function_definition(symbol, literal),
+        regex_c_function_declaration(symbol, literal),
+        regex_c_variable_definition(symbol, literal),
+        regex_c_class_struct_definition(symbol, literal),
+        regex_c_macro_definition(symbol, literal),
+        regex_c_typedef_definition(symbol, literal),
+        regex_c_enum_definition(symbol, literal),
+        regex_c_enum_value_definition(symbol, literal),
+    ]
+    
+    guards = "".join(
+        rf"(?!{_strip_line_start_anchor(g)})" 
+        for g in guards_sources
+    )
+    
+    return rf"^{guards}.*\b{sym}\b"
 
 def build_symbol_regex(symbol: str, literal: bool, word_boundaries: bool = True, just_match_prefix: bool = False) -> str:
     """
-    Builds a regex for a symbol with optional word boundaries and prefix matching.
+    Builds a regex for a symbol with optional word boundaries and prefix matching. Note a symbol = named indentifier (function name, function call, variable name, class name, ...)
 
     Args:
         symbol: The symbol to search for.
@@ -517,6 +532,9 @@ def get_ordered_patterns(pattern_keys: List[str]) -> List[Tuple[str, SearchPatte
 
 def get_tool_templates() -> List[ToolTemplate]:
     """Generate examples for CLI help."""
+    definition_pattern_keys = _get_pattern_keys_by_group(PatternGroup.DEFINITION)
+    declaration_pattern_keys = _get_pattern_keys_by_group(PatternGroup.DECLARATION)
+    usage_pattern_keys = _get_pattern_keys_by_group(PatternGroup.USAGE)
     return [
         ToolTemplate(
             name="Fzf C/C++ definitions",
@@ -524,7 +542,7 @@ def get_tool_templates() -> List[ToolTemplate]:
             args={
                 ARG_DISPLAY_NAME: "Fzf C/C++ definitions (functions, variables, etc.)",
                 ARG_SEARCH_MODE: SEARCH_MODE_SYMBOL,
-                ARG_PATTERN_KEYS: DEFINITION_PATTERN_KEYS,
+                ARG_PATTERN_KEYS: definition_pattern_keys,
                 ARG_FILE_EXTS: C_CPP_EXTS,
                 ARG_PATH_LONG: f"{get_cwd_path_str()}",
             },
@@ -536,7 +554,7 @@ def get_tool_templates() -> List[ToolTemplate]:
             args={
                 ARG_DISPLAY_NAME: "Fzf C/C++ declarations (function prototypes)",
                 ARG_SEARCH_MODE: SEARCH_MODE_SYMBOL,
-                ARG_PATTERN_KEYS: DECLARATION_PATTERN_KEYS,
+                ARG_PATTERN_KEYS: declaration_pattern_keys,
                 ARG_FILE_EXTS: C_CPP_EXTS,
                 ARG_PATH_LONG: f"{get_cwd_path_str()}",
             },
@@ -548,7 +566,7 @@ def get_tool_templates() -> List[ToolTemplate]:
             args={
                 ARG_DISPLAY_NAME: "Fzf C/C++ symbol usages (function calls, references, etc.)",
                 ARG_SEARCH_MODE: SEARCH_MODE_SYMBOL,
-                ARG_PATTERN_KEYS: USAGE_PATTERN_KEYS,
+                ARG_PATTERN_KEYS: usage_pattern_keys,
                 ARG_FILE_EXTS: C_CPP_EXTS,
                 ARG_PATH_LONG: f"{get_cwd_path_str()}",
             },

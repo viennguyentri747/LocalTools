@@ -6,10 +6,11 @@ import shlex
 import threading
 import time
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import List, Optional
 
 from available_tools.test_tools.test_ut_log.t_get_acu_logs import DEFAULT_LOG_OUTPUT_PATH
-from available_tools.test_tools.test_ut_log.t_get_ut_live_log import ELogStreamMode, stream_live_remote_log_to_file
+from available_tools.test_tools.test_ut_log.t_get_ut_live_log_batch import EUtLiveLogType, UtLiveLogBatchSession, start_ut_live_log_batch_stream
+from available_tools.test_tools.test_ut_log.t_get_ut_live_log import ELogStreamMode, build_live_log_handlers
 from dev.dev_common import *
 from dev.dev_iesa.iesa_ut_install_utils import check_safe_reboot_ut
 from dev.dev_common.custom_structures import ToolData
@@ -26,18 +27,19 @@ ARG_TRIGGER_TIMEOUT_SECS = f"{ARGUMENT_LONG_PREFIX}trigger_timeout_secs"
 ARG_WAIT_SECS_ON_FAIL = f"{ARGUMENT_LONG_PREFIX}wait_secs_on_fail"
 ARG_REPEAT_COUNT = f"{ARGUMENT_LONG_PREFIX}repeat_count"
 
-REMOTE_MM_OWEXT_LOG = "/var/log/mm_owext.log"
-REMOTE_GNSS_LOG = "/var/log/gnss.log"
-REMOTE_INS_MONITOR_LOG = "/var/log/ins_monitor_log"
 TRIGGER_PATTERN = re.compile(r"KIM/FTM CONFIGURATION COMPLETE", re.IGNORECASE)
 FTMRESET_PATTERN = re.compile(r"ftmreset", re.IGNORECASE)
 MODEM_LOC_SYNC_LOST_PATTERN = re.compile(r"modem_loc_sync_lost", re.IGNORECASE)
 MODEM_TOD_SYNC_LOST_PATTERN = re.compile(r"modem_tod_sync_lost", re.IGNORECASE)
-INS_MONITOR_POST_TRIGGER_WAIT_SECS = 60
-MM_OWEXT_POST_TRIGGER_WAIT_SECS = 120
+INS_MONITOR_POST_TRIGGER_WAIT_SECS = 5
+MM_OWEXT_POST_TRIGGER_WAIT_SECS = 60
 GNSSLOG_POST_TRIGGER_WAIT_SECS = 60
+AIM_MANAGER_LOG_POST_TRIGGER_WAIT_SECS = 60
+AMC_LOG_POST_TRIGGER_WAIT_SECS = 60
 PING_TIMEOUT_AFTER_REBOOT_SECS = 300
 STREAM_DURATION_HIGH_SECS = 9999.0
+LIVE_LOG_READ_TIMEOUT_SECS = 60
+TOD_SYNC_LOG_DIR_NAME = "ESA1W-7312_tod_sync_test"
 RUN_DIR_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
 
@@ -46,7 +48,7 @@ def _fmt_now() -> str:
 
 
 def _build_cycle_base_dir(target_ip: str, cycle: int) -> Path:
-    return Path(DEFAULT_LOG_OUTPUT_PATH) / target_ip / "ESA1W-7312_tod_sync_test" / RUN_DIR_TIMESTAMP / f"cycle_{cycle}"
+    return Path(DEFAULT_LOG_OUTPUT_PATH) / target_ip / TOD_SYNC_LOG_DIR_NAME / RUN_DIR_TIMESTAMP / f"cycle_{cycle}"
 
 
 def get_tool_templates() -> List[ToolTemplate]:
@@ -84,9 +86,8 @@ def _normalize_target_ip(target_ip: str) -> str:
     raise ValueError(f"Invalid target_ip '{target_ip}'. Use full IP or last octet.")
 
 
-def _build_cycle_log_paths(target_ip: str, cycle: int) -> tuple[Path, Path]:
-    base = _build_cycle_base_dir(target_ip=target_ip, cycle=cycle)
-    return base / "mm_owext.live.log", base / "ins_monitor.live.log"
+def _build_cycle_log_dir_name(cycle: int) -> str:
+    return f"{TOD_SYNC_LOG_DIR_NAME}/{RUN_DIR_TIMESTAMP}/cycle_{cycle}"
 
 
 class _CycleMonitor:
@@ -179,27 +180,18 @@ def _copy_events_db_before_reboot(cycle: int, attempt: int, target_ip: str, acu_
         _append_program_log(program_log_path=program_log_path, message=msg)
 
 
-def _start_stream_thread(host_ip: str, remote_log_path: str, jump_host_ip: str, tail_lines: int, stream_duration_secs: float, log_path: Path, on_line_recv: Optional[Callable[[str], None]] = None, stop_event: Optional[threading.Event] = None, wait_until_reachable_via_jump_host: bool = False, reachable_wait_timeout_secs: int = PING_TIMEOUT_AFTER_REBOOT_SECS) -> tuple[threading.Thread, List[BaseException]]:
-    error_box: List[BaseException] = []
-
-    def _run() -> None:
-        try:
-            if wait_until_reachable_via_jump_host:
-                is_reachable = ping_remote_host_via_jump_host(remote_host_ip=host_ip, jump_host_ip=jump_host_ip, jump_user=SSM_USER, jump_password=SSM_PASSWORD, max_wait_sec=reachable_wait_timeout_secs, retry_interval_sec=5.0, ping_count=1, ping_timeout_sec=2, ssh_timeout_sec=10, check_jump_host_reachable=True, mute=False)
-                if not is_reachable:
-                    raise RuntimeError(f"{host_ip} is not reachable via jump host {jump_host_ip} within {reachable_wait_timeout_secs}s")
-            stream_live_remote_log_to_file(host_ip=host_ip, remote_log_path=remote_log_path, jump_host_ip=jump_host_ip, read_timeout=max(1, int(stream_duration_secs)), tail_lines=tail_lines, stream_duration_secs=stream_duration_secs, log_path=str(log_path), log_stream_mode=ELogStreamMode.OverrideSingleFile, on_line_recv=on_line_recv, stop_event=stop_event)
-        except BaseException as exc:
-            error_box.append(exc)
-
-    thread = threading.Thread(target=_run, daemon=True)
-    thread.start()
-    return thread, error_box
+def _check_batch_stream_error(session: UtLiveLogBatchSession, cycle: int, attempt: int, program_log_path: Path, stage: str) -> bool:
+    first_error = session.get_first_error()
+    if not first_error:
+        return False
+    log_type, error = first_error
+    message = f"Cycle {cycle} attempt {attempt}: {log_type.value} stream failed ({stage}): {error}"
+    LOG(f"{LOG_PREFIX_MSG_ERROR} {message}")
+    _append_program_log(program_log_path=program_log_path, message=message)
+    return True
 
 
-def _run_one_cycle(cycle: int, attempt: int, target_ip: str, acu_ip: str, tail_lines: int, wait_before_reboot_secs: int, trigger_timeout_secs: int) -> tuple[bool, int, int, int]:
-    mm_log_path, ins_log_path = _build_cycle_log_paths(target_ip=target_ip, cycle=cycle)
-    gnss_log_path = mm_log_path.parent / "gnss.live.log"
+def _run_one_cycle(cycle: int, attempt: int, target_ip: str, acu_ip: str, tail_lines: int, stream_duration_secs: float, wait_before_reboot_secs: int, trigger_timeout_secs: int) -> tuple[bool, int, int, int]:
     cycle_base = _build_cycle_base_dir(target_ip=target_ip, cycle=cycle)
     program_log_path = cycle_base.parent / "tod_program.log"
     _append_program_log(program_log_path=program_log_path, message=f"Cycle {cycle} attempt {attempt}: started")
@@ -215,73 +207,47 @@ def _run_one_cycle(cycle: int, attempt: int, target_ip: str, acu_ip: str, tail_l
     _append_program_log(program_log_path=program_log_path, message=f"Cycle {cycle}: reboot issued at cycle start")
     time.sleep(sleep_before_streaming)
 
-    LOG(f"{LOG_PREFIX_MSG_INFO} Cycle {cycle}: start streaming mm_owext, gnss, and ins_monitor logs")
-    _append_program_log(program_log_path=program_log_path, message=f"Cycle {cycle}: start streaming mm_owext, gnss, and ins_monitor logs")
+    LOG(f"{LOG_PREFIX_MSG_INFO} Cycle {cycle}: start streaming mm_owext, gnss, amc, aim_manager, and ins_monitor logs")
+    _append_program_log(program_log_path=program_log_path, message=f"Cycle {cycle}: start streaming mm_owext, gnss, amc, aim_manager, and ins_monitor logs")
     monitor = _CycleMonitor()
-    stream_stop_event = threading.Event()
-    mm_thread, mm_error = _start_stream_thread(host_ip=target_ip, remote_log_path=REMOTE_MM_OWEXT_LOG, jump_host_ip=None, tail_lines=tail_lines, stream_duration_secs=STREAM_DURATION_HIGH_SECS, log_path=mm_log_path, on_line_recv=monitor.on_mm_owext_line, stop_event=stream_stop_event)
-    gnss_thread, gnss_error = _start_stream_thread(host_ip=target_ip, remote_log_path=REMOTE_GNSS_LOG, jump_host_ip=None, tail_lines=tail_lines, stream_duration_secs=STREAM_DURATION_HIGH_SECS, log_path=gnss_log_path, stop_event=stream_stop_event)
-    ins_thread, ins_error = _start_stream_thread(host_ip=acu_ip, remote_log_path=REMOTE_INS_MONITOR_LOG, jump_host_ip=target_ip, tail_lines=tail_lines, stream_duration_secs=STREAM_DURATION_HIGH_SECS, log_path=ins_log_path, on_line_recv=monitor.on_ins_monitor_line, stop_event=stream_stop_event, wait_until_reachable_via_jump_host=True, reachable_wait_timeout_secs=PING_TIMEOUT_AFTER_REBOOT_SECS)
+    requested_log_types = [EUtLiveLogType.SSM_MM_OWEXT_LOG, EUtLiveLogType.SSM_GNSS_LOG, EUtLiveLogType.SSM_AMC_LOG, EUtLiveLogType.ACU_AIM_MANAGER_LOG, EUtLiveLogType.ACU_INS_MONITOR_LOG]
+    cycle_log_dir_name = _build_cycle_log_dir_name(cycle=cycle)
+    handlers_by_type = {log_type: build_live_log_handlers(log_path=str(Path(DEFAULT_LOG_OUTPUT_PATH) / target_ip / cycle_log_dir_name / f"{log_type.value}.live.log"), log_stream_mode=ELogStreamMode.OverrideSingleFile) for log_type in requested_log_types}
+    session = start_ut_live_log_batch_stream(target_ip=target_ip, acu_ip=acu_ip, log_types=requested_log_types, log_dir_name=cycle_log_dir_name, tail_lines=tail_lines, read_timeout=LIVE_LOG_READ_TIMEOUT_SECS, stream_duration_secs=stream_duration_secs, handlers_by_type=handlers_by_type, on_line_recv_by_type={EUtLiveLogType.SSM_MM_OWEXT_LOG: monitor.on_mm_owext_line, EUtLiveLogType.ACU_INS_MONITOR_LOG: monitor.on_ins_monitor_line}, wait_acu_reachable=True, acu_reachable_wait_timeout_secs=PING_TIMEOUT_AFTER_REBOOT_SECS)
 
     seen_ftmreset_count, seen_modem_loc_sync_lost_count, seen_modem_tod_sync_lost_count = 0, 0, 0
     has_trigger = monitor.trigger_detected_event.wait(timeout=max(1, trigger_timeout_secs))
     seen_ftmreset_count, seen_modem_loc_sync_lost_count, seen_modem_tod_sync_lost_count = _drain_pattern_logs(cycle=cycle, monitor=monitor, program_log_path=program_log_path, seen_ftmreset_count=seen_ftmreset_count, seen_modem_loc_sync_lost_count=seen_modem_loc_sync_lost_count, seen_modem_tod_sync_lost_count=seen_modem_tod_sync_lost_count)
-    if mm_error:
-        LOG(f"{LOG_PREFIX_MSG_ERROR} mm_owext stream failed: {mm_error[0]}")
-        _append_program_log(program_log_path=program_log_path, message=f"Cycle {cycle} attempt {attempt}: mm_owext stream failed: {mm_error[0]}")
-        return False, 0, 0, 0
-    if ins_error:
-        LOG(f"{LOG_PREFIX_MSG_ERROR} ins_monitor stream failed: {ins_error[0]}")
-        _append_program_log(program_log_path=program_log_path, message=f"Cycle {cycle} attempt {attempt}: ins_monitor stream failed: {ins_error[0]}")
-        return False, 0, 0, 0
-    if gnss_error:
-        LOG(f"{LOG_PREFIX_MSG_ERROR} gnss stream failed: {gnss_error[0]}")
-        _append_program_log(program_log_path=program_log_path, message=f"Cycle {cycle} attempt {attempt}: gnss stream failed: {gnss_error[0]}")
+    if _check_batch_stream_error(session=session, cycle=cycle, attempt=attempt, program_log_path=program_log_path, stage="before trigger handling"):
+        session.stop()
+        session.join(timeout_per_thread=15.0)
         return False, 0, 0, 0
     if not has_trigger:
         LOG(f"{LOG_PREFIX_MSG_WARNING} Cycle {cycle}: trigger line not found within {trigger_timeout_secs}s")
         _append_program_log(program_log_path=program_log_path, message=f"Cycle {cycle} attempt {attempt}: trigger line not found within {trigger_timeout_secs}s")
-        stream_stop_event.set()
-        mm_thread.join(timeout=15.0)
-        gnss_thread.join(timeout=15.0)
-        ins_thread.join(timeout=15.0)
+        session.stop()
+        session.join(timeout_per_thread=15.0)
         seen_ftmreset_count, seen_modem_loc_sync_lost_count, seen_modem_tod_sync_lost_count = _drain_pattern_logs(cycle=cycle, monitor=monitor, program_log_path=program_log_path, seen_ftmreset_count=seen_ftmreset_count, seen_modem_loc_sync_lost_count=seen_modem_loc_sync_lost_count, seen_modem_tod_sync_lost_count=seen_modem_tod_sync_lost_count)
-        if mm_error:
-            LOG(f"{LOG_PREFIX_MSG_ERROR} mm_owext stream failed after join: {mm_error[0]}")
-            _append_program_log(program_log_path=program_log_path, message=f"Cycle {cycle} attempt {attempt}: mm_owext stream failed after join: {mm_error[0]}")
-        if ins_error:
-            LOG(f"{LOG_PREFIX_MSG_ERROR} ins_monitor stream failed after join: {ins_error[0]}")
-            _append_program_log(program_log_path=program_log_path, message=f"Cycle {cycle} attempt {attempt}: ins_monitor stream failed after join: {ins_error[0]}")
-        if gnss_error:
-            LOG(f"{LOG_PREFIX_MSG_ERROR} gnss stream failed after join: {gnss_error[0]}")
-            _append_program_log(program_log_path=program_log_path, message=f"Cycle {cycle} attempt {attempt}: gnss stream failed after join: {gnss_error[0]}")
+        _check_batch_stream_error(session=session, cycle=cycle, attempt=attempt, program_log_path=program_log_path, stage="after timeout stop")
         return False, 0, 0, 0
 
-    post_trigger_wait_secs = float(max(INS_MONITOR_POST_TRIGGER_WAIT_SECS, MM_OWEXT_POST_TRIGGER_WAIT_SECS, GNSSLOG_POST_TRIGGER_WAIT_SECS))
-    LOG(f"{LOG_PREFIX_MSG_INFO} Cycle {cycle}: trigger detected, wait ins_monitor={INS_MONITOR_POST_TRIGGER_WAIT_SECS}s, mm_owext={MM_OWEXT_POST_TRIGGER_WAIT_SECS}s, gnss={GNSSLOG_POST_TRIGGER_WAIT_SECS}s")
-    _append_program_log(program_log_path=program_log_path, message=f"Cycle {cycle}: trigger detected, wait ins_monitor={INS_MONITOR_POST_TRIGGER_WAIT_SECS}s, mm_owext={MM_OWEXT_POST_TRIGGER_WAIT_SECS}s, gnss={GNSSLOG_POST_TRIGGER_WAIT_SECS}s")
-    time.sleep(post_trigger_wait_secs)
-    stream_stop_event.set()
+    LOG(f"{LOG_PREFIX_MSG_INFO} Cycle {cycle}: trigger detected, wait ins_monitor={INS_MONITOR_POST_TRIGGER_WAIT_SECS}s, mm_owext={MM_OWEXT_POST_TRIGGER_WAIT_SECS}s, gnss={GNSSLOG_POST_TRIGGER_WAIT_SECS}s, amc={AMC_LOG_POST_TRIGGER_WAIT_SECS}s, aim_manager={AIM_MANAGER_LOG_POST_TRIGGER_WAIT_SECS}s")
+    _append_program_log(program_log_path=program_log_path, message=f"Cycle {cycle}: trigger detected, wait ins_monitor={INS_MONITOR_POST_TRIGGER_WAIT_SECS}s, mm_owext={MM_OWEXT_POST_TRIGGER_WAIT_SECS}s, gnss={GNSSLOG_POST_TRIGGER_WAIT_SECS}s, amc={AMC_LOG_POST_TRIGGER_WAIT_SECS}s, aim_manager={AIM_MANAGER_LOG_POST_TRIGGER_WAIT_SECS}s")
+    time.sleep(float(max(0, INS_MONITOR_POST_TRIGGER_WAIT_SECS)))
+    session.stop(log_types=[EUtLiveLogType.ACU_INS_MONITOR_LOG])
+    session.join(timeout_per_thread=15.0, log_types=[EUtLiveLogType.ACU_INS_MONITOR_LOG])
+    remaining_wait_secs = max(0.0, float(max(MM_OWEXT_POST_TRIGGER_WAIT_SECS, GNSSLOG_POST_TRIGGER_WAIT_SECS, AMC_LOG_POST_TRIGGER_WAIT_SECS, AIM_MANAGER_LOG_POST_TRIGGER_WAIT_SECS) - INS_MONITOR_POST_TRIGGER_WAIT_SECS))
+    if remaining_wait_secs > 0:
+        time.sleep(remaining_wait_secs)
+    session.stop(log_types=[EUtLiveLogType.SSM_MM_OWEXT_LOG, EUtLiveLogType.SSM_GNSS_LOG, EUtLiveLogType.SSM_AMC_LOG, EUtLiveLogType.ACU_AIM_MANAGER_LOG])
+    session.join(timeout_per_thread=15.0, log_types=[EUtLiveLogType.SSM_MM_OWEXT_LOG, EUtLiveLogType.SSM_GNSS_LOG, EUtLiveLogType.SSM_AMC_LOG, EUtLiveLogType.ACU_AIM_MANAGER_LOG])
     seen_ftmreset_count, seen_modem_loc_sync_lost_count, seen_modem_tod_sync_lost_count = _drain_pattern_logs(cycle=cycle, monitor=monitor, program_log_path=program_log_path, seen_ftmreset_count=seen_ftmreset_count, seen_modem_loc_sync_lost_count=seen_modem_loc_sync_lost_count, seen_modem_tod_sync_lost_count=seen_modem_tod_sync_lost_count)
+    if _check_batch_stream_error(session=session, cycle=cycle, attempt=attempt, program_log_path=program_log_path, stage="after post-trigger stop"):
+        return False, 0, 0, 0
 
     LOG(f"{LOG_PREFIX_MSG_INFO} Cycle {cycle}: post-trigger waits done, wait {wait_before_reboot_secs}s before reboot")
     _append_program_log(program_log_path=program_log_path, message=f"Cycle {cycle}: post-trigger waits done, wait {wait_before_reboot_secs}s before reboot")
     time.sleep(max(0, wait_before_reboot_secs))
-    ins_thread.join(timeout=15.0)
-    mm_thread.join(timeout=15.0)
-    gnss_thread.join(timeout=15.0)
-    if mm_error:
-        LOG(f"{LOG_PREFIX_MSG_ERROR} mm_owext stream failed after join: {mm_error[0]}")
-        _append_program_log(program_log_path=program_log_path, message=f"Cycle {cycle} attempt {attempt}: mm_owext stream failed after join: {mm_error[0]}")
-        return False, 0, 0, 0
-    if ins_error:
-        LOG(f"{LOG_PREFIX_MSG_ERROR} ins_monitor stream failed after join: {ins_error[0]}")
-        _append_program_log(program_log_path=program_log_path, message=f"Cycle {cycle} attempt {attempt}: ins_monitor stream failed after join: {ins_error[0]}")
-        return False, 0, 0, 0
-    if gnss_error:
-        LOG(f"{LOG_PREFIX_MSG_ERROR} gnss stream failed after join: {gnss_error[0]}")
-        _append_program_log(program_log_path=program_log_path, message=f"Cycle {cycle} attempt {attempt}: gnss stream failed after join: {gnss_error[0]}")
-        return False, 0, 0, 0
     seen_ftmreset_count, seen_modem_loc_sync_lost_count, seen_modem_tod_sync_lost_count = _drain_pattern_logs(cycle=cycle, monitor=monitor, program_log_path=program_log_path, seen_ftmreset_count=seen_ftmreset_count, seen_modem_loc_sync_lost_count=seen_modem_loc_sync_lost_count, seen_modem_tod_sync_lost_count=seen_modem_tod_sync_lost_count)
     _append_program_log(program_log_path=program_log_path, message=f"Cycle {cycle} summary: ftmreset_count={seen_ftmreset_count}, modem_loc_sync_lost_count={seen_modem_loc_sync_lost_count}, modem_tod_sync_lost_count={seen_modem_tod_sync_lost_count}")
     LOG(f"{LOG_PREFIX_MSG_INFO} Cycle {cycle} summary: ftmreset_count={seen_ftmreset_count}, modem_loc_sync_lost_count={seen_modem_loc_sync_lost_count}, modem_tod_sync_lost_count={seen_modem_tod_sync_lost_count}")
@@ -313,7 +279,7 @@ def main() -> int:
     total_modem_loc_sync_lost_count = 0
     total_modem_tod_sync_lost_count = 0
     while cycle <= repeat_count:
-        is_ok, cycle_ftmreset_count, cycle_modem_loc_sync_lost_count, cycle_modem_tod_sync_lost_count = _run_one_cycle(cycle=cycle, attempt=attempt, target_ip=target_ip, acu_ip=acu_ip, tail_lines=tail_lines, wait_before_reboot_secs=wait_before_reboot_secs, trigger_timeout_secs=trigger_timeout_secs)
+        is_ok, cycle_ftmreset_count, cycle_modem_loc_sync_lost_count, cycle_modem_tod_sync_lost_count = _run_one_cycle(cycle=cycle, attempt=attempt, target_ip=target_ip, acu_ip=acu_ip, tail_lines=tail_lines, stream_duration_secs=stream_duration_secs, wait_before_reboot_secs=wait_before_reboot_secs, trigger_timeout_secs=trigger_timeout_secs)
         if is_ok:
             #cycle_ftmreset_count > 0 or
             if(cycle_modem_loc_sync_lost_count > 0 or cycle_modem_tod_sync_lost_count > 0):

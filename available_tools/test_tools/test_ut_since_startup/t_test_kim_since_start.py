@@ -1,12 +1,13 @@
 #!/usr/local/bin/local_python
 import argparse
 from pathlib import Path
+import threading
 from typing import List
 
 from dev.dev_common import *
 from dev.dev_common.custom_structures import ToolData
 from dev.dev_common.tools_utils import ToolTemplate, build_examples_epilog
-from available_tools.test_tools.test_ut_log.t_get_ut_live_log import ELogStreamMode, stream_live_remote_log_to_file
+from available_tools.test_tools.test_ut_log.t_get_ut_live_log import ELogStreamMode, build_live_log_handlers, close_live_log_handlers, start_stop_timer, stream_live_remote_log_to_file
 from available_tools.test_tools.test_ut_log.t_get_acu_logs import DEFAULT_LOG_OUTPUT_PATH
 from available_tools.test_tools.test_ut_log.t_test_ins_status_ins_monitor_log import (
     compute_time_diff_stats,
@@ -86,13 +87,21 @@ def main() -> int:
 
     log_path = _build_default_capture_path(jump_host_ip)
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    handlers = build_live_log_handlers(log_path=str(log_path), log_stream_mode=ELogStreamMode.OverrideSingleFile)
+    stop_event = threading.Event()
+    stop_timer = None
 
     LOG(f"{LOG_PREFIX_MSG_INFO} Capture live INS monitor log to {log_path}")
     try:
-        stream_live_remote_log_to_file(host_ip=host_ip, remote_log_path=remote_path, jump_host_ip=jump_host_ip, read_timeout=read_timeout, tail_lines=tail_lines, stream_duration_secs=stream_duration_secs, log_path=str(log_path), log_stream_mode=ELogStreamMode.OverrideSingleFile)
+        stop_timer = start_stop_timer(stream_duration_secs=stream_duration_secs, stop_event=stop_event)
+        stream_live_remote_log_to_file(host_ip=host_ip, remote_log_path=remote_path, jump_host_ip=jump_host_ip, read_timeout=read_timeout, tail_lines=tail_lines, handlers=handlers, stop_event=stop_event)
     except Exception as exc:
         LOG(f"{LOG_PREFIX_MSG_ERROR} Capture live INS monitor log failed: {exc}")
         return 1
+    finally:
+        if stop_timer:
+            stop_timer.cancel()
+        close_live_log_handlers(handlers)
     LOG(f"{LOG_PREFIX_MSG_SUCCESS} Capture live INS monitor log completed.")
 
     LOG(f"{LOG_PREFIX_MSG_INFO} Analyze INS status")

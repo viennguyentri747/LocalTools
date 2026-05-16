@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import time
+from dataclasses import dataclass
 from enum import Enum
 from typing import Callable, List, Optional, Tuple
 
@@ -18,6 +19,19 @@ class EUpgradeComponent(str, Enum):
     CNX = "CNX"
     MDM = "MDM"
     AIM = "AIM"
+
+
+class EIesaPrecheckResult(str, Enum):
+    READY = "ready"
+    FAIL = "fail"
+    ABORT = "abort"
+    TIMEOUT = "timeout"
+
+
+@dataclass(frozen=True)
+class IesaPrecheckState:
+    bootpart_before: str
+    expected_bootpart_after: str
 
 
 def are_upgrade_components_final(base_url: str, components: List[EUpgradeComponent]) -> Tuple[bool, str]:
@@ -56,6 +70,69 @@ def _read_current_root_partition(cmd_runner: Callable[[str], str]) -> str:
     if not parsed:
         raise RuntimeError(f"Cannot parse current root partition from output: '{raw_output}'")
     return parsed
+
+
+def run_iesa_upgrade_precheck(base_url: str, cmd_runner: Callable[[str], str], timeout_secs: int, bootpart_file_path: str = "/run/media/boot/bootpart.txt",
+                              components: Optional[List[EUpgradeComponent]] = None) -> Tuple[EIesaPrecheckResult, str, Optional[IesaPrecheckState]]:
+    if timeout_secs <= 0:
+        return EIesaPrecheckResult.FAIL, f"invalid pre-upgrade timeout: {timeout_secs}s", None
+    precheck_deadline = time.time() + timeout_secs
+    check_components = components or [EUpgradeComponent.CNX, EUpgradeComponent.MDM, EUpgradeComponent.AIM]
+    last_update_status_msg = ""
+    while True:
+        try:
+            is_update_status_final, update_status_msg = are_upgrade_components_final(base_url=base_url, components=check_components)
+            last_update_status_msg = update_status_msg
+            if is_update_status_final:
+                LOG(f"Pre-upgrade condition passed: update status is final before starting upgrade ({update_status_msg})")
+                break
+        except Exception as exc:
+            last_update_status_msg = f"error: {exc}"
+        remain_wait = precheck_deadline - time.time()
+        if remain_wait <= 0:
+            return EIesaPrecheckResult.TIMEOUT, f"update status did not become final within precheck timeout ({last_update_status_msg or 'N/A'})", None
+        sleep_secs = min(2.0, remain_wait)
+        LOG(f"Pre-upgrade wait: update status not final yet ({last_update_status_msg or 'N/A'}), retrying in {sleep_secs:.1f}s")
+        time.sleep(sleep_secs)
+
+    current_root_partition = _read_current_root_partition(cmd_runner=cmd_runner)
+    current_bootpart = _read_current_bootpart(cmd_runner=cmd_runner, bootpart_file_path=bootpart_file_path)
+    if current_bootpart != current_root_partition:
+        return EIesaPrecheckResult.ABORT, f"bootpart mismatch before upgrade (bootpart={current_bootpart}, current_root={current_root_partition}). Please verify UT/ACU partition state first.", None
+    LOG(f"Pre-upgrade condition passed: current_root_partition={current_root_partition}, bootpart={current_bootpart}")
+
+    iesa_upgrade_state = ""
+    while True:
+        iesa_upgrade_state = cmd_runner("SYSTEMD_LOG_LEVEL=notice systemctl is-active iesa_upgrade")
+        if iesa_upgrade_state.strip().lower() == "active":
+            LOG("Pre-upgrade condition passed: iesa_upgrade service is active on ACU")
+            break
+        remain_wait = precheck_deadline - time.time()
+        if remain_wait <= 0:
+            return EIesaPrecheckResult.TIMEOUT, f"iesa_upgrade service did not become active within precheck timeout (last_state={iesa_upgrade_state or 'N/A'})", None
+        sleep_secs = min(2.0, remain_wait)
+        LOG(f"Pre-upgrade wait: iesa_upgrade service state={iesa_upgrade_state or 'N/A'}, retrying in {sleep_secs:.1f}s")
+        time.sleep(sleep_secs)
+
+    running_iesa = cmd_runner("ps | grep -E \"\\.iesa\" | grep -v grep")
+    if running_iesa.strip():
+        return EIesaPrecheckResult.FAIL, f"iesa process is still running on ACU: {running_iesa.strip()}", None
+    LOG("Pre-upgrade condition passed: iesa process is not running on ACU")
+
+    running_cltool = ""
+    while True:
+        running_cltool = cmd_runner("ps | grep -i insense_cltool | grep -v grep")
+        if not running_cltool.strip():
+            LOG("Pre-upgrade condition passed: insense_cltool process is not running on ACU")
+            break
+        remain_wait = precheck_deadline - time.time()
+        if remain_wait <= 0:
+            return EIesaPrecheckResult.TIMEOUT, f"insense_cltool process is still running on ACU: {running_cltool.strip()}", None
+        sleep_secs = min(2.0, remain_wait)
+        LOG(f"Pre-upgrade wait: insense_cltool process still running on ACU: {running_cltool.strip()} (retrying in {sleep_secs:.1f}s)")
+        time.sleep(sleep_secs)
+    state = IesaPrecheckState(bootpart_before=current_bootpart, expected_bootpart_after=("3" if current_bootpart == "2" else "2"))
+    return EIesaPrecheckResult.READY, "ready", state
 
 
 def check_safe_reboot_ut(ut_ip: str, timeout_before_reboot_secs: int = 240, should_ping_after_reboot: bool = False, ping_timeout_after_reboot_secs: int = 300, acu_ip: str = ACU_IP, acu_user: str = ACU_USER, acu_password: str = ACU_PASSWORD, ut_user: str = SSM_USER, ut_password: str = SSM_PASSWORD) -> bool:

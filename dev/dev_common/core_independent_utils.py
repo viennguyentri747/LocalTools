@@ -467,3 +467,17 @@ def LOG_EXCEPTION(exception: Exception, msg=None, exit: bool = True):
 def LOG_LINE_SEPARATOR():
     separator = f"\n{'=' * 70}\n"
     LOG(f"{separator}", show_time=False)
+
+
+def get_file_md5sum(file_path: Union[Path, str]) -> Optional[str]:
+    file_path = Path(file_path)
+    if not file_path.exists() or not file_path.is_file():
+        return None
+    try:
+        file_path_str: str = str(file_path)
+        with open(file_path_str, 'rb') as f:
+            md5 = hashlib.md5(f.read()).hexdigest()
+        return md5
+    except Exception as e:
+        LOG(f"WARNING: Failed to calculate md5sum for '{file_path}': {e}. Saving null md5 in metadata.", file=sys.stderr)
+        return None

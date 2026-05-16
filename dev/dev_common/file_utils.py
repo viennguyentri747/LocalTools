@@ -52,6 +52,16 @@ def remove_file(file_path: str) -> None:
         os.remove(file_path)
 
 
+def dump_sqlite_db(sqlite_db_path: Union[str, Path], output_dump_path: Union[str, Path], timeout: int = 60) -> None:
+    src = Path(sqlite_db_path).expanduser().resolve()
+    dst = Path(output_dump_path).expanduser().resolve()
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    cmd = f"sqlite3 {shlex.quote(str(src))} \".dump\" > {shlex.quote(str(dst))}"
+    result = run_shell(cmd, want_shell=True, capture_output=True, timeout=timeout, check_throw_exception_on_exit_code=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to dump sqlite db '{src}' to '{dst}'. exit_code={result.returncode}, stderr='{(result.stderr or '').strip()}'")
+
+
 def clear_directory(dir_path: Union[str, Path], remove_dir_itself: bool = False) -> None:
     """
     Remove everything inside a directory (optionally the directory itself).

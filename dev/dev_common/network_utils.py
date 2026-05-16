@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path, PurePosixPath
 import paramiko
 import posixpath
@@ -22,6 +23,11 @@ LEGACY_SSH_RSA_OPTIONS = ['-o', 'HostKeyAlgorithms=+ssh-rsa', '-o', 'PubkeyAccep
 LEGACY_SSH_RSA_OPTION_STR = "-o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa"
 NON_INTERACTIVE_KNOWN_HOST_OPTIONS = ['-o', 'UserKnownHostsFile=/dev/null', '-o', 'GlobalKnownHostsFile=/dev/null']
 NON_INTERACTIVE_KNOWN_HOST_OPTION_STR = "-o UserKnownHostsFile=/dev/null -o GlobalKnownHostsFile=/dev/null"
+
+
+class ECopyType(Enum):
+    SFTP = "sftp"
+    SCP = "scp"
 
 
 def get_remote_file_checksum(remote_host_ip: str, remote_path: str, remote_user: str = ACU_USER, password: Optional[str] = None,
@@ -521,7 +527,7 @@ def _sftp_collect_dir_files(sftp: paramiko.SFTPClient, remote_dir_path: str) -> 
     return remote_files
 
 
-def _copy_to_local_impl(remote_src_paths: str | List[str], remote_host_ip: str, local_dest_path: str | Path, remote_user: str = ACU_USER,
+def _copy_to_local_sftp_impl(remote_src_paths: str | List[str], remote_host_ip: str, local_dest_path: str | Path, remote_user: str = ACU_USER,
                         password: Optional[str] = None, jump_host_ip: Optional[str] = None, jump_user: Optional[str] = None,
                         jump_password: Optional[str] = None, recursive: Optional[bool] = None, timeout: Optional[int] = None) -> List[str]:
     remote_sources = [remote_src_paths] if isinstance(remote_src_paths, str) else list(remote_src_paths or [])
@@ -623,6 +629,35 @@ def _copy_to_remote_impl(local_path: str | Path, remote_host_ip: str, remote_des
         close_ssh_client(target_client, jump_client, jump_channel)
 
 
+def _copy_to_local_scp_impl(remote_src_paths: str | List[str], remote_host_ip: str, local_dest_path: str | Path, remote_user: str = ACU_USER,
+                                jump_host_ip: Optional[str] = None, recursive: Optional[bool] = None, timeout: Optional[int] = None,
+                                strict_host_key_checking: bool = False) -> List[str]:
+    remote_sources = [remote_src_paths] if isinstance(remote_src_paths, str) else list(remote_src_paths or [])
+    if not remote_sources:
+        raise ValueError("remote_src_paths cannot be empty.")
+    local_dest = Path(local_dest_path).expanduser().resolve()
+    local_dest.mkdir(parents=True, exist_ok=True)
+    before_files = set(str(p.resolve()) for p in local_dest.rglob("*") if p.is_file())
+    cmd: List[str] = ["scp"]
+    if recursive is not False:
+        cmd.append("-r")
+    if timeout and int(timeout) > 0:
+        cmd.extend(["-o", f"ConnectTimeout={int(timeout)}"])
+    if not strict_host_key_checking:
+        cmd.extend(["-o", "StrictHostKeyChecking=no", *NON_INTERACTIVE_KNOWN_HOST_OPTIONS])
+    cmd.extend(LEGACY_SSH_RSA_OPTIONS)
+    if jump_host_ip:
+        cmd.extend(["-o", f"ProxyJump={remote_user}@{jump_host_ip}"])
+    for src in remote_sources:
+        cmd.append(f"{remote_user}@{remote_host_ip}:{src}")
+    cmd.append(str(local_dest))
+    result = run_shell(cmd, capture_output=True, timeout=timeout if timeout and timeout > 0 else None, check_throw_exception_on_exit_code=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"SCP copy failed with exit_code={result.returncode}. stdout='{(result.stdout or '').strip()}' stderr='{(result.stderr or '').strip()}'")
+    after_files = [str(p.resolve()) for p in local_dest.rglob("*") if p.is_file()]
+    return sorted(path for path in after_files if path not in before_files)
+
+
 def copy_to_remote(local_path: str | Path, remote_host_ip: str, remote_dest_path: str, remote_user: str = ACU_USER,
                    password: Optional[str] = None, recursive: Optional[bool] = None, strict_host_key_checking: bool = False,
                    timeout: Optional[int] = None) -> str:
@@ -648,26 +683,39 @@ def copy_to_remote_via_jump_host(local_path: str | Path, remote_host_ip: str, re
 
 def copy_to_local(remote_src_paths: str | List[str], remote_host_ip: str, local_dest_path: str | Path, remote_user: str = ACU_USER,
                   password: Optional[str] = None, recursive: Optional[bool] = None, strict_host_key_checking: bool = False,
-                  timeout: Optional[int] = None) -> List[str]:
-    """Copy remote files/directories to local path using Paramiko SFTP."""
+                  timeout: Optional[int] = None, copy_type: ECopyType = ECopyType.SFTP) -> List[str]:
+    """Copy remote files/directories to local path via SFTP (Paramiko) or SCP."""
+    remote_desc = remote_src_paths if isinstance(remote_src_paths, str) else f"{len(remote_src_paths)} source(s)"
+    LOG(f"{LOG_PREFIX_MSG_INFO} Copying '{remote_desc}' from {remote_user}@{remote_host_ip} to '{Path(local_dest_path).expanduser()}' using {copy_type.value.upper()}")
+    if copy_type == ECopyType.SCP:
+        if password:
+            setup_passwordless_ssh(user=remote_user, remote_ip=remote_host_ip, remote_password=password)
+        return _copy_to_local_scp_impl(remote_src_paths=remote_src_paths, remote_host_ip=remote_host_ip, local_dest_path=local_dest_path, remote_user=remote_user, recursive=recursive, timeout=timeout, strict_host_key_checking=strict_host_key_checking)
     if strict_host_key_checking:
         LOG(f"{LOG_PREFIX_MSG_WARNING} strict_host_key_checking is ignored for Paramiko-based copy_to_local().")
+    return _copy_to_local_sftp_impl(remote_src_paths=remote_src_paths, remote_host_ip=remote_host_ip, local_dest_path=local_dest_path, remote_user=remote_user, password=password, recursive=recursive, timeout=timeout)
+
+
+def copy_to_local_via_jump_host(remote_src_paths: str | List[str], remote_host_ip: str, local_dest_path: str | Path, jump_host_ip: str, remote_user: str = ACU_USER, remote_password: Optional[str] = None, jump_user: Optional[str] = None, jump_password: Optional[str] = None, recursive: Optional[bool] = None, strict_host_key_checking: bool = False, timeout: Optional[int] = None, copy_type: ECopyType = ECopyType.SFTP) -> List[str]:
+    """Copy remote files/directories through a jump host to local path via SFTP (Paramiko) or SCP."""
     remote_desc = remote_src_paths if isinstance(remote_src_paths, str) else f"{len(remote_src_paths)} source(s)"
-    LOG(f"{LOG_PREFIX_MSG_INFO} Copying '{remote_desc}' from {remote_user}@{remote_host_ip} to '{Path(local_dest_path).expanduser()}' using Paramiko")
-    return _copy_to_local_impl(remote_src_paths=remote_src_paths, remote_host_ip=remote_host_ip, local_dest_path=local_dest_path, remote_user=remote_user, password=password, recursive=recursive, timeout=timeout)
-
-
-def copy_to_local_via_jump_host(remote_src_paths: str | List[str], remote_host_ip: str, local_dest_path: str | Path, jump_host_ip: str, remote_user: str = ACU_USER, remote_password: Optional[str] = None, jump_user: Optional[str] = None, jump_password: Optional[str] = None, recursive: Optional[bool] = None, strict_host_key_checking: bool = False, timeout: Optional[int] = None) -> List[str]:
-    """Copy remote files/directories through a jump host to local path using Paramiko SFTP."""
+    LOG(f"{LOG_PREFIX_MSG_INFO} Copying '{remote_desc}' from {remote_user}@{remote_host_ip} to '{Path(local_dest_path).expanduser()}' via jump host {jump_user}@{jump_host_ip} using {copy_type.value.upper()}.")
+    if copy_type == ECopyType.SCP:
+        if jump_user and jump_password:
+            setup_passwordless_ssh(user=jump_user, remote_ip=jump_host_ip, remote_password=jump_password)
+        if remote_password:
+            if not generate_ssh_key(SSH_KEY_TYPE_RSA):
+                LOG(f"{LOG_PREFIX_MSG_WARNING} Failed to generate SSH key before remote key install for {remote_user}@{remote_host_ip}")
+            else:
+                _, public_key_path = check_ssh_key_exists(SSH_KEY_TYPE_RSA)
+                setup_host_ssh_key(user=remote_user, host=remote_host_ip, public_key_path=public_key_path, via_jump=jump_host_ip, password=remote_password, jump_user=jump_user, jump_password=jump_password)
+        return _copy_to_local_scp_impl(remote_src_paths=remote_src_paths, remote_host_ip=remote_host_ip, local_dest_path=local_dest_path, remote_user=remote_user, jump_host_ip=jump_host_ip, recursive=recursive, timeout=timeout, strict_host_key_checking=strict_host_key_checking)
     if strict_host_key_checking:
         LOG(f"{LOG_PREFIX_MSG_WARNING} strict_host_key_checking is ignored for Paramiko-based copy_to_local_via_jump_host().")
-    remote_desc = remote_src_paths if isinstance(remote_src_paths, str) else f"{len(remote_src_paths)} source(s)"
-    LOG(f"{LOG_PREFIX_MSG_INFO} Copying '{remote_desc}' from {remote_user}@{remote_host_ip} to '{Path(local_dest_path).expanduser()}' via jump host {jump_user}@{jump_host_ip} using Paramiko.")
-    return _copy_to_local_impl(remote_src_paths=remote_src_paths, remote_host_ip=remote_host_ip, local_dest_path=local_dest_path, remote_user=remote_user, password=remote_password, jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=jump_password, recursive=recursive, timeout=timeout)
+    return _copy_to_local_sftp_impl(remote_src_paths=remote_src_paths, remote_host_ip=remote_host_ip, local_dest_path=local_dest_path, remote_user=remote_user, password=remote_password, jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=jump_password, recursive=recursive, timeout=timeout)
 
 
-def setup_passwordless_ssh(user: str, jump_host: str, remote_host: str,
-                           key_type: str = SSH_KEY_TYPE_RSA) -> bool:
+def setup_passwordless_ssh(user: str, remote_ip: str, remote_password: Optional[str] = None, key_type: str = SSH_KEY_TYPE_RSA) -> bool:
     """Set up passwordless SSH authentication."""
     LOG(f"{LOG_PREFIX_MSG_INFO} Setting up passwordless SSH authentication...")
 
@@ -678,8 +726,8 @@ def setup_passwordless_ssh(user: str, jump_host: str, remote_host: str,
     _, public_key_path = check_ssh_key_exists(key_type)
 
     # Copy key to jump hosts first
-    if not setup_host_ssh_key(user, jump_host, public_key_path):
-        LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to setup SSH key for jump host {jump_host}")
+    if not setup_host_ssh_key(user=user, host=remote_ip, public_key_path=public_key_path, password=remote_password):
+        LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to setup SSH key for jump host {remote_ip}")
         return False
 
     LOG(f"{LOG_PREFIX_MSG_INFO} Passwordless SSH setup completed successfully!")
@@ -879,8 +927,7 @@ def remove_target_ssh_key_from_known_host(ip: str) -> bool:
         return False
 
 
-def setup_host_ssh_key(user: str, host: str, public_key_path: Path,
-                       via_jump: Optional[str] = None) -> bool:
+def setup_host_ssh_key(user: str, host: str, public_key_path: Path, via_jump: Optional[str] = None, password: Optional[str] = None, jump_user: Optional[str] = None, jump_password: Optional[str] = None) -> bool:
     """Copy SSH public key to remote host."""
     LOG(f"{LOG_PREFIX_MSG_INFO} Copying SSH key to {user}@{host}...")
 
@@ -888,28 +935,16 @@ def setup_host_ssh_key(user: str, host: str, public_key_path: Path,
         # Read the public key
         with open(public_key_path, 'r') as f:
             public_key = f.read().strip()
-
-        # Build the command to add the key to authorized_keys
-        if via_jump:
-            cmd = [
-                'ssh', '-o', f'ProxyJump={user}@{via_jump}',
-                '-o', 'StrictHostKeyChecking=no',  # Now accepts the new key automatically
-                *LEGACY_SSH_RSA_OPTIONS,
-                *NON_INTERACTIVE_KNOWN_HOST_OPTIONS,
-                f'{user}@{host}',
-                f'mkdir -p ~/.ssh && echo "{public_key}" >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && chmod 700 ~/.ssh'
-            ]
+        remote_cmd = f'mkdir -p ~/.ssh && echo "{public_key}" >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && chmod 700 ~/.ssh'
+        if password:
+            run_ssh_command(host_ip=host, user=user, password=password, command=remote_cmd, timeout=30, jump_host_ip=via_jump, jump_user=jump_user, jump_password=jump_password)
         else:
-            cmd = [
-                'ssh', '-o', 'StrictHostKeyChecking=no',
-                *LEGACY_SSH_RSA_OPTIONS,
-                *NON_INTERACTIVE_KNOWN_HOST_OPTIONS,
-                f'{user}@{host}',
-                f'mkdir -p ~/.ssh && echo "{public_key}" >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && chmod 700 ~/.ssh'
-            ]
-
-        # Run the SSH command (one attempt)
-        subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)
+            # Build key-based command path for environments already configured for passwordless auth.
+            if via_jump:
+                cmd = ['ssh', '-o', f'ProxyJump={user}@{via_jump}', '-o', 'StrictHostKeyChecking=no', *LEGACY_SSH_RSA_OPTIONS, *NON_INTERACTIVE_KNOWN_HOST_OPTIONS, f'{user}@{host}', remote_cmd]
+            else:
+                cmd = ['ssh', '-o', 'StrictHostKeyChecking=no', *LEGACY_SSH_RSA_OPTIONS, *NON_INTERACTIVE_KNOWN_HOST_OPTIONS, f'{user}@{host}', remote_cmd]
+            subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)
 
         LOG(f"{LOG_PREFIX_MSG_INFO} SSH key successfully copied to {host}.")
         return True

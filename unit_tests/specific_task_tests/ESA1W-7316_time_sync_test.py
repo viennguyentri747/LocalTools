@@ -3,7 +3,6 @@ import argparse
 import logging
 from datetime import datetime
 import re
-import shlex
 import threading
 import time
 import shutil
@@ -18,6 +17,7 @@ from dev.dev_common import *
 from dev.dev_common.custom_structures import ToolData
 from dev.dev_common.noti_utils import show_noti
 from dev.dev_common.tools_utils import ToolTemplate, build_examples_epilog
+from unit_tests.specific_task_tests.common import copy_events_db_before_reboot
 
 ARG_TARGET_IP = f"{ARGUMENT_LONG_PREFIX}target_ip"
 ARG_ACU_IP = f"{ARGUMENT_LONG_PREFIX}acu_ip"
@@ -219,35 +219,6 @@ def _append_program_log(program_log_path: Path, message: str) -> None:
         fp.write(f"[{_fmt_now()}] {message}\n")
 
 
-def _resolve_events_db_path_from_cfg(target_ip: str, acu_ip: str) -> str:
-    cfg_url = f"http://{acu_ip}/api/cm/cfg_all"
-    cmd = f"curl -s {shlex.quote(cfg_url)} | jq -r '.[] | select(.name == \"events_db_location\") | .value'"
-    stdout, stderr = run_ssh_command(host_ip=target_ip, user=SSM_USER, password=SSM_PASSWORD, command=cmd, timeout=20)
-    if stderr.strip():
-        LOG(f"{LOG_PREFIX_MSG_WARNING} events_db_location query stderr: {stderr.strip()}")
-    for line in (stdout or "").splitlines():
-        value = line.strip()
-        if value and value != "null":
-            return value
-    raise RuntimeError(f"Unable to resolve events_db_location from {cfg_url}. stdout='{stdout.strip()}' stderr='{stderr.strip()}'")
-
-
-def _copy_events_db_before_reboot(cycle: int, attempt: int, target_ip: str, acu_ip: str, cycle_base: Path, program_log_path: Path) -> None:
-    try:
-        events_db_remote_path = _resolve_events_db_path_from_cfg(target_ip=target_ip, acu_ip=acu_ip)
-        dest_dir = cycle_base / "events_db_before_reboot"
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        copied_files = copy_to_local(remote_src_paths=events_db_remote_path, remote_host_ip=target_ip, remote_user=SSM_USER, password=SSM_PASSWORD, local_dest_path=dest_dir, timeout=30)
-        copied_text = ", ".join(copied_files) if copied_files else "none"
-        msg = f"Cycle {cycle} attempt {attempt}: copied events DB before log streaming. remote={events_db_remote_path}, local={copied_text}"
-        LOG(f"{LOG_PREFIX_MSG_INFO} {msg}")
-        _append_program_log(program_log_path=program_log_path, message=msg)
-    except Exception as exc:
-        msg = f"Cycle {cycle} attempt {attempt}: failed to copy events DB before log streaming: {type(exc).__name__}: {exc}"
-        LOG(f"{LOG_PREFIX_MSG_WARNING} {msg}")
-        _append_program_log(program_log_path=program_log_path, message=msg)
-
-
 def _check_batch_stream_error(session: UtLiveLogBatchSession, cycle: int, attempt: int, program_log_path: Path, stage: str) -> bool:
     first_error = session.get_first_error()
     if not first_error:
@@ -280,7 +251,7 @@ def _run_one_cycle(cycle: int, attempt: int, target_ip: str, acu_ip: str, tail_l
     cycle_base = _build_cycle_base_dir(target_ip=target_ip, cycle=cycle)
     program_log_path = cycle_base.parent / "time_sync_program.log"
     _append_program_log(program_log_path=program_log_path, message=f"Cycle {cycle} attempt {attempt}: started")
-    _copy_events_db_before_reboot(cycle=cycle, attempt=attempt, target_ip=target_ip, acu_ip=acu_ip, cycle_base=cycle_base, program_log_path=program_log_path)
+    copy_events_db_before_reboot(cycle=cycle, attempt=attempt, target_ip=target_ip, cycle_base=cycle_base, program_log_path=program_log_path, append_program_log_fn=_append_program_log, event_stage="before log streaming")
 
     monitor = _CycleMonitor()
     requested_log_types = [EUtLiveLogType.ACU_E_LOG, EUtLiveLogType.ACU_AIM_MANAGER_LOG, EUtLiveLogType.SSM_GNSS_LOG, EUtLiveLogType.SSM_MM_OWEXT_LOG, EUtLiveLogType.SSM_AMC_LOG, EUtLiveLogType.ACU_INS_MONITOR_LOG]

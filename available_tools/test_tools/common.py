@@ -64,13 +64,14 @@ def batch_fetch_acu_logs_for_days(list_ips: List[str], extra_days_before_today: 
 
 
 def fetch_acu_logs(ut_ip: str, log_types: List[str], dest_folder_path: str | Path, ssh_key_type: str = SSH_KEY_TYPE_RSA,
-                   date_filters: List[str] = None, clear_dest_folder: bool = True, should_has_var_log: bool = False, run_via_shell_cmd: bool = False) -> AcuLogInfo:
+                   date_filters: List[str] = None, clear_dest_folder: bool = True, should_has_var_log: bool = False, run_via_shell_cmd: bool = False,
+                   copy_type: ECopyType = ECopyType.SCP) -> AcuLogInfo:
     """Fetch ACU logs via Paramiko by default, or shell scp when run_via_shell_cmd is enabled."""
     if not ping_remote_host(ut_ip, total_pings=2, time_out_per_ping=5):
         LOG(f"{LOG_PREFIX_MSG_ERROR} Jump host {ut_ip} is not reachable. Aborting.", file=sys.stderr)
         return AcuLogInfo(is_valid=False, ip=ut_ip)
 
-    if not setup_passwordless_ssh(ACU_USER, ut_ip, ACU_IP, ssh_key_type):
+    if not setup_passwordless_ssh(ACU_USER, ut_ip, remote_password=SSM_PASSWORD, key_type=ssh_key_type):
         LOG(f"{LOG_PREFIX_MSG_ERROR} SSH key setup failed for {ut_ip}. Continuing with password authentication...")
 
     try:
@@ -94,12 +95,12 @@ def fetch_acu_logs(ut_ip: str, log_types: List[str], dest_folder_path: str | Pat
             transfer_failed = True
     else:
         remote_sources = build_remote_log_sources(log_types=log_types, date_filters=date_filters, should_has_var_log=should_has_var_log)
-        LOG(f"{LOG_PREFIX_MSG_INFO} Fetching all logs for {ut_ip} into '{dest_folder_path}' via Paramiko...")
+        LOG(f"{LOG_PREFIX_MSG_INFO} Fetching all logs for {ut_ip} into '{dest_folder_path}' via {copy_type.value.upper()}...")
         try:
-            copied_paths = copy_to_local_via_jump_host(remote_src_paths=remote_sources, remote_host_ip=ACU_IP, local_dest_path=dest_folder_path, jump_host_ip=ut_ip, remote_user=ACU_USER, remote_password=ACU_PASSWORD, jump_user=SSM_USER, jump_password=SSM_PASSWORD, recursive=False)
+            copied_paths = copy_to_local_via_jump_host(remote_src_paths=remote_sources, remote_host_ip=ACU_IP, local_dest_path=dest_folder_path, jump_host_ip=ut_ip, remote_user=ACU_USER, remote_password=ACU_PASSWORD, jump_user=SSM_USER, jump_password=SSM_PASSWORD, recursive=False, copy_type=copy_type)
         except Exception as exc:
             transfer_failed = True
-            LOG(f"{LOG_PREFIX_MSG_WARNING} Paramiko fetch failed for {ut_ip}: {exc}")
+            LOG(f"{LOG_PREFIX_MSG_WARNING} {copy_type.value.upper()} fetch failed for {ut_ip}: {exc}")
 
     try:
         new_log_paths = sorted(set(str(Path(path)) for path in copied_paths if Path(path).is_file()))

@@ -203,7 +203,7 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
             cmd = shlex.split(cmd)
 
     if show_cmd:
-        LOG(f"{format_cmd_for_log(cmd)} (cwd={exec_cwd or Path.cwd()})", log_type=ELogType.DEBUG)
+        LOG(f"{format_cmd_for_log(cmd)} (cwd={exec_cwd or Path.cwd()})", log_type=ELogType.NORMAL)
 
     return subprocess.run(cmd, shell=want_shell, cwd=exec_cwd, check=check_throw_exception_on_exit_code, stdout=stdout, stderr=stderr, text=text, capture_output=capture_output, encoding=encoding, executable=exec_path, timeout=timeout)
 

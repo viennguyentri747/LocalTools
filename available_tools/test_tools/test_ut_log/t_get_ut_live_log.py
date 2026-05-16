@@ -201,7 +201,7 @@ def stream_live_remote_log_to_file(host_ip: str, remote_log_path: str, user: str
             on_line_recv(line)
         LOG(line, show_time=True, handlers=resolved_handlers)
     try:
-        stream_live_remote_log(host_ip=host_ip, user=user, password=password, remote_log_path=remote_log_path, timeout=timeout, jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=resolved_jump_password, tail_lines=tail_lines, read_timeout=read_timeout, stop_event=effective_stop_event, on_line=_on_line)
+        stream_live_remote_log(host_ip=host_ip, user=user, password=password, remote_log_path=remote_log_path, connect_timeout=timeout, jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=resolved_jump_password, tail_lines=tail_lines, read_timeout=read_timeout, stop_event=effective_stop_event, on_line=_on_line)
     finally:
         if owns_handlers:
             close_live_log_handlers(resolved_handlers)

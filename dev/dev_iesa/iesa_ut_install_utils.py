@@ -154,8 +154,12 @@ def check_safe_reboot_ut(ut_ip: str, timeout_before_reboot_secs: int = 240, shou
             LOG(f"Post-upgrade condition passed: no iesa/cltool process and update status final ({update_status_msg})")
             break
         except Exception as exc:
-            LOG(f"Safe reboot wait: ACU check failed, retrying in 10s: {exc}")
-            time.sleep(10)
+            sleep_secs = 30 if time.time() + 30 < deadline_ts else 0
+            if sleep_secs <= 0:
+                LOG(f"Safe reboot wait: ACU check failed: {exc}")
+                return False
+            LOG(f"Safe reboot wait: ACU check failed, retrying in {sleep_secs:.1f}s: {exc}")
+            time.sleep(sleep_secs)
     else:
         LOG(f"ERROR: timeout waiting post-upgrade conditions before reboot ({timeout_before_reboot_secs}s)")
         return False

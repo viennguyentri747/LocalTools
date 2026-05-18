@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 import sys
@@ -29,17 +30,65 @@ ARG_MAX_SECS_PER_SYNC = f"{ARGUMENT_LONG_PREFIX}max_secs_per_sync"
 DRIFT_ISSUE_NAME = "DRIFT"
 SYNC_ZERO_ISSUE_NAME = "SYNC_ZERO"
 ALL_TIME_SYNC_ISSUES: List[str] = [DRIFT_ISSUE_NAME, SYNC_ZERO_ISSUE_NAME]
-WIN_CMD_INVOCATION = get_win_python_runner_cmd_invocation("available_tools.test_tools.test_ut_log.t_test_time_sync_plog")
+WIN_CMD_INVOCATION = get_win_python_runner_cmd_invocation("available_tools.test_tools.test_ut_log.t_test_invalid_time_sync_plog")
 TEST_NAME = "time_sync_plog"
+
+
+@dataclass
+class DriftIssueBlock:
+    start_row: int
+    start_time_label: str
+    start_sync: int
+    start_drift: float
+    end_row: int
+    end_time_label: str
+    end_sync: int
+    end_drift: float
+    max_abs_drift: float
+    max_abs_drift_row: int
+    max_abs_drift_time_label: str
+    max_abs_drift_sync: int
+    total_count: int = 1
+
+    @classmethod
+    def from_sample(cls, row_index: int, time_label: str, sync_value: int, drift: float) -> "DriftIssueBlock":
+        return cls(
+            start_row=row_index, start_time_label=time_label, start_sync=sync_value, start_drift=drift,
+            end_row=row_index, end_time_label=time_label, end_sync=sync_value, end_drift=drift,
+            max_abs_drift=drift, max_abs_drift_row=row_index, max_abs_drift_time_label=time_label, max_abs_drift_sync=sync_value,
+        )
+
+    def update(self, row_index: int, time_label: str, sync_value: int, drift: float) -> None:
+        self.end_row = row_index
+        self.end_time_label = time_label
+        self.end_sync = sync_value
+        self.end_drift = drift
+        self.total_count += 1
+        if abs(drift) > abs(self.max_abs_drift):
+            self.max_abs_drift = drift
+            self.max_abs_drift_row = row_index
+            self.max_abs_drift_time_label = time_label
+            self.max_abs_drift_sync = sync_value
+
+    def to_message(self, plog_file: Path, baseline_time_label: Optional[str], baseline_sync: Optional[int],
+                   max_secs_per_sync: float) -> str:
+        row_label = f"Row {self.start_row}" if self.start_row == self.end_row else f"Rows {self.start_row}-{self.end_row}"
+        return (
+            f"{DRIFT_ISSUE_NAME}, start={self.start_time_label} (row {self.start_row}, sync={self.start_sync}, "
+            f"drift={self.start_drift:.3f}s), end={self.end_time_label} (row {self.end_row}, sync={self.end_sync}, "
+            f"drift={self.end_drift:.3f}s), max_abs_drift={self.max_abs_drift:.3f}s "
+            f"at {self.max_abs_drift_time_label} (row {self.max_abs_drift_row}, sync={self.max_abs_drift_sync}), "
+            f"total_count={self.total_count}, {row_label} in {plog_file} "
+            f"(baseline_time={baseline_time_label}, baseline_sync={baseline_sync}, threshold={max_secs_per_sync:.3f}s)"
+        )
+
 
 def get_tool_templates() -> List[ToolTemplate]:
     sample_log_path_1 = ACU_LOG_PATH / "192.168.100.61" / "P_20260216_000000.txt"
-    #sample_log_path_2 = ACU_LOG_PATH / "192.168.100.61" / "P_20260217_000000.txt"
     args = {
         ARG_PLOG_PATHS: [str(sample_log_path_1)],
         ARG_OUTPUT_PATH: str(DEFAULT_OUTPUT_PATH),
         ARG_MAX_SECS_PER_SYNC: DEFAULT_MAX_SECS_PER_SYNC,
-        # ARG_TIME_WINDOW: DEFAULT_TIME_WINDOW_HOURS,
     }
     
     return [
@@ -116,7 +165,7 @@ def _record_issue(issues: List[str], plog_file: Path, row_index: int, time_value
 
 
 def _check_time_sync_drift(file_data: PLogData, max_secs_per_sync: float) -> List[str]:
-    #  Wait for the first time sync tick, then baseline there and check deltas vs LAST_TIME_SYNC.
+    # Wait for the first time sync tick, then baseline there and summarize continuous drift episodes.
     issues: List[str] = []
     plog_file = file_data.plog_file or Path("<unknown plog file>")
     name_to_idx = {name: idx for idx, name in enumerate(file_data.header)}
@@ -134,6 +183,15 @@ def _check_time_sync_drift(file_data: PLogData, max_secs_per_sync: float) -> Lis
     prev_time_of_day: Optional[float] = None
     prev_sync: Optional[int] = None
     curr_day_offset: float = 0.0
+    drift_issue_block: Optional[DriftIssueBlock] = None
+
+    def flush_drift_issue_block() -> None:
+        nonlocal drift_issue_block
+        if drift_issue_block is None:
+            return
+        # Close the current over-threshold span as one issue instead of logging every row.
+        issues.append(drift_issue_block.to_message(plog_file, start_time_label, start_sync_int, max_secs_per_sync))
+        drift_issue_block = None
 
     for idx, row in enumerate(file_data.raw_data_rows):
         row_index = file_data.plog_data_row_indices[idx] if idx < len(file_data.plog_data_row_indices) else idx + 1
@@ -143,8 +201,9 @@ def _check_time_sync_drift(file_data: PLogData, max_secs_per_sync: float) -> Lis
         curr_time_sync_int = _parse_int(curr_sync_value)
 
         if curr_time_secs_float is None or curr_time_sync_int is None:
-            _record_issue(issues, plog_file, row_index, curr_time_value or "?", curr_sync_value or "?",
-                          "missing/invalid time sync data")
+            # If Time or LAST_TIME_SYNC cannot be parsed, this row SHOULD NOT extend the current drift span.
+            flush_drift_issue_block()
+            _record_issue(issues, plog_file, row_index, curr_time_value or "?", curr_sync_value or "?", "missing/invalid time sync data")
             continue
 
         if prev_time_of_day is not None and curr_time_secs_float < prev_time_of_day:
@@ -180,9 +239,12 @@ def _check_time_sync_drift(file_data: PLogData, max_secs_per_sync: float) -> Lis
             prev_sync = curr_time_sync_int
             continue
 
-        # Ignore drift while sync value is zero after having had a non-zero baseline; this is handled by SYNC_ZERO checks.
+        # LAST_TIME_SYNC=0 after a valid non-zero baseline means the sync source was reset/lost, not a normal drift delta.
+        # Report that interval through the SYNC_ZERO checker and start waiting for a fresh non-zero baseline afterward.
         if start_sync_int is not None and start_sync_int > 0 and curr_time_sync_int == 0:
-            # Reset variables
+            # Close any drift span before reset so the pre-zero drift and sync-zero interval stay separate.
+            flush_drift_issue_block()
+            # Reset baseline state; following non-zero rows will establish a new drift comparison anchor.
             baseline_ready = False
             baseline_start_time = None
             baseline_wait_reported = False
@@ -196,19 +258,27 @@ def _check_time_sync_drift(file_data: PLogData, max_secs_per_sync: float) -> Lis
         if curr_time_sync_int < prev_sync:
             _record_issue(issues, plog_file, row_index, curr_time_value, curr_sync_value,
                           "LAST_TIME_SYNC decreased")
+        if start_time_float is None or start_sync_int is None:
+            prev_time_of_day = curr_time_secs_float
+            prev_sync = curr_time_sync_int
+            continue
         real_time_delta_secs_float = curr_adj_time_secs_float - start_time_float
         sync_delta_secs_int = curr_time_sync_int - start_sync_int
         drift = real_time_delta_secs_float - sync_delta_secs_int
         if abs(drift) > max_secs_per_sync:
-            _record_issue(issues, plog_file, row_index, curr_time_value, curr_sync_value,
-                          f"drift = {drift:.3f}s > {max_secs_per_sync:.3f}s", drift=drift,
-                          drift_time_now=curr_adj_time_secs_float, drift_time_start=start_time_float,
-                          drift_sync_now=curr_time_sync_int, drift_sync_start=start_sync_int,
-                          drift_time_now_label=curr_time_value, drift_time_start_label=start_time_label)
+            if drift_issue_block is None:
+                drift_issue_block = DriftIssueBlock.from_sample(row_index, curr_time_value, curr_time_sync_int, drift)
+            else:
+                drift_issue_block.update(row_index, curr_time_value, curr_time_sync_int, drift)
+        else:
+            # Drift returned inside the threshold; close the summarized drift span.
+            flush_drift_issue_block()
 
         prev_time_of_day = curr_time_secs_float
         prev_sync = curr_time_sync_int
 
+    # End of file can leave a drift span open; close it so the last block is reported.
+    flush_drift_issue_block()
     return issues
 
 

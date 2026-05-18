@@ -59,8 +59,8 @@ def create_mr_content(
 
 
 def ensure_temp_directory() -> Path:
-    WSL_PERSISTENT_TEMP_PATH.mkdir(parents=True, exist_ok=True)
-    return WSL_PERSISTENT_TEMP_PATH
+    LOCAL_TOOL_TEMP_PATH.mkdir(parents=True, exist_ok=True)
+    return LOCAL_TOOL_TEMP_PATH
 
 
 def write_markdown_file(content: str, repo_name: str, ticket_tag: Optional[str], source_branch: str) -> Path:

@@ -42,3 +42,12 @@ def test_decode_ins_status_creates_object():
     assert decoded.rtk_status["Raw GPS Data Error"]
     assert decoded.kinematic_calibration_good
     assert "INS Status" in str(decoded)
+
+
+def test_ins_status_compact_string_is_single_line():
+    status_val = INS_STATUS_GPS_AIDING_POS | INS_STATUS_NAV_MODE | _build_status_with_solution(INS_STATUS_SOLUTION_NAV)
+    compact = decode_ins_status(status_val).to_compact_str()
+    assert "\n" not in compact
+    assert "INS 0x" in compact
+    assert "sol=Nav" in compact
+    assert "aid=" in compact

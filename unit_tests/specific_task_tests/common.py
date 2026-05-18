@@ -20,11 +20,12 @@ def _resolve_events_db_path_from_cfg(target_ip: str) -> str:
     raise RuntimeError(f"Unable to resolve events_db_location from {cfg_url}. stdout='{stdout.strip()}' stderr='{stderr.strip()}'")
 
 
-def copy_events_db_before_reboot(cycle: int, attempt: int, target_ip: str, cycle_base: Path, program_log_path: Path, append_program_log_fn: Callable[[Path, str], None], event_stage: str) -> None:
-    events_db_remote_path = _resolve_events_db_path_from_cfg(target_ip=target_ip)
+def copy_events_db_for_cycle(cycle: int, attempt: int, target_ip: str, cycle_base: Path, program_log_path: Path, append_program_log_fn: Callable[[Path, str], None], event_stage: str = "after cycle") -> None:
+    events_db_remote_path = "unknown"
     dest_dir = cycle_base
     dest_dir.mkdir(parents=True, exist_ok=True)
     try:
+        events_db_remote_path = _resolve_events_db_path_from_cfg(target_ip=target_ip)
         copied_files = copy_to_local(remote_src_paths=events_db_remote_path, remote_host_ip=target_ip, remote_user=SSM_USER, password=SSM_PASSWORD, local_dest_path=dest_dir, timeout=30, copy_type=ECopyType.SCP)
         copied_text = ", ".join(copied_files) if copied_files else "none"
         sqlite_files = [Path(p) for p in copied_files if Path(p).suffix in (".sqlite3", ".db", ".sqlite")] or [Path(p) for p in copied_files]

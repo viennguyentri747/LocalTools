@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 # import fcntl
 import importlib.util
 import os
@@ -16,7 +16,6 @@ from dev.dev_common.constants import LINE_SEPARATOR, CMD_EXPLORER, WSL_SELECT_FL
 from dev.dev_common import *
 # from dev.dev_common.core_utils import LOG, convert_win_to_wsl_path, run_shell, convert_wsl_to_win_path
 
-HIDDEN_TOOL_FILENAMES = {} #Can put thing like: "t_test_ut_from_local.py"
 LOCAL_PYTHON_BIN_PATH = "/usr/local/bin/local_python"
 WIN_PYTHON_RUNNER_SCRIPT_PATH = LOCAL_TOOL_REPO_PATH / "dev" / "dev_common" / "win_python_runner.py"
 WIN_PYTHON_TRACKED_MODULES: Set[str] = set()
@@ -72,8 +71,15 @@ class ToolFolderMetadata:
     always_expand: bool = False
     start_collapsed: Optional[bool] = None
     priority: ToolFolderPriority = ToolFolderPriority.LAST
+    hidden_tool_filenames: List[str] = field(default_factory=list)
 
     def __init__(self, **kwargs: Any):
+        self.title = None
+        self.extra_title_description = ""
+        self.always_expand = False
+        self.start_collapsed = None
+        self.priority = ToolFolderPriority.LAST
+        self.hidden_tool_filenames = []
         for key, value in kwargs.items():
             if hasattr(self, key):
                 setattr(self, key, value)
@@ -119,8 +125,6 @@ def discover_tool_folders(root: Path, folder_pattern: str, is_recursive: bool = 
 
 def is_tool_file(path: Path, prefix: str) -> bool:
     name = path.name
-    if name in HIDDEN_TOOL_FILENAMES:
-        return False
     if not name.startswith(prefix):
         return False
     if path.suffix == ".py":

@@ -12,7 +12,7 @@ from available_tools.test_tools.common import *
 from dev.dev_common import *
 
 DEFAULT_LOG_TYPE_PREFIXES = [P_LOG_PREFIX, E_LOG_PREFIX]
-ACU_LOG_PATH = get_win_persistent_temp_path() / "acu_logs"
+ACU_LOG_PATH = LOCAL_TOOL_TEMP_PATH / "acu_logs"
 DEFAULT_LOG_OUTPUT_PATH = ACU_LOG_PATH
 LOCAL_LOG_WRAPPER_CMD = f"{Path(__file__).resolve().parents[1] / 't_test_logs_from_local.py'} --mode get_acu_logs"
 ARG_LOG_TYPES = f"{ARGUMENT_LONG_PREFIX}type"
@@ -174,11 +174,11 @@ class FetchProgressTracker:
         return f"{label}:{len(ips)}[{display_ips}]"
 
 
-def batch_fetch_acu_logs(ips: List[str], log_types: List[str], date_filters: Optional[List[str]], log_output_dir: Path, max_thread_count: int, user: str = "root", public_key_path: Path = Path.home() / ".ssh" / "id_rsa.pub", should_has_var_logs: bool = False) -> List[AcuLogInfo]:
-    if not ips:
+def batch_fetch_acu_logs(ut_ips: List[str], log_types: List[str], date_filters: Optional[List[str]], log_output_dir: Path, max_thread_count: int, user: str = "root", public_key_path: Path = Path.home() / ".ssh" / "id_rsa.pub", should_has_var_logs: bool = False) -> List[AcuLogInfo]:
+    if not ut_ips:
         return []
 
-    progress_tracker = FetchProgressTracker(ips)
+    progress_tracker = FetchProgressTracker(ut_ips)
     # Separate IPs into those with and without passwordless access
     passwordless_ips = []
     password_required_ips = []
@@ -186,30 +186,30 @@ def batch_fetch_acu_logs(ips: List[str], log_types: List[str], date_filters: Opt
 
     # Check SSH status in parallel
     ssh_statuses = check_ssh_pwless_statuses(
-        ips, user, public_key_path, max_workers=max_thread_count
+        ut_ips, user, public_key_path, max_workers=max_thread_count
     )
     passwordless_ips = list(ssh_statuses.passwordless_ips)
     password_required_ips = list(ssh_statuses.password_required_ips)
 
     if ssh_statuses.unreachable_ips:
         LOG(f"{LOG_PREFIX_MSG_WARNING} Skipping {len(ssh_statuses.unreachable_ips)} unreachable host(s): {', '.join(ssh_statuses.unreachable_ips)}")
-        for ip in ssh_statuses.unreachable_ips:
-            results_by_ip[ip] = AcuLogInfo(is_valid=False, ip=ip)
-            progress_tracker.set_status(ip, "skipped")
+        for ut_ip in ssh_statuses.unreachable_ips:
+            results_by_ip[ut_ip] = AcuLogInfo(is_valid=False, ip=ut_ip)
+            progress_tracker.set_status(ut_ip, "skipped")
 
     # First, handle hosts that need password (sequentially)
     if password_required_ips:
         LOG(f"{LOG_PREFIX_MSG_INFO} Installing SSH keys on {len(password_required_ips)} hosts (requires password)...")
-        for ip in password_required_ips:
-            LOG(f"{LOG_PREFIX_MSG_INFO} Setting up SSH key for {ip}...")
+        for ut_ip in password_required_ips:
+            LOG(f"{LOG_PREFIX_MSG_INFO} Setting up SSH key for {ut_ip}...")
 
             # This function now contains the proactive removal logic
-            if setup_host_ssh_key(user, ip, public_key_path):
-                passwordless_ips.append(ip)
+            if setup_host_ssh_key(user, ut_ip, public_key_path, password=SSM_PASSWORD):
+                passwordless_ips.append(ut_ip)
             else:
-                LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to copy SSH key to {ip}, skipping...")
-                results_by_ip[ip] = AcuLogInfo(is_valid=False, ip=ip)
-                progress_tracker.set_status(ip, "failed")
+                LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to copy SSH key to {ut_ip}, skipping...")
+                results_by_ip[ut_ip] = AcuLogInfo(is_valid=False, ip=ut_ip)
+                progress_tracker.set_status(ut_ip, "failed")
                 #LOG_EXCEPTION(f"Failed to copy SSH key to {ip}, quitting, check make sure enter correct PW!")
 
     # Now fetch logs from all hosts with passwordless access (parallel)
@@ -230,23 +230,23 @@ def batch_fetch_acu_logs(ips: List[str], log_types: List[str], date_filters: Opt
             return fetch_info
 
         if max_workers == 1:
-            for ip in passwordless_ips:
-                results_by_ip[ip] = _fetch_single_ip(ip)
+            for ut_ip in passwordless_ips:
+                results_by_ip[ut_ip] = _fetch_single_ip(ut_ip)
         else:
             start_time = time.time()
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_map = {executor.submit(_fetch_single_ip, ip): ip for ip in passwordless_ips}
                 for future in as_completed(future_map):
-                    ip = future_map[future]
+                    ut_ip = future_map[future]
                     try:
-                        results_by_ip[ip] = future.result()
+                        results_by_ip[ut_ip] = future.result()
                     except Exception as exc:
-                        LOG(f"{LOG_PREFIX_MSG_ERROR} Unexpected error while fetching logs for {ip}: {exc}")
-                        results_by_ip[ip] = AcuLogInfo(is_valid=False, ip=ip)
-                        progress_tracker.set_status(ip, "failed")
+                        LOG(f"{LOG_PREFIX_MSG_ERROR} Unexpected error while fetching logs for {ut_ip}: {exc}")
+                        results_by_ip[ut_ip] = AcuLogInfo(is_valid=False, ip=ut_ip)
+                        progress_tracker.set_status(ut_ip, "failed")
             LOG(f"All fetch tasks completed in {time.time() - start_time:.1f} seconds.")
 
-    consolidated_results = [results_by_ip.get(ip, AcuLogInfo(is_valid=False, ip=ip)) for ip in ips]
+    consolidated_results = [results_by_ip.get(ip, AcuLogInfo(is_valid=False, ip=ip)) for ip in ut_ips]
     progress_tracker.finish()
     return consolidated_results
 
@@ -329,7 +329,7 @@ def main() -> None:
 
     LOG(f"Storing fetched logs under: {log_output_dir}")
     results = batch_fetch_acu_logs(
-        ips=ips,
+        ut_ips=ips,
         log_types=log_types,
         date_filters=date_filters,
         log_output_dir=log_output_dir,

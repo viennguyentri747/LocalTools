@@ -289,17 +289,6 @@ def main() -> None:
         is_copied = True
         LOG_LINE_SEPARATOR()
         LOG("SCP copy completed successfully")
-        show_noti(title="Copy Complete", message=f"File copied to {target_ip}", no_log_on_success=True)
-
-    INSTALL_COMPLETE_MSG = "Install complete. Please reboot to boot into the other partition"
-
-    def _on_install_iesa_line_recv(line: str) -> bool:
-        LOG(line)
-        if INSTALL_COMPLETE_MSG not in line:
-            return False
-        show_noti(title="IESA Install Complete",
-                  message=f"{INSTALL_COMPLETE_MSG} ({target_ip})", no_log_on_success=True)
-        return True
 
     ut_command: Optional[str] = None
     purpose: str = ""
@@ -313,9 +302,16 @@ def main() -> None:
         ut_command = _build_iesa_post_copy_cmd(
             original_md5=original_md5, remote_dir=remote_dir, remote_name=dest_name, prompt_before_execute=should_prompt)
     elif mode == MODE_IESA_PYTHON:
-        install_result, install_reason, _ = _run_iesa_install_via_python(remote_name=dest_name, remote_host_ip=acu_host_ip, remote_user=ACU_USER, jump_host_ip=target_ip,
-                                                                          should_prompt=should_prompt, on_install_line_recv=_on_install_iesa_line_recv, remote_password=ACU_PASSWORD,
-                                                                          jump_user=SSM_USER, jump_password=SSM_PASSWORD)
+        INSTALL_COMPLETE_MSG = "Install complete. Please reboot to boot into the other partition"
+
+        def _on_install_iesa_line_recv(line: str) -> bool:
+            LOG(line)
+            if INSTALL_COMPLETE_MSG not in line:
+                return False
+            show_noti(title="IESA Install Complete", message=f"{INSTALL_COMPLETE_MSG} ({target_ip})", no_log_on_success=True)
+            return True
+
+        install_result, install_reason, _ = _run_iesa_install_via_python(remote_name=dest_name, remote_host_ip=acu_host_ip, remote_user=ACU_USER, jump_host_ip=target_ip, should_prompt=should_prompt, on_install_line_recv=_on_install_iesa_line_recv, remote_password=ACU_PASSWORD, jump_user=SSM_USER, jump_password=SSM_PASSWORD)
         if install_result == EIesaInstallResult.CANNOT_START:
             raise RuntimeError(f"IESA install cannot start: {install_reason}")
         if install_result == EIesaInstallResult.INSTALL_TIMEOUT:
@@ -341,6 +337,7 @@ def main() -> None:
     if ut_command:
         LOG_LINE_SEPARATOR()
         display_content_to_copy(ut_command, purpose=purpose, is_copy_to_clipboard=True)
+        show_noti(title="Use this command on target UT!!", message=purpose, no_log_on_success=True)
 
 
 if __name__ == "__main__":

@@ -15,7 +15,7 @@ DEFAULT_MAX_THREAD_COUNT = t_get_acu_logs.DEFAULT_MAX_THREAD_COUNT
 
 def batch_fetch_acu_logs(ips: List[str], log_types: List[str], date_filters: Optional[List[str]], log_output_dir: Path, max_thread_count: int, should_has_var_logs: bool = False) -> List[AcuLogInfo]:
     return t_get_acu_logs.batch_fetch_acu_logs(
-        ips=ips,
+        ut_ips=ips,
         log_types=log_types,
         date_filters=date_filters,
         log_output_dir=log_output_dir,

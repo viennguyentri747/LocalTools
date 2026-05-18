@@ -38,6 +38,7 @@ LOG_TARGET_PREFIX_ACU = "acu_"
 class EUtLiveLogType(str, Enum):
     SSM_GNSS_LOG = "ssm_gnss_log"
     SSM_MM_OWEXT_LOG = "ssm_mm_owext_log"
+    SSM_TIMEINJ_LOG = "ssm_timeinj_log"
     SSM_AMC_LOG = "ssm_amc_log"
     SSM_E_LOG = "ssm_e_log"
     SSM_P_LOG = "ssm_p_log"
@@ -66,6 +67,8 @@ class EUtLiveLogType(str, Enum):
             return "/var/log/gnss.log"
         if self == EUtLiveLogType.SSM_MM_OWEXT_LOG:
             return "/var/log/mm_owext.log"
+        if self == EUtLiveLogType.SSM_TIMEINJ_LOG:
+            return "/var/log/mm_timeinj.log"
         if self == EUtLiveLogType.SSM_AMC_LOG:
             return "/var/log/amc.log"
         if self == EUtLiveLogType.SSM_E_LOG:
@@ -320,7 +323,7 @@ def main() -> int:
         handlers_by_type: Dict[EUtLiveLogType, Sequence[logging.Handler]] = {}
         for log_type in normalize_live_log_types(log_types):
             output_path = build_live_log_output_path(target_ip=_normalize_target_ip(target_ip), log_type=log_type, log_dir_name=log_dir_name)
-            handlers_by_type[log_type] = build_live_log_handlers(log_path=str(output_path), log_stream_mode=log_stream_mode)
+            handlers_by_type[log_type] = build_live_log_handlers(output_log_path=str(output_path), log_stream_mode=log_stream_mode)
         session = start_ut_live_log_batch_stream(target_ip=target_ip, acu_ip=acu_ip, log_types=log_types, log_dir_name=log_dir_name, tail_lines=tail_lines,
                                                  read_timeout=read_timeout, stream_duration_secs=stream_duration_secs,
                                                  handlers_by_type=handlers_by_type, wait_acu_reachable=wait_acu_reachable,

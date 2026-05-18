@@ -154,11 +154,11 @@ def start_stop_timer(stream_duration_secs: float, stop_event: threading.Event) -
     return stop_timer
 
 
-def build_live_log_handlers(log_path: str, log_stream_mode: ELogStreamMode = ELogStreamMode.OverrideSingleFile,
+def build_live_log_handlers(output_log_path: str, log_stream_mode: ELogStreamMode = ELogStreamMode.OverrideSingleFile,
                             should_keep: Optional[Callable[[List[Path]], List[Tuple[Path, bool]]]] = None,
                             max_bytes: int = LIVE_LOG_FILE_MAX_BYTES, backup_count: int = LIVE_LOG_FILE_BACKUP_COUNT) -> List[logging.Handler]:
     """Handle where to send live log messages (file + rotation)"""
-    resolved_log_path = _resolve_capture_path_by_mode(log_path=log_path, log_stream_mode=log_stream_mode)
+    resolved_log_path = _resolve_capture_path_by_mode(log_path=output_log_path, log_stream_mode=log_stream_mode)
     LOG(f"{LOG_PREFIX_MSG_INFO} Build live log handlers. log_path={resolved_log_path}, mode={log_stream_mode.value}")
     handlers: List[logging.Handler] = [logging.StreamHandler(sys.stdout)]
     log_file = resolved_log_path
@@ -211,7 +211,7 @@ def main() -> int:
     args = parse_args()
     resolved_log_path = args.log_path or str(_build_default_capture_path(host_ip=args.host_ip, jump_host_ip=args.jump_host_ip, remote_log_path=args.remote_path))
     LOG(f"{LOG_PREFIX_MSG_INFO} Capture live log to {resolved_log_path}")
-    handlers = build_live_log_handlers(log_path=resolved_log_path, log_stream_mode=_get_log_stream_mode(args.stream_same_file))
+    handlers = build_live_log_handlers(output_log_path=resolved_log_path, log_stream_mode=_get_log_stream_mode(args.stream_same_file))
     stop_event = threading.Event()
     stop_timer: Optional[threading.Timer] = None
     try:

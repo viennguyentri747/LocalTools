@@ -2,7 +2,6 @@
 import hashlib
 import logging
 import os
-import pwd
 from pathlib import Path
 import re
 import shlex
@@ -86,7 +85,6 @@ def get_wsl_home_path() -> Path:
     else:
         resolved_path = Path.home()
     return resolved_path
-
 
 def get_win_home_path() -> Path:
     if is_platform_windows():
@@ -382,7 +380,6 @@ def read_value_from_credential_file(credentials_file_path: str, key_to_read: str
     """
     if is_platform_windows():
         credentials_file_path = convert_win_to_wsl_path(credentials_file_path)
-
     if os.path.exists(credentials_file_path):
         try:
             with open(credentials_file_path, 'r') as f:
@@ -403,6 +400,7 @@ def read_value_from_credential_file(credentials_file_path: str, key_to_read: str
                 sys.exit(1)
     else:
         LOG(f"Credentials file {credentials_file_path} not found.")
+        #breakpoint()
 
     LOG(f"ERROR: Key '{key_to_read}' not found in {credentials_file_path}")
     return None

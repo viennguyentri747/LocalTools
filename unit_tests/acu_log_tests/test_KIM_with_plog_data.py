@@ -12,7 +12,7 @@ from unit_tests.acu_log_tests.periodic_log_helper import PLogData, parse_periodi
 from unit_tests.acu_log_tests.periodic_log_constants import *
 from available_tools.inertial_sense_tools.decode_ins_status_utils import (
     decode_ins_status,
-    print_decoded_status as print_ins_status,
+    print_decoded_status,
 )
 
 # Defaults mirror the SINR-focused unit tests while allowing overrides via CLI.
@@ -96,7 +96,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     for ins_status in ins_statuses_list:
         print(ins_status)
         decoded_status = decode_ins_status(ins_status)
-        print_ins_status(decoded_status)
+        print_decoded_status(decoded_status)
 
     if success_count == 0:
         LOG(f"{LOG_PREFIX_MSG_WARNING} No logs were parsed successfully.")

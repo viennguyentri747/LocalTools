@@ -141,8 +141,7 @@ def build_scp_log_cmd(user: str, jump_ip: str, log_types: List[str],
     remote_paths = build_remote_log_sources(log_types=log_types, date_filters=date_filters, should_has_var_log=should_has_var_log)
 
     # Create a single command to copy all files
-    proxy = f"{user}@{jump_ip}"
-    cmd: List[str] = ['scp', '-r', '-o', f'ProxyJump={proxy}', '-o', 'StrictHostKeyChecking=no', *LEGACY_SSH_RSA_OPTIONS, *NON_INTERACTIVE_KNOWN_HOST_OPTIONS]
+    cmd: List[str] = ['scp', '-r', '-o', f'ProxyCommand={build_non_interactive_proxy_command(user, jump_ip)}', '-o', 'StrictHostKeyChecking=no', *LEGACY_SSH_RSA_OPTIONS, *NON_INTERACTIVE_KNOWN_HOST_OPTIONS]
 
     # Add all remote paths
     for path in remote_paths:

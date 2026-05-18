@@ -17,7 +17,7 @@ from dev.dev_common import *
 from dev.dev_common.custom_structures import ToolData
 from dev.dev_common.noti_utils import show_noti
 from dev.dev_common.tools_utils import ToolTemplate, build_examples_epilog
-from unit_tests.specific_task_tests.common import copy_events_db_before_reboot
+from unit_tests.specific_task_tests.common import copy_events_db_for_cycle
 
 ARG_TARGET_IP = f"{ARGUMENT_LONG_PREFIX}target_ip"
 ARG_ACU_IP = f"{ARGUMENT_LONG_PREFIX}acu_ip"
@@ -34,6 +34,7 @@ E_LOG_POST_TRIGGER_WAIT_SECS = 60
 INS_MONITOR_POST_TRIGGER_WAIT_SECS = 60
 GNSS_LOG_POST_TRIGGER_WAIT_SECS = 60
 MM_OWEXT_POST_TRIGGER_WAIT_SECS = 60
+TIMEINJ_LOG_POST_TRIGGER_WAIT_SECS = 60
 AMC_LOG_POST_TRIGGER_WAIT_SECS = 60
 AIM_MANAGER_LOG_POST_TRIGGER_WAIT_SECS = 60
 PING_TIMEOUT_AFTER_REBOOT_SECS = 300
@@ -251,10 +252,12 @@ def _run_one_cycle(cycle: int, attempt: int, target_ip: str, acu_ip: str, tail_l
     cycle_base = _build_cycle_base_dir(target_ip=target_ip, cycle=cycle)
     program_log_path = cycle_base.parent / "time_sync_program.log"
     _append_program_log(program_log_path=program_log_path, message=f"Cycle {cycle} attempt {attempt}: started")
-    copy_events_db_before_reboot(cycle=cycle, attempt=attempt, target_ip=target_ip, cycle_base=cycle_base, program_log_path=program_log_path, append_program_log_fn=_append_program_log, event_stage="before log streaming")
+
+    def _copy_cycle_event_dump(event_stage: str) -> None:
+        copy_events_db_for_cycle(cycle=cycle, attempt=attempt, target_ip=target_ip, cycle_base=cycle_base, program_log_path=program_log_path, append_program_log_fn=_append_program_log, event_stage=event_stage)
 
     monitor = _CycleMonitor()
-    requested_log_types = [EUtLiveLogType.ACU_E_LOG, EUtLiveLogType.ACU_AIM_MANAGER_LOG, EUtLiveLogType.SSM_GNSS_LOG, EUtLiveLogType.SSM_MM_OWEXT_LOG, EUtLiveLogType.SSM_AMC_LOG, EUtLiveLogType.ACU_INS_MONITOR_LOG]
+    requested_log_types = [EUtLiveLogType.ACU_E_LOG, EUtLiveLogType.ACU_AIM_MANAGER_LOG, EUtLiveLogType.SSM_GNSS_LOG, EUtLiveLogType.SSM_MM_OWEXT_LOG, EUtLiveLogType.SSM_TIMEINJ_LOG, EUtLiveLogType.SSM_AMC_LOG, EUtLiveLogType.ACU_INS_MONITOR_LOG]
     LOG(f"{LOG_PREFIX_MSG_INFO} Cycle {cycle}: start streaming {', '.join(item.value for item in requested_log_types)}")
     _append_program_log(program_log_path=program_log_path, message=f"Cycle {cycle}: start streaming {', '.join(item.value for item in requested_log_types)}")
     cycle_log_dir_name = _build_cycle_log_dir_name(cycle=cycle)
@@ -262,7 +265,7 @@ def _run_one_cycle(cycle: int, attempt: int, target_ip: str, acu_ip: str, tail_l
     handlers_by_type: Dict[EUtLiveLogType, Sequence[logging.Handler]] = {}
     for log_type in requested_log_types:
         log_path = Path(DEFAULT_LOG_OUTPUT_PATH) / target_ip / cycle_log_dir_name / f"{log_type.value}.live.log"
-        handlers_by_type[log_type] = build_live_log_handlers(log_path=str(log_path), log_stream_mode=ELogStreamMode.OverrideSingleFile, should_keep=retention.build_should_keep(log_type), backup_count=64)
+        handlers_by_type[log_type] = build_live_log_handlers(output_log_path=str(log_path), log_stream_mode=ELogStreamMode.OverrideSingleFile, should_keep=retention.build_should_keep(log_type), backup_count=64)
 
     def _on_e_log_line(line: str) -> None:
         retention.on_log_line(EUtLiveLogType.ACU_E_LOG, line)
@@ -283,15 +286,19 @@ def _run_one_cycle(cycle: int, attempt: int, target_ip: str, acu_ip: str, tail_l
     def _on_mm_log_line(line: str) -> None:
         retention.on_log_line(EUtLiveLogType.SSM_MM_OWEXT_LOG, line)
 
+    def _on_timeinj_log_line(line: str) -> None:
+        retention.on_log_line(EUtLiveLogType.SSM_TIMEINJ_LOG, line)
+
     def _on_amc_log_line(line: str) -> None:
         retention.on_log_line(EUtLiveLogType.SSM_AMC_LOG, line)
 
-    session = start_ut_live_log_batch_stream(target_ip=target_ip, acu_ip=acu_ip, log_types=requested_log_types, log_dir_name=cycle_log_dir_name, tail_lines=tail_lines, read_timeout=LIVE_LOG_READ_TIMEOUT_SECS, stream_duration_secs=stream_duration_secs, handlers_by_type=handlers_by_type, on_line_recv_by_type={EUtLiveLogType.ACU_E_LOG: _on_e_log_line, EUtLiveLogType.ACU_AIM_MANAGER_LOG: _on_aim_log_line, EUtLiveLogType.ACU_INS_MONITOR_LOG: _on_ins_log_line, EUtLiveLogType.SSM_GNSS_LOG: _on_gnss_log_line, EUtLiveLogType.SSM_MM_OWEXT_LOG: _on_mm_log_line, EUtLiveLogType.SSM_AMC_LOG: _on_amc_log_line}, wait_acu_reachable=True, acu_reachable_wait_timeout_secs=PING_TIMEOUT_AFTER_REBOOT_SECS)
+    session = start_ut_live_log_batch_stream(target_ip=target_ip, acu_ip=acu_ip, log_types=requested_log_types, log_dir_name=cycle_log_dir_name, tail_lines=tail_lines, read_timeout=LIVE_LOG_READ_TIMEOUT_SECS, stream_duration_secs=stream_duration_secs, handlers_by_type=handlers_by_type, on_line_recv_by_type={EUtLiveLogType.ACU_E_LOG: _on_e_log_line, EUtLiveLogType.ACU_AIM_MANAGER_LOG: _on_aim_log_line, EUtLiveLogType.ACU_INS_MONITOR_LOG: _on_ins_log_line, EUtLiveLogType.SSM_GNSS_LOG: _on_gnss_log_line, EUtLiveLogType.SSM_MM_OWEXT_LOG: _on_mm_log_line, EUtLiveLogType.SSM_TIMEINJ_LOG: _on_timeinj_log_line, EUtLiveLogType.SSM_AMC_LOG: _on_amc_log_line}, wait_acu_reachable=True, acu_reachable_wait_timeout_secs=PING_TIMEOUT_AFTER_REBOOT_SECS)
 
     has_trigger = monitor.trigger_detected_event.wait(timeout=max(1, trigger_timeout_secs))
     if _check_batch_stream_error(session=session, cycle=cycle, attempt=attempt, program_log_path=program_log_path, stage="before trigger handling"):
         session.stop()
         session.join(timeout_per_thread=15.0)
+        _copy_cycle_event_dump(event_stage="after stream failure before trigger")
         return False
     if not has_trigger:
         message = f"Cycle {cycle} attempt {attempt}: trigger line not found within {trigger_timeout_secs}s"
@@ -300,6 +307,7 @@ def _run_one_cycle(cycle: int, attempt: int, target_ip: str, acu_ip: str, tail_l
         session.stop()
         session.join(timeout_per_thread=15.0)
         _check_batch_stream_error(session=session, cycle=cycle, attempt=attempt, program_log_path=program_log_path, stage="after timeout stop")
+        _copy_cycle_event_dump(event_stage="after trigger timeout")
         return False
 
     with monitor.lock:
@@ -311,13 +319,16 @@ def _run_one_cycle(cycle: int, attempt: int, target_ip: str, acu_ip: str, tail_l
         EUtLiveLogType.ACU_INS_MONITOR_LOG: INS_MONITOR_POST_TRIGGER_WAIT_SECS,
         EUtLiveLogType.SSM_GNSS_LOG: GNSS_LOG_POST_TRIGGER_WAIT_SECS,
         EUtLiveLogType.SSM_MM_OWEXT_LOG: MM_OWEXT_POST_TRIGGER_WAIT_SECS,
+        EUtLiveLogType.SSM_TIMEINJ_LOG: TIMEINJ_LOG_POST_TRIGGER_WAIT_SECS,
         EUtLiveLogType.SSM_AMC_LOG: AMC_LOG_POST_TRIGGER_WAIT_SECS,
     }
     _append_program_log(program_log_path=program_log_path, message=f"Cycle {cycle}: post-trigger wait windows secs = {', '.join(f'{k.value}:{int(v)}' for k, v in wait_windows.items())}")
     _stop_streams_by_wait_windows(session=session, wait_by_type_secs=wait_windows)
 
     if _check_batch_stream_error(session=session, cycle=cycle, attempt=attempt, program_log_path=program_log_path, stage="after post-trigger stop"):
+        _copy_cycle_event_dump(event_stage="after post-trigger stream failure")
         return False
+    _copy_cycle_event_dump(event_stage="after cycle log collection")
     _append_program_log(program_log_path=program_log_path, message=f"Cycle {cycle} attempt {attempt}: success")
     LOG(f"{LOG_PREFIX_MSG_SUCCESS} Cycle {cycle} attempt {attempt}: success")
     return True

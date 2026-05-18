@@ -81,22 +81,26 @@ def discover_and_nest_tools(project_root: Path, folder_pattern: str, tool_prefix
     root_nodes: dict[str, ToolEntryNode] = {}
     tool_data_cache: Dict[str, ToolData] = {}
 
-    for tool in tools:
-        if tool.folder not in root_nodes:
-            folder_path = tool.folder_path
-            LOG(f"Loading tool folder: {tool.folder}")
+    for tool_entry in tools:
+        if tool_entry.folder not in root_nodes:
+            folder_path = tool_entry.folder_path
+            LOG(f"Loading tool folder: {tool_entry.folder}")
             metadata: ToolFolderMetadata = load_tools_metadata(folder_path)
-            LOG(f"Loading tool folder: {tool.folder} with metadata: {metadata}")
-            root_nodes[tool.folder] = ToolEntryNode(
-                name=tool.folder.upper(), metadata=metadata, folder_name=tool.folder, )
+            LOG(f"Loading tool folder: {tool_entry.folder} with metadata: {metadata}")
+            root_nodes[tool_entry.folder] = ToolEntryNode(name=tool_entry.folder.upper(), metadata=metadata, folder_name=tool_entry.folder)
+
+        folder_metadata = root_nodes[tool_entry.folder].metadata or ToolFolderMetadata()
+        if tool_entry.filename in folder_metadata.hidden_tool_filenames:
+            LOG(f"Skipping hidden tool '{tool_entry.filename}' from folder '{tool_entry.folder}'.")
+            continue
 
         tool_priority_number = DEFAULT_TOOL_PRIORITY_NUMBER
-        # Avoid eager imports for all tools; only preload ToolData for priority if custom priority is declared
-        if _tool_declares_custom_priority(tool.path):
-            tool_data = _resolve_tool_data(tool, project_root, tool_data_cache)
+        # Avoid eager imports for all tools and cause slow startup; only preload ToolData for priority if custom priority is declared
+        if _tool_declares_custom_priority(tool_entry.path):
+            tool_data = _resolve_tool_data(tool_entry, project_root, tool_data_cache)
             tool_priority_number = tool_data.priority_number
-        tool_node = ToolEntryNode(name=tool.filename, tool=tool, tool_priority_number=tool_priority_number)
-        root_nodes[tool.folder].children.append(tool_node)
+        tool_node = ToolEntryNode(name=tool_entry.filename, tool=tool_entry, tool_priority_number=tool_priority_number)
+        root_nodes[tool_entry.folder].children.append(tool_node)
 
     for node in root_nodes.values():
         node.children.sort(key=lambda child: (child.tool_priority_number, child.name))
@@ -267,12 +271,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     args = parse_args(argv)
     tools_dir = Path(get_arg_value(args, ARG_TOOLS_DIR))
 
-    tool_nodes, tool_data_cache = discover_and_nest_tools(
-        tools_dir,
-        get_arg_value(args, ARG_TOOL_FOLDER_PATTERN),
-        get_arg_value(args, ARG_TOOL_PREFIX),
-        is_recursive=True,
-    )
+    tool_nodes, tool_data_cache = discover_and_nest_tools( tools_dir, get_arg_value(args, ARG_TOOL_FOLDER_PATTERN), get_arg_value(args, ARG_TOOL_PREFIX), is_recursive=True, )
 
     tool = interactive_tool_select(f"Select a tool", tool_nodes)
     if tool is None:

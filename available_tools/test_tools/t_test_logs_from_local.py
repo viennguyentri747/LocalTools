@@ -9,7 +9,6 @@ from typing import Dict, List, Tuple
 from available_tools.test_tools.test_ut_log import t_get_acu_logs
 from available_tools.test_tools.test_ut_log import t_get_ut_live_log
 from available_tools.test_tools.test_ut_log import t_test_process_plog_local
-from available_tools.test_tools.test_ut_log import t_test_time_sync_plog
 from available_tools.test_tools import t_test_all_local_logs
 from dev.dev_common import *
 
@@ -84,11 +83,11 @@ def parse_args(argv: List[str]) -> Tuple[argparse.Namespace, List[str]]:
         required=True,
         help=(
             f"Which local log helper to run. "
-            f"'{MODE_GET_ACU_LOGS}' forwards to t_get_acu_logs.py. "
-            f"'{MODE_GET_UT_LIVE_LOG}' forwards to t_get_ut_live_log.py. "
-            f"'{MODE_COMPACT_PLOG}' forwards to t_test_process_plog_local.py. "
-            f"'{MODE_TIME_SYNC_PLOG}' forwards to t_test_time_sync_plog.py. "
-            f"'{MODE_ALL_LOCAL_LOGS}' forwards to t_test_all_local_logs.py."
+            f"'{MODE_GET_ACU_LOGS}'"
+            f"'{MODE_GET_UT_LIVE_LOG}'"
+            f"'{MODE_COMPACT_PLOG}'"
+            f"'{MODE_TIME_SYNC_PLOG}'"
+            f"'{MODE_ALL_LOCAL_LOGS}'"
         ),
     )
     parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))

@@ -164,6 +164,17 @@ class InsStatus:
         lines.append(f"Kinematic Calibration Good: {self.kinematic_calibration_good}")
         return "\n".join(lines)
 
+    def to_compact_str(self) -> str:
+        fine_align = _format_compact_bool_summary(self.alignment_status, [("fineHeading", "Fine Heading"), ("fineVelocity", "Fine Velocity"), ("finePosition", "Fine Position")])
+        aiding = _format_compact_bool_summary(self.aiding_status, [("gpsHeading", "GPS Aiding Heading"), ("gpsPosition", "GPS Aiding Position"), ("gpsVelocity", "GPS Aiding Velocity"), ("gpsUpdate", "GPS Update in Solution")])
+        faults = _format_compact_bool_summary(self.faults_and_warnings, [("generalFault", "General Fault"), ("rtosOverrun", "RTOS Task Period Overrun")])
+        mag = _format_compact_bool_summary(self.magnetometer_status, [("magRecalibrating", "Recalibrating"), ("magBadCal", "Interference or Bad Cal")])
+        return (
+            f"INS {self.overall_status_hex} ({self.raw_value}) | sol={self.solution_status} | gps={self.gps_fix} | "
+            f"rtk={self.rtk_status.get('Compassing Status', 'N/A')} | fine={fine_align} | aid={aiding} | "
+            f"mag={mag} | fault={faults} | kinematicCalGood={self.kinematic_calibration_good}"
+        )
+
 
 def decode_ins_status(ins_status: Union[int, str]) -> InsStatus:
     """Decode a 32-bit INS status value into a structured object."""
@@ -278,7 +289,11 @@ def _format_section_lines(values: Dict[str, object], indent: int = 4) -> list:
     return [f"{prefix}{label}: {value}" for label, value in values.items()]
 
 
-def print_decoded_status(decoded_status: Union[InsStatus, int, str]) -> None:
+def _format_compact_bool_summary(values: Dict[str, object], fields: list[tuple[str, str]]) -> str:
+    return ", ".join(f"{alias}={values.get(label)}" for alias, label in fields)
+
+
+def print_decoded_status(decoded_status: Union[InsStatus, int, str], is_compact: bool = False) -> None:
     """Print a human readable summary of the INS status."""
     status_obj = decoded_status if isinstance(decoded_status, InsStatus) else decode_ins_status(decoded_status)
-    LOG(str(status_obj), highlight=True)
+    LOG(status_obj.to_compact_str() if is_compact else str(status_obj), highlight=True)

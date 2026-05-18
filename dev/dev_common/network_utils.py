@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from enum import Enum
+import random
 from pathlib import Path, PurePosixPath
 import paramiko
 import posixpath
@@ -23,6 +24,12 @@ LEGACY_SSH_RSA_OPTIONS = ['-o', 'HostKeyAlgorithms=+ssh-rsa', '-o', 'PubkeyAccep
 LEGACY_SSH_RSA_OPTION_STR = "-o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa"
 NON_INTERACTIVE_KNOWN_HOST_OPTIONS = ['-o', 'UserKnownHostsFile=/dev/null', '-o', 'GlobalKnownHostsFile=/dev/null']
 NON_INTERACTIVE_KNOWN_HOST_OPTION_STR = "-o UserKnownHostsFile=/dev/null -o GlobalKnownHostsFile=/dev/null"
+
+
+def build_non_interactive_proxy_command(jump_user: str, jump_host_ip: str) -> str:
+    """Build a ProxyCommand that also suppresses host-key prompts for the jump host."""
+    proxy_cmd = ["ssh", "-o", "StrictHostKeyChecking=no", *NON_INTERACTIVE_KNOWN_HOST_OPTIONS, *LEGACY_SSH_RSA_OPTIONS, "-W", "%h:%p", f"{jump_user}@{jump_host_ip}"]
+    return " ".join(shlex.quote(part) for part in proxy_cmd)
 
 
 class ECopyType(Enum):
@@ -106,6 +113,21 @@ def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_pa
 
     # Add first line starting
     on_line(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Getting live log at {remote_log_path} from {host_ip} via jump host {jump_host_ip}")
+    def _emit_line(text: str, saw_first: bool) -> bool:
+        clean = (text or "").rstrip("\r\n")
+        if not clean:
+            return saw_first
+        if not saw_first:
+            on_line(clean + f"\r\nGET_UT_LIVE_LOG START at {time.strftime('%Y-%m-%d %H:%M:%S')}!!")
+            return True
+        on_line(clean)
+        return saw_first
+    # Some device logs occasionally emit non-UTF8 bytes; decode with replacement and keep streaming.
+    def _emit_decoded_lines(decoded: str, saw_first: bool) -> bool:
+        for raw_line in decoded.splitlines():
+            saw_first = _emit_line(raw_line, saw_first)
+        return saw_first
+    reconnect_attempt = 0
     while not (stop_event and stop_event.is_set()):
         target_client = None
         jump_client = None
@@ -139,6 +161,19 @@ def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_pa
                         waiting_last_second = elapsed_seconds
                 try:
                     line = stdout.readline()
+                except UnicodeDecodeError:
+                    # Fallback to raw channel bytes so a single bad byte does not force SSH reconnect.
+                    try:
+                        raw = stdout.channel.recv(4096)
+                    except Exception:
+                        raw = b""
+                    if raw:
+                        LOG(f"Received non-UTF8 bytes from '{remote_log_path}'. Decoding with replacement...")
+                        saw_first_log = _emit_decoded_lines(raw.decode("utf-8", errors="replace"), saw_first_log)
+                        last_output_time = time.time()
+                        reconnect_attempt = 0
+                        continue
+                    raise
                 except TimeoutError:
                     if is_device:
                         last_output_time = time.time()
@@ -147,11 +182,9 @@ def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_pa
                         raise TimeoutError(f"No data received from '{remote_log_path}' for {read_timeout} seconds")
                     continue
                 if line:
-                    if not saw_first_log:
-                        on_line(line.rstrip() + f"\r\nGET_UT_LIVE_LOG START at {time.strftime('%Y-%m-%d %H:%M:%S')}!!")
-                        saw_first_log = True
-                    on_line(line.rstrip('\r\n'))
+                    saw_first_log = _emit_line(line, saw_first_log)
                     last_output_time = time.time()
+                    reconnect_attempt = 0
                     continue
                 if stdout.channel.exit_status_ready():
                     stderr_text = stderr.read().decode('utf-8', errors='replace').strip() if stderr else ""
@@ -166,8 +199,11 @@ def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_pa
         except Exception as e:
             if stop_event and stop_event.is_set():
                 return
-            LOG(f"[get_live_remote_log] Error ({type(e).__name__}: {e}) — retrying in {retry_interval}s...", show_time=True)
-            time.sleep(retry_interval)
+            reconnect_attempt += 1
+            exp = min(6, reconnect_attempt - 1)
+            backoff_secs = min(60.0, float(retry_interval) * (2 ** exp)) + random.uniform(0.0, 1.5)
+            LOG(f"[get_live_remote_log] Error ({type(e).__name__}: {e}) — retrying in {backoff_secs:.1f}s (attempt {reconnect_attempt})...", show_time=True)
+            time.sleep(backoff_secs)
 
         finally:
             if stdout:
@@ -647,7 +683,8 @@ def _copy_to_local_scp_impl(remote_src_paths: str | List[str], remote_host_ip: s
         cmd.extend(["-o", "StrictHostKeyChecking=no", *NON_INTERACTIVE_KNOWN_HOST_OPTIONS])
     cmd.extend(LEGACY_SSH_RSA_OPTIONS)
     if jump_host_ip:
-        cmd.extend(["-o", f"ProxyJump={remote_user}@{jump_host_ip}"])
+        proxy_option = f"ProxyJump={remote_user}@{jump_host_ip}" if strict_host_key_checking else f"ProxyCommand={build_non_interactive_proxy_command(remote_user, jump_host_ip)}"
+        cmd.extend(["-o", proxy_option])
     for src in remote_sources:
         cmd.append(f"{remote_user}@{remote_host_ip}:{src}")
     cmd.append(str(local_dest))

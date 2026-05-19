@@ -70,7 +70,7 @@ def main_git_mr(args: argparse.Namespace) -> None:
             f.write(f"#     MR DESCRIPTION:\n")
             f.write(f"{mr_description}\n")
             f.write(f"#     END OF MR DESCRIPTION\n")
-            f.write(f"# GENERATED AT: {datetime.now().isoformat()}\n")
+            f.write(f"# GENERATED AT: {get_iso_timestamp()}\n")
             f.write(f"{'='*60}\n\n")
             f.write(mr_diff)
 

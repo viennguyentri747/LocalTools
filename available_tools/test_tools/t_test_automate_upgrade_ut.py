@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-from datetime import datetime
 import sys
 import time
 from pathlib import Path
@@ -57,8 +56,7 @@ def _resolve_log_dir_path(log_dir_path: Optional[str], config_path: str) -> Opti
 def _build_upgrade_log_path(log_dir_path: Optional[Path], ssm_ip: str) -> Optional[Path]:
     if not log_dir_path:
         return None
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return log_dir_path / ssm_ip.strip() / f"upgrade_log_{timestamp}.txt"
+    return log_dir_path / ssm_ip.strip() / f"upgrade_log_{get_file_timestamp()}.txt"
 
 
 @dataclass
@@ -77,9 +75,8 @@ class UpgradeLogHandler:
     def _append_line(self, line: str) -> None:
         if not self._log_path:
             return
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with open(self._log_path, "a", encoding="utf-8") as file_obj:
-            file_obj.write(f"[{ts}] {line}\n")
+            file_obj.write(f"[{get_log_timestamp()}] {line}\n")
 
     def log(self, msg: str) -> None:
         LOG(msg)

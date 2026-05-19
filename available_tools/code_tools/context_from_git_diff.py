@@ -2,7 +2,6 @@ import argparse
 import os
 import shutil
 import sys
-from datetime import datetime
 import tiktoken
 from dev.dev_common import *
 from available_tools.code_tools.common_utils import *
@@ -65,7 +64,7 @@ def main_git_diff(args: argparse.Namespace) -> None:
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(f"# CONTEXT: Diff between {base} and {target}\n")
                 f.write(f"# REPOSITORY: {repo_path.resolve().name}\n")
-                f.write(f"# GENERATED AT: {datetime.now().isoformat()}\n")
+                f.write(f"# GENERATED AT: {get_iso_timestamp()}\n")
                 f.write(f"{'='*60}\n\n")
                 f.write(diff_content)
             LOG(f"Diff content saved to '{output_path}'.")

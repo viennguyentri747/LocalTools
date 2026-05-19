@@ -3,7 +3,6 @@
 OneWeb SW-Tools interactive local build helper (top-down, manifest-aware).
 """
 import argparse
-from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -274,8 +273,8 @@ def main() -> None:
             sys.exit(1)
 
     metadata_payload: Dict[str, Any] = {
-        "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "timestamp": get_iso_timestamp(timespec="seconds"),
+        "timestamp_utc": get_iso_timestamp(timespec="seconds"),
         "build_type": build_type,
         "manifest_branch": ow_manifest_branch,
         # "original_iesa_md5": iesa_original_md5,
@@ -472,7 +471,7 @@ def run_build(build_type: str, interactive: bool, make_clean: bool = True, is_de
 
     chmod_cmd = f"chmod -R +x {OW_SW_PATH.absolute()}/"
 
-    time_start = datetime.now()
+    time_start = get_datetime_now()
     bash_cmd_prefix = f"bash -c"
     make_clean_cmd = "make clean"
     debug_suffix = " DEBUG=1" if is_debug_build else ""
@@ -498,7 +497,7 @@ def run_build(build_type: str, interactive: bool, make_clean: bool = True, is_de
             bash_cmd = f"{bash_cmd_prefix} '{dos2unix_cmd} && {chmod_cmd} && make {make_target}{debug_suffix}'"
 
         run_shell(f"{docker_cmd_base} {bash_cmd}")
-        elapsed_time = (datetime.now() - time_start).total_seconds()
+        elapsed_time = (get_datetime_now() - time_start).total_seconds()
         LOG(f"Build finished in {elapsed_time} seconds", show_time=True)
         show_noti(title="Build finished", message=f"Build finished in {elapsed_time} seconds")
 

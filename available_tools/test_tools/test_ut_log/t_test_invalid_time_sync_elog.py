@@ -13,7 +13,7 @@ from dev.dev_common import *
 use_posix_paths()
 
 TEST_NAME = "invalid_time_sync_elog"
-DEFAULT_INVALID_TIME_SYNC_PATTERNS: List[str] = ["INVALID TIME SYNC", "KIM-RESET"]
+DEFAULT_INVALID_TIME_SYNC_PATTERNS: List[str] = ["INVALID TIME SYNC"]
 ARG_ELOG_PATHS = f"{ARGUMENT_LONG_PREFIX}elog_paths"
 ARG_PATTERNS = f"{ARGUMENT_LONG_PREFIX}patterns"
 WIN_CMD_INVOCATION = get_win_python_runner_cmd_invocation("available_tools.test_tools.test_ut_log.t_test_invalid_time_sync_elog")

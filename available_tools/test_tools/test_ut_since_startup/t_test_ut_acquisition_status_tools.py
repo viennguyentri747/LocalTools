@@ -451,7 +451,7 @@ def ensure_passwordless_ssh(host: str, user: str = SSM_USER) -> None:
 
 
 def timestamp_str(ts: float) -> str:
-    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+    return get_log_timestamp(datetime.fromtimestamp(ts, tz=DEFAULT_TIMEZONE))
 
 
 def check_ping_via_ssm(ssm_ip: str) -> bool:

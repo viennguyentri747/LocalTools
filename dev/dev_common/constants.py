@@ -64,12 +64,12 @@ GL_UPGRADE_TOKEN_KEY_NAME = "GITLAB_UPGRADE_TOKEN"
 GL_THIRD_PARTY_APPS_TOKEN_KEY_NAME = "GITLAB_THIRD_PARTY_APPS_TOKEN"
 UT_PWD_KEY_NAME = "UT_PASSWORD"
 
-# PATHS
-CORE_REPOS_PATH = WSL_HOME_PATH / "core_repos"
+# PATHS. Note: these link SHOULD NOT BE symlink to avoid accessed from WINDOW issue
+WORKSPACE_PATH = WSL_HOME_PATH / "workspace"
+CORE_REPOS_PATH = WORKSPACE_PATH / "intellian_core_repos" 
 LOCAL_TOOL_REPO_PATH = CORE_REPOS_PATH / "local_tools"
 AVAILABLE_TOOLS_PATH = LOCAL_TOOL_REPO_PATH / "available_tools"
 CREDENTIALS_FILE_PATH = LOCAL_TOOL_REPO_PATH / ".my_credentials.env"
-WORKSPACE_PATH = WSL_HOME_PATH / "workspace"
 #CORE_REPOS_PATH = WORKSPACE_PATH / "intellian_core_repos/"
 TEMP_WORKING_PATH = WSL_HOME_PATH / "testing" / "temp_working"
 INERTIAL_SENSE_LOG_INSPECTOR_PATH = TEMP_WORKING_PATH / "inertial_sense_python_modules" / "logInspector" / "logInspector.py"

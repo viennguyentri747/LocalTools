@@ -1,9 +1,9 @@
 import re
-from datetime import datetime
 import shlex
 from typing import List, Union
 from readable_number import ReadableNumber
 from pathvalidate import sanitize_filename
+from dev.dev_common.core_independent_utils import get_datetime_now, get_file_timestamp
 
 
 def beautify_number(n, precision=2, use_shortform=True):
@@ -61,14 +61,14 @@ def get_path_no_suffix(path: str, suffix: str) -> str:
 def get_short_date_now(dt=None) -> str:
     """
     Return a short, lowercase date string like 'aug 1'.
-    If dt is None, uses the current local date/time.
+    If dt is None, uses the shared UTC date/time.
     """
-    dt = dt or datetime.now()
+    dt = dt or get_datetime_now()
     return f"{dt.strftime('%b').lower()} {dt.day}"
 
 
 def get_time_stamp_now() -> str:
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
+    return get_file_timestamp()
 
 
 def quote(s: Union[str, List[str], None]) -> Union[str, List[str]]:

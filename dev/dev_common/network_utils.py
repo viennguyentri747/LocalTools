@@ -112,13 +112,13 @@ def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_pa
         remote_cmd = f"tail -F -n {max(0, int(tail_lines))} {shlex.quote(remote_log_path)}"
 
     # Add first line starting
-    on_line(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Getting live log at {remote_log_path} from {host_ip} via jump host {jump_host_ip}")
+    on_line(f"[{get_log_timestamp()}] Getting live log at {remote_log_path} from {host_ip} via jump host {jump_host_ip}")
     def _emit_line(text: str, saw_first: bool) -> bool:
         clean = (text or "").rstrip("\r\n")
         if not clean:
             return saw_first
         if not saw_first:
-            on_line(clean + f"\r\nGET_UT_LIVE_LOG START at {time.strftime('%Y-%m-%d %H:%M:%S')}!!")
+            on_line(clean + f"\r\nGET_UT_LIVE_LOG START at {get_log_timestamp()}!!")
             return True
         on_line(clean)
         return saw_first
@@ -688,9 +688,9 @@ def _copy_to_local_scp_impl(remote_src_paths: str | List[str], remote_host_ip: s
     for src in remote_sources:
         cmd.append(f"{remote_user}@{remote_host_ip}:{src}")
     cmd.append(str(local_dest))
-    result = run_shell(cmd, capture_output=True, timeout=timeout if timeout and timeout > 0 else None, check_throw_exception_on_exit_code=False)
+    result = run_shell(cmd, capture_output=False, timeout=timeout if timeout and timeout > 0 else None, check_throw_exception_on_exit_code=False)
     if result.returncode != 0:
-        raise RuntimeError(f"SCP copy failed with exit_code={result.returncode}. stdout='{(result.stdout or '').strip()}' stderr='{(result.stderr or '').strip()}'")
+        raise RuntimeError(f"SCP copy failed with exit_code={result.returncode}. See SCP output above.")
     after_files = [str(p.resolve()) for p in local_dest.rglob("*") if p.is_file()]
     return sorted(path for path in after_files if path not in before_files)
 

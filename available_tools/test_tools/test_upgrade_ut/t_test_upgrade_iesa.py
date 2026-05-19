@@ -6,7 +6,6 @@ import os
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
@@ -83,9 +82,8 @@ def _build_install_logger(log_path: Optional[str]) -> Callable[[str], None]:
 
     def _on_line_recv(line: str) -> None:
         LOG(line)
-        ts = datetime.now().isoformat(sep=" ", timespec="seconds")
         with open(log_file, "a", encoding="utf-8") as file_obj:
-            file_obj.write(f"[{ts}] {line}\n")
+            file_obj.write(f"[{get_iso_timestamp(timespec='seconds')}] {line}\n")
 
     return _on_line_recv
 

@@ -64,7 +64,7 @@ def get_tool_templates() -> List[ToolTemplate]:
             extra_description="Collect required logs by type and run selected tests in one command.",
             args=args,
             search_root=t_get_acu_logs.ACU_LOG_PATH,
-            # override_cmd_invocation=WIN_CMD_INVOCATION,
+            override_cmd_invocation=WIN_CMD_INVOCATION,
         ),
     ]
 

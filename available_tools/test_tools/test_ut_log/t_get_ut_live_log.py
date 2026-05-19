@@ -6,7 +6,6 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import threading
 import sys
-from datetime import datetime
 from typing import Callable, List, Optional, Sequence, Tuple
 from dev.dev_common import *
 from dev.dev_common.core_independent_utils import read_value_from_credential_file
@@ -130,8 +129,7 @@ def _resolve_capture_path_by_mode(log_path: str, log_stream_mode: ELogStreamMode
     base_log_path = Path(log_path)
     if log_stream_mode == ELogStreamMode.OverrideSingleFile:
         return base_log_path
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return base_log_path.parent / base_log_path.stem / ts / base_log_path.name
+    return base_log_path.parent / base_log_path.stem / get_file_timestamp() / base_log_path.name
 
 
 def close_live_log_handlers(handlers: Sequence[logging.Handler]) -> None:

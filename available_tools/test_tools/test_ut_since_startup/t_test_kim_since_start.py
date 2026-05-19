@@ -60,12 +60,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def _build_run_capture_path(jump_host_ip: str, run_started_at: datetime) -> Path:
-    run_dir_name = run_started_at.strftime("%Y%m%d_%H%M%S_%f")
+    run_dir_name = get_file_timestamp_with_us(run_started_at)
     return Path(DEFAULT_LOG_OUTPUT_PATH) / jump_host_ip / Path(DEFAULT_LOG_FILENAME).stem / run_dir_name / DEFAULT_LOG_FILENAME
 
 
 def _fmt_dt(value: Optional[datetime]) -> str:
-    return value.strftime("%Y-%m-%d %H:%M:%S") if value else "N/A"
+    return get_log_timestamp(value) if value else "N/A"
 
 
 def _capture_log_sort_key(log_path: Path, candidate: Path) -> int:
@@ -107,7 +107,7 @@ def analyze_ins_status_file(log_path: Path) -> int:
 
 
 def main() -> int:
-    test_start_at = datetime.now()
+    test_start_at = get_datetime_now()
     test_start_wall = time.time()
     args = parse_args()
     stream_duration_secs: float = get_arg_value(args, ARG_STREAM_DURATION_SECS)
@@ -149,7 +149,7 @@ def main() -> int:
         nonlocal first_log_at, first_log_monotonic, stop_timer
         if first_log_at is not None:
             return
-        first_log_at, first_log_monotonic = datetime.now(), time.time()
+        first_log_at, first_log_monotonic = get_datetime_now(), time.time()
         LOG(f"{LOG_PREFIX_MSG_INFO} First log line received at {_fmt_dt(first_log_at)}. Start stream duration timer ({stream_duration_secs}s).")
         stop_timer = start_stop_timer(stream_duration_secs=stream_duration_secs, stop_event=stop_event)
 
@@ -168,7 +168,7 @@ def main() -> int:
         if stop_timer:
             stop_timer.cancel()
         close_live_log_handlers(handlers)
-    stream_end_at, stream_end_wall = datetime.now(), time.time()
+    stream_end_at, stream_end_wall = get_datetime_now(), time.time()
     LOG(f"{LOG_PREFIX_MSG_SUCCESS} Capture live INS monitor log completed.")
     
 

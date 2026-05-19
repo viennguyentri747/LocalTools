@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterable, List
 from dev.dev_common import *
@@ -28,15 +28,15 @@ def _get_last_n_days(n: int) -> List[str]:
     Generates a list of date strings in YYYYYMMDD format for the last n days, including today.
     """
     date_list = []
-    today = datetime.now()
+    today = get_datetime_now()
     for i in range(n + 1):
         date = today - timedelta(days=i)
-        date_list.append(date.strftime("%Y%m%d"))
+        date_list.append(get_date_name(date))
     return date_list
 
 
 def get_acu_log_datename_from_date(date: datetime) -> str:
-    return date.strftime("%Y%m%d")
+    return get_date_name(date)
 
 
 def batch_fetch_acu_logs_for_days(list_ips: List[str], extra_days_before_today: int, log_types: List[str], parent_path: Path, should_has_var_log: bool = False) -> List[AcuLogInfo]:

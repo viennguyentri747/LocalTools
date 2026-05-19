@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 import sys
 from typing import Dict, List, Optional, Sequence
@@ -21,6 +20,7 @@ use_posix_paths()
 
 DEFAULT_COLUMNS: List[str] = [TIME_COLUMN, LAST_TIME_SYNC_COLUMN]
 DEFAULT_MAX_SECS_PER_SYNC = 0.999
+DRIFT_RECOVERY_GRACE_ROWS = 3
 DEFAULT_OUTPUT_PATH = get_win_persistent_temp_path() / "time_sync_plog.tsv"
 
 ARG_PLOG_PATHS = ARG_PLOG_PATHS
@@ -35,52 +35,55 @@ TEST_NAME = "time_sync_plog"
 
 
 @dataclass
-class DriftIssueBlock:
-    start_row: int
-    start_time_label: str
-    start_sync: int
-    start_drift: float
-    end_row: int
-    end_time_label: str
-    end_sync: int
-    end_drift: float
-    max_abs_drift: float
-    max_abs_drift_row: int
-    max_abs_drift_time_label: str
-    max_abs_drift_sync: int
-    total_count: int = 1
+class DriftSample:
+    row_index: int
+    time_label: str
+    sync_value: int
+    drift: float
+    real_time_delta: float
+    sync_delta: int
+    baseline_time_label: Optional[str]
+    baseline_sync: Optional[int]
+    kind: str
 
-    @classmethod
-    def from_sample(cls, row_index: int, time_label: str, sync_value: int, drift: float) -> "DriftIssueBlock":
-        return cls(
-            start_row=row_index, start_time_label=time_label, start_sync=sync_value, start_drift=drift,
-            end_row=row_index, end_time_label=time_label, end_sync=sync_value, end_drift=drift,
-            max_abs_drift=drift, max_abs_drift_row=row_index, max_abs_drift_time_label=time_label, max_abs_drift_sync=sync_value,
-        )
-
-    def update(self, row_index: int, time_label: str, sync_value: int, drift: float) -> None:
-        self.end_row = row_index
-        self.end_time_label = time_label
-        self.end_sync = sync_value
-        self.end_drift = drift
-        self.total_count += 1
-        if abs(drift) > abs(self.max_abs_drift):
-            self.max_abs_drift = drift
-            self.max_abs_drift_row = row_index
-            self.max_abs_drift_time_label = time_label
-            self.max_abs_drift_sync = sync_value
-
-    def to_message(self, plog_file: Path, baseline_time_label: Optional[str], baseline_sync: Optional[int],
-                   max_secs_per_sync: float) -> str:
-        row_label = f"Row {self.start_row}" if self.start_row == self.end_row else f"Rows {self.start_row}-{self.end_row}"
+    def to_message(self) -> str:
         return (
-            f"{DRIFT_ISSUE_NAME}, start={self.start_time_label} (row {self.start_row}, sync={self.start_sync}, "
-            f"drift={self.start_drift:.3f}s), end={self.end_time_label} (row {self.end_row}, sync={self.end_sync}, "
-            f"drift={self.end_drift:.3f}s), max_abs_drift={self.max_abs_drift:.3f}s "
-            f"at {self.max_abs_drift_time_label} (row {self.max_abs_drift_row}, sync={self.max_abs_drift_sync}), "
-            f"total_count={self.total_count}, {row_label} in {plog_file} "
-            f"(baseline_time={baseline_time_label}, baseline_sync={baseline_sync}, threshold={max_secs_per_sync:.3f}s)"
+            f"row={self.row_index}, time={self.time_label}, {LAST_TIME_SYNC_COLUMN}={self.sync_value}, "
+            f"baseline_time={self.baseline_time_label}, baseline_sync={self.baseline_sync}, "
+            f"kind={self.kind}, drift={self.drift:.3f}s, real_delta={self.real_time_delta:.3f}s, sync_delta={self.sync_delta}s"
         )
+
+
+class DriftIssueBlock:
+    first: DriftSample
+    last: DriftSample
+    max_abs: DriftSample
+    total_count: int
+
+    def __init__(self, first: DriftSample) -> None:
+        self.first = first
+        self.last = first
+        self.max_abs = first
+        self.total_count = 1
+
+    def update(self, sample: DriftSample) -> None:
+        self.last = sample
+        self.total_count += 1
+        if abs(sample.drift) > abs(self.max_abs.drift):
+            self.max_abs = sample
+
+    def to_message(self, plog_file: Path, max_secs_per_sync: float) -> str:
+        row_label = f"Row {self.first.row_index}" if self.first.row_index == self.last.row_index else f"Rows {self.first.row_index}-{self.last.row_index}"
+        prefix = f"{DRIFT_ISSUE_NAME}, total_count={self.total_count}, {row_label} in {plog_file} (threshold={max_secs_per_sync:.3f}s)"
+        if self.total_count == 1:
+            return f"{prefix}, sample=[{self.first.to_message()}]"
+        if self.max_abs.row_index == self.first.row_index:
+            max_abs_msg = "first"
+        elif self.max_abs.row_index == self.last.row_index:
+            max_abs_msg = "last"
+        else:
+            max_abs_msg = f"[{self.max_abs.to_message()}]"
+        return f"{prefix}, first=[{self.first.to_message()}], last=[{self.last.to_message()}], max_abs={max_abs_msg}"
 
 
 def get_tool_templates() -> List[ToolTemplate]:
@@ -184,14 +187,16 @@ def _check_time_sync_drift(file_data: PLogData, max_secs_per_sync: float) -> Lis
     prev_sync: Optional[int] = None
     curr_day_offset: float = 0.0
     drift_issue_block: Optional[DriftIssueBlock] = None
+    drift_recovery_row_count = 0
 
     def flush_drift_issue_block() -> None:
-        nonlocal drift_issue_block
+        nonlocal drift_issue_block, drift_recovery_row_count
         if drift_issue_block is None:
             return
         # Close the current over-threshold span as one issue instead of logging every row.
-        issues.append(drift_issue_block.to_message(plog_file, start_time_label, start_sync_int, max_secs_per_sync))
+        issues.append(drift_issue_block.to_message(plog_file, max_secs_per_sync))
         drift_issue_block = None
+        drift_recovery_row_count = 0
 
     for idx, row in enumerate(file_data.raw_data_rows):
         row_index = file_data.plog_data_row_indices[idx] if idx < len(file_data.plog_data_row_indices) else idx + 1
@@ -266,13 +271,28 @@ def _check_time_sync_drift(file_data: PLogData, max_secs_per_sync: float) -> Lis
         sync_delta_secs_int = curr_time_sync_int - start_sync_int
         drift = real_time_delta_secs_float - sync_delta_secs_int
         if abs(drift) > max_secs_per_sync:
+            drift_kind = "sync_stall" if drift > 0 else "sync_jump"
+            drift_sample = DriftSample(
+                row_index=row_index, time_label=curr_time_value, sync_value=curr_time_sync_int, drift=drift,
+                real_time_delta=real_time_delta_secs_float, sync_delta=sync_delta_secs_int,
+                baseline_time_label=start_time_label, baseline_sync=start_sync_int, kind=drift_kind,
+            )
             if drift_issue_block is None:
-                drift_issue_block = DriftIssueBlock.from_sample(row_index, curr_time_value, curr_time_sync_int, drift)
+                # Start a new block for the first over-threshold row after recovery/reset/file start.
+                drift_issue_block = DriftIssueBlock(drift_sample)
             else:
-                drift_issue_block.update(row_index, curr_time_value, curr_time_sync_int, drift)
+                drift_issue_block.update(drift_sample)
+            drift_recovery_row_count = 0
+            # Treat this drift row as a correction point so future rows are not compared to a stale baseline.
+            start_time_float = curr_adj_time_secs_float
+            start_time_label = curr_time_value
+            start_sync_int = curr_time_sync_int
         else:
-            # Drift returned inside the threshold; close the summarized drift span.
-            flush_drift_issue_block()
+            if drift_issue_block is not None:
+                # Avoid splitting one borderline drift event when a few rows (<= DRIFT_RECOVERY_GRACE_ROWS) briefly fall back under the threshold.
+                drift_recovery_row_count += 1
+                if drift_recovery_row_count > DRIFT_RECOVERY_GRACE_ROWS:
+                    flush_drift_issue_block()
 
         prev_time_of_day = curr_time_secs_float
         prev_sync = curr_time_sync_int
@@ -340,29 +360,31 @@ def _check_time_sync_sync_zero(file_data: PLogData) -> List[str]:
     return issues
 
 
-def _check_time_sync(file_data: PLogData, max_secs_per_sync: float) -> Dict[str, List[str]]:
-    drift_issues = _check_time_sync_drift(file_data, max_secs_per_sync)
-    sync_zero_issues = _check_time_sync_sync_zero(file_data)
-    return {DRIFT_ISSUE_NAME: drift_issues, SYNC_ZERO_ISSUE_NAME: sync_zero_issues}
+def _check_time_sync(file_data: PLogData, max_secs_per_sync: float, target_issues: Sequence[str]) -> Dict[str, List[str]]:
+    issues_by_name: Dict[str, List[str]] = {}
+    if DRIFT_ISSUE_NAME in target_issues:
+        issues_by_name[DRIFT_ISSUE_NAME] = _check_time_sync_drift(file_data, max_secs_per_sync)
+    if SYNC_ZERO_ISSUE_NAME in target_issues:
+        issues_by_name[SYNC_ZERO_ISSUE_NAME] = _check_time_sync_sync_zero(file_data)
+    return issues_by_name
 
 
 def _write_metadata_file(output_plog_path: Path, input_paths: Sequence[Path], time_window: Optional[float], target_columns: Sequence[str],
                          processed_files: Sequence[Path], rows_written: int, max_secs_per_sync: float, issue_counts_by_name: Dict[str, int],
-                         issues: Sequence[str]) -> Path:
+                         issues: Sequence[str], target_issues: Sequence[str], ignored_issues: Sequence[str]) -> Path:
     """Persist metadata as JSON next to the compact log artifact."""
-    now_utc = datetime.now(timezone.utc)
-    timestamp = now_utc.strftime("%Y%m%d_%H%M%S")
-    metadata_path = output_plog_path.parent / f"time_sync_metadata_{timestamp}.json"
+    metadata_path = output_plog_path.parent / f"time_sync_metadata_{get_file_timestamp()}.json"
     issues_reported = len(issues)
     metadata = {
-        "generated_at_utc": now_utc.isoformat(),
+        "generated_at_utc": get_iso_timestamp(),
         "arguments": {
             "input_paths": [str(path) for path in input_paths],
             "time_window_hours": time_window,
             "columns": list(target_columns),
             "output_plog_path": str(output_plog_path),
             "max_secs_per_sync": max_secs_per_sync,
-            "checked_issue_names": ALL_TIME_SYNC_ISSUES,
+            "checked_issue_names": list(target_issues),
+            "ignored_issue_names": list(ignored_issues),
         },
         "issue_counts_by_name": issue_counts_by_name,
         "plog_files": [str(path) for path in processed_files],
@@ -386,8 +408,12 @@ def run_time_sync_test(input_paths: Sequence[Path], output_path: Path, time_wind
     output_path = normalize_runtime_path(Path(output_path), label="output path")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plog_files = sorted({_validate_plog_file(input_path) for input_path in input_paths})
+    list_ignore_issues = [SYNC_ZERO_ISSUE_NAME]
+    target_issues = [issue for issue in ALL_TIME_SYNC_ISSUES if issue not in list_ignore_issues]
     LOG(f"{LOG_PREFIX_MSG_INFO} Found {len(plog_files)} unique P-log file(s) to analyze from {len(input_paths)} input path(s).")
-    LOG(f"{LOG_PREFIX_MSG_INFO} Checking time sync issues: {', '.join(ALL_TIME_SYNC_ISSUES)}")
+    LOG(f"{LOG_PREFIX_MSG_INFO} Checking time sync issues: {', '.join(target_issues)}")
+    if list_ignore_issues:
+        LOG(f"{LOG_PREFIX_MSG_INFO} Ignoring time sync issues: {', '.join(list_ignore_issues)}")
 
     processed_data = process_plog_files(plog_files, DEFAULT_COLUMNS, time_window)
     processed_files = [file_data.plog_file for file_data in processed_data if file_data.plog_file is not None]
@@ -402,9 +428,9 @@ def run_time_sync_test(input_paths: Sequence[Path], output_path: Path, time_wind
     LOG(f"{LOG_PREFIX_MSG_SUCCESS} Time sync compact log created: {output_path}")
 
     issues: List[str] = []
-    issue_counts_by_name: Dict[str, int] = {issue_name: 0 for issue_name in ALL_TIME_SYNC_ISSUES}
+    issue_counts_by_name: Dict[str, int] = {issue_name: 0 for issue_name in target_issues}
     for file_data in processed_data:
-        issues_by_name = _check_time_sync(file_data, max_secs_per_sync)
+        issues_by_name = _check_time_sync(file_data, max_secs_per_sync, target_issues)
         for issue_name, group_issues in issues_by_name.items():
             issue_counts_by_name[issue_name] += len(group_issues)
             issues.extend(group_issues)
@@ -419,11 +445,13 @@ def run_time_sync_test(input_paths: Sequence[Path], output_path: Path, time_wind
         max_secs_per_sync=max_secs_per_sync,
         issue_counts_by_name=issue_counts_by_name,
         issues=issues,
+        target_issues=target_issues,
+        ignored_issues=list_ignore_issues,
     )
     LOG(f"{LOG_PREFIX_MSG_INFO} Metadata saved: {metadata_path}")
 
     if issues:
-        issue_counts_msg = ", ".join(f"{issue_name}={issue_counts_by_name[issue_name]}" for issue_name in ALL_TIME_SYNC_ISSUES)
+        issue_counts_msg = ", ".join(f"{issue_name}={issue_counts_by_name[issue_name]}" for issue_name in target_issues)
         LOG_LINE_SEPARATOR()
         LOG(f"{LOG_PREFIX_MSG_ERROR} Found {len(issues)} time sync issue(s) across {len(processed_data)} file(s). [{issue_counts_msg}]")
         for issue in issues:
@@ -432,7 +460,7 @@ def run_time_sync_test(input_paths: Sequence[Path], output_path: Path, time_wind
         raise SystemExit(1)
 
     LOG(
-        f"{LOG_PREFIX_MSG_SUCCESS} No time sync issues found (checked: {', '.join(ALL_TIME_SYNC_ISSUES)}) "
+        f"{LOG_PREFIX_MSG_SUCCESS} No time sync issues found (checked: {', '.join(target_issues)}) "
         f"across {len(processed_data)} file(s)."
     )
 

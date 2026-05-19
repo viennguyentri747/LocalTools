@@ -5,7 +5,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
 from available_tools.test_tools.common import *
@@ -23,7 +23,7 @@ DEFAULT_MAX_THREAD_COUNT = 20
 DEFAULT_EXTRA_DAYS = 2
 
 DEFAULT_DATE_VALUES = [
-    get_acu_log_datename_from_date(datetime.now() - timedelta(days=days_to_cut))
+    get_acu_log_datename_from_date(get_datetime_now() - timedelta(days=days_to_cut))
     for days_to_cut in range(DEFAULT_EXTRA_DAYS + 1) # Starts at 0 (for today), ends at DEFAULT_EXTRA_DAYS (for old days)
 ]
 

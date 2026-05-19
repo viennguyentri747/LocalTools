@@ -9,13 +9,51 @@ import shutil
 import subprocess
 import sys
 from typing import List, Literal, Optional, Union, Tuple
-from datetime import datetime
+from datetime import datetime, timezone, tzinfo
 import traceback
 import platform
 from enum import IntEnum
 from .shell_utils import get_shell_exec_cmd_as_list
 
 WSL_ROOT_FROM_WIN_DRIVE = "X:"
+DEFAULT_TIMEZONE: tzinfo = timezone.utc
+_LOG_TIME_FORMAT: str = "%Y-%m-%d %H:%M:%S"
+_FILE_TIMESTAMP_FORMAT: str = "%Y%m%d_%H%M%S"
+_FILE_TIMESTAMP_WITH_US_FORMAT: str = "%Y%m%d_%H%M%S_%f"
+_DATE_NAME_FORMAT: str = "%Y%m%d"
+
+
+def get_datetime_now(tz: tzinfo = DEFAULT_TIMEZONE) -> datetime:
+    """Return the current aware datetime in the configured timezone."""
+    return datetime.now(tz)
+
+
+def _as_configured_datetime(value: datetime | None = None, tz: tzinfo = DEFAULT_TIMEZONE) -> datetime:
+    if value is None:
+        return get_datetime_now(tz)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=tz)
+    return value.astimezone(tz)
+
+
+def get_log_timestamp(value: datetime | None = None) -> str:
+    return _as_configured_datetime(value).strftime(_LOG_TIME_FORMAT)
+
+
+def get_file_timestamp(value: datetime | None = None) -> str:
+    return _as_configured_datetime(value).strftime(_FILE_TIMESTAMP_FORMAT)
+
+
+def get_file_timestamp_with_us(value: datetime | None = None) -> str:
+    return _as_configured_datetime(value).strftime(_FILE_TIMESTAMP_WITH_US_FORMAT)
+
+
+def get_date_name(value: datetime | None = None) -> str:
+    return _as_configured_datetime(value).strftime(_DATE_NAME_FORMAT)
+
+
+def get_iso_timestamp(value: datetime | None = None, timespec: str = "seconds") -> str:
+    return _as_configured_datetime(value).isoformat(timespec=timespec)
 
 
 class ELogType(IntEnum):
@@ -48,8 +86,7 @@ def LOG(*values: object, sep: str = " ", end: str = "\n", file=None, highlight: 
         return
     message = sep.join(str(value) for value in values)
     if show_time:
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        message = f"[{timestamp}] {message}"
+        message = f"[{get_log_timestamp()}] {message}"
     if show_traceback:
         tb = traceback.format_stack()
         filtered_tb = tb[-5:] if len(tb) > 5 else tb
@@ -113,7 +150,7 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
 
     def _looks_like_windows_path(token: str) -> bool:
         stripped = token.strip().strip('"').strip("'")
-        return bool(re.match(r'^[a-zA-Z]:[\\/]', stripped)) or stripped.startswith('\\\\')
+        return bool(re.match(r'^[a-zA-Z]:[\\/]', stripped)) or stripped.startswith(('\\\\', '//wsl.localhost/', '//wsl$/'))
 
     def _normalize_wsl_args(args: List[Union[str, Path]]) -> List[str]:
         normalized: List[str] = []
@@ -137,16 +174,16 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
 
         if wants_shell:
             if isinstance(raw_cmd, list):
-                cmd_str = _stringify_cmd_list(raw_cmd)
+                cmd_str = _stringify_cmd_list(_normalize_wsl_args([str(arg) for arg in raw_cmd]))
             else:
                 cmd_str = str(raw_cmd)
             wsl_cmd.extend([*get_shell_exec_cmd_as_list(), cmd_str])
         else:
             if isinstance(raw_cmd, list):
-                cmd_args = [str(arg) for arg in raw_cmd]
+                cmd_args = _normalize_wsl_args([str(arg) for arg in raw_cmd])
             else:
-                cmd_args = shlex.split(str(raw_cmd))
-            wsl_cmd.extend(_normalize_wsl_args(cmd_args))
+                cmd_args = _normalize_wsl_args(shlex.split(str(raw_cmd)))
+            wsl_cmd.extend(cmd_args)
         return wsl_cmd
 
     def _is_already_wsl_wrapped(raw_cmd: Union[str, List[Union[str, Path]]]) -> bool:
@@ -190,7 +227,7 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
 
     if run_in_wsl:
         if not _is_already_wsl_wrapped(cmd):
-            cmd = _wrap_cmd_for_wsl(cmd, use_shell, wsl_cwd)
+            cmd = _wrap_cmd_for_wsl(cmd, want_shell, wsl_cwd)
         want_shell = False
     else:
         if want_shell and isinstance(cmd, List):
@@ -288,6 +325,9 @@ def convert_win_to_wsl_path(win_path: str) -> str:
         # Normalize slashes
         universal_path = clean_path.replace("\\", "/")
         wsl_path = universal_path
+        unc_match = re.match(r'^//wsl(?:\.localhost|\$)/[^/]+(/.*)?$', universal_path, flags=re.IGNORECASE)
+        if unc_match:
+            return unc_match.group(1) or "/"
 
         # Handle Drive Letters: Look for pattern like "C:/" or "d:/" at the start
         drive_match = re.match(r'^([a-zA-Z]):/(.*)', universal_path)
@@ -379,7 +419,7 @@ def read_value_from_credential_file(credentials_file_path: str, key_to_read: str
     Returns the value if found, otherwise None.
     """
     if is_platform_windows():
-        credentials_file_path = convert_win_to_wsl_path(credentials_file_path)
+        credentials_file_path = convert_wsl_to_win_path(Path(credentials_file_path))
     if os.path.exists(credentials_file_path):
         try:
             with open(credentials_file_path, 'r') as f:

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
@@ -189,11 +188,9 @@ def _validate_plog_file(plog_path: Path) -> Path:
 
 def _write_metadata_file(output_plog_path: Path, input_paths: Sequence[Path], time_window: Optional[float], target_columns: Sequence[str], processed_files: Sequence[Path], rows_written: int) -> Path:
     """Persist metadata as JSON next to the compact log artifact."""
-    now_utc = datetime.now(timezone.utc)
-    timestamp = now_utc.strftime("%Y%m%d_%H%M%S")
-    metadata_path = output_plog_path.parent / f"compact_plog_metadata_{timestamp}.json"
+    metadata_path = output_plog_path.parent / f"compact_plog_metadata_{get_file_timestamp()}.json"
     metadata = {
-        "generated_at_utc": now_utc.isoformat(),
+        "generated_at_utc": get_iso_timestamp(),
         "arguments": {
             "input_paths": [str(path) for path in input_paths],
             "time_window_hours": time_window,

@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 from typing import List, Optional, Sequence, Tuple
 
-from dev.dev_common import LOCAL_TOOL_REPO_PATH, convert_wsl_to_win_path, run_module_via_win_python
+from dev.dev_common import ETargetPlatform, LOCAL_TOOL_REPO_PATH, get_normalized_path, run_module_via_win_python
 
 
 ARG_MODULE = "--module"
@@ -45,12 +45,8 @@ def _normalize_path_arg_value(value: str) -> str:
     stripped = raw_value.strip()
     if not _looks_like_wsl_or_unc_path(stripped):
         return raw_value
-    if stripped.startswith(("//wsl.localhost/", "\\\\wsl.localhost\\")):
-        return stripped.replace("/", "\\")
     try:
-        win_value = convert_wsl_to_win_path(Path(stripped))
-        if win_value:
-            return win_value
+        return str(get_normalized_path(stripped, target_platform=ETargetPlatform.WINDOWS))
     except Exception:
         pass
     return raw_value

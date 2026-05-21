@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import List
-from dev.dev_common.core_independent_utils import get_wsl_home_path, read_value_from_credential_file
+from dev.dev_common.core_independent_utils import get_win_home_path, get_wsl_home_path, read_value_from_credential_file
 
 ARGUMENT_LONG_PREFIX = "--"
 ARGUMENT_SHORT_PREFIX = "-"
@@ -71,11 +71,12 @@ LOCAL_TOOL_REPO_PATH = CORE_REPOS_PATH / "local_tools"
 AVAILABLE_TOOLS_PATH = LOCAL_TOOL_REPO_PATH / "available_tools"
 CREDENTIALS_FILE_PATH = LOCAL_TOOL_REPO_PATH / ".my_credentials.env"
 #CORE_REPOS_PATH = WORKSPACE_PATH / "intellian_core_repos/"
-TEMP_WORKING_PATH = WSL_HOME_PATH / "testing" / "temp_working"
-INERTIAL_SENSE_LOG_INSPECTOR_PATH = TEMP_WORKING_PATH / "inertial_sense_python_modules" / "logInspector" / "logInspector.py"
+MY_TEMP_WORKING_PATH = WSL_HOME_PATH / "testing" / "temp_working"
+INERTIAL_SENSE_LOG_INSPECTOR_PATH = MY_TEMP_WORKING_PATH / "inertial_sense_python_modules" / "logInspector" / "logInspector.py"
 OW_SW_PATH = CORE_REPOS_PATH / "oneweb_project_sw_tools"
-TEMP_PATH = "/tmp/local_tools_workdir/"
 LOCAL_TOOL_TEMP_PATH = LOCAL_TOOL_REPO_PATH / "temp"
+#WIN_TEMP_PATH = get_win_home_path() / "temp" #Note: Don't uncomment this or ssh mcp will not work
+
 GIT_REPO_LOCAL_PATH = LOCAL_TOOL_REPO_PATH / "storage" / "third_party_binaries" / "git-repo/"
 INSENSE_SDK_REPO_PATH = CORE_REPOS_PATH / IESA_INSENSE_SDK_REPO_NAME
 DOWNLOADS_PATH = WSL_HOME_PATH / "downloads"

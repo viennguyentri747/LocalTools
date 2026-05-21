@@ -67,6 +67,7 @@ def fetch_acu_logs(ut_ip: str, log_types: List[str], dest_folder_path: str | Pat
                    date_filters: List[str] = None, clear_dest_folder: bool = True, should_has_var_log: bool = False, run_via_shell_cmd: bool = False,
                    copy_type: ECopyType = ECopyType.SCP) -> AcuLogInfo:
     """Fetch ACU logs via Paramiko by default, or shell scp when run_via_shell_cmd is enabled."""
+    display_dest_path = format_path_for_display(dest_folder_path)
     if not ping_remote_host(ut_ip, total_pings=2, time_out_per_ping=5):
         LOG(f"{LOG_PREFIX_MSG_ERROR} Jump host {ut_ip} is not reachable. Aborting.", file=sys.stderr)
         return AcuLogInfo(is_valid=False, ip=ut_ip)
@@ -79,7 +80,7 @@ def fetch_acu_logs(ut_ip: str, log_types: List[str], dest_folder_path: str | Pat
         if clear_dest_folder:
             clear_directory(dest_folder_path)
     except Exception as exc:
-        LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to prepare destination '{dest_folder_path}': {exc}", file=sys.stderr)
+        LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to prepare destination '{display_dest_path}': {exc}", file=sys.stderr)
         return AcuLogInfo(is_valid=False, ip=ut_ip)
 
     start_time = time.time()
@@ -87,7 +88,7 @@ def fetch_acu_logs(ut_ip: str, log_types: List[str], dest_folder_path: str | Pat
     copied_paths: List[str] = []
     if run_via_shell_cmd:
         cmd = build_scp_log_cmd(ACU_USER, ut_ip, log_types, str(dest_folder_path), date_filters, should_has_var_log=should_has_var_log)
-        LOG(f"{LOG_PREFIX_MSG_INFO} Fetching all logs for {ut_ip} into '{dest_folder_path}' in batch via shell scp...")
+        LOG(f"{LOG_PREFIX_MSG_INFO} Fetching all logs for {ut_ip} into '{display_dest_path}' in batch via shell scp...")
         LOG(f"Running command: {' '.join(cmd)}")
         try:
             subprocess.check_call(cmd)
@@ -95,7 +96,7 @@ def fetch_acu_logs(ut_ip: str, log_types: List[str], dest_folder_path: str | Pat
             transfer_failed = True
     else:
         remote_sources = build_remote_log_sources(log_types=log_types, date_filters=date_filters, should_has_var_log=should_has_var_log)
-        LOG(f"{LOG_PREFIX_MSG_INFO} Fetching all logs for {ut_ip} into '{dest_folder_path}' via {copy_type.value.upper()}...")
+        LOG(f"{LOG_PREFIX_MSG_INFO} Fetching all logs for {ut_ip} into '{display_dest_path}' via {copy_type.value.upper()}...")
         try:
             copied_paths = copy_to_local_via_jump_host(remote_src_paths=remote_sources, remote_host_ip=ACU_IP, local_dest_path=dest_folder_path, jump_host_ip=ut_ip, remote_user=ACU_USER, remote_password=ACU_PASSWORD, jump_user=SSM_USER, jump_password=SSM_PASSWORD, recursive=False, copy_type=copy_type)
         except Exception as exc:
@@ -108,14 +109,14 @@ def fetch_acu_logs(ut_ip: str, log_types: List[str], dest_folder_path: str | Pat
             # Fallback scan catches shell transfers or partial Python transfers after exceptions.
             new_log_paths = sorted(str(f) for f in Path(dest_folder_path).rglob("*") if f.is_file() and f.stat().st_mtime >= start_time)
     except Exception as exc:
-        LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to enumerate fetched logs in '{dest_folder_path}': {exc}", file=sys.stderr)
+        LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to enumerate fetched logs in '{display_dest_path}': {exc}", file=sys.stderr)
         new_log_paths = []
 
     if new_log_paths:
         if transfer_failed:
             LOG(f"{LOG_PREFIX_MSG_WARNING} Partial fetch for {ut_ip}: copied {len(new_log_paths)} file(s) despite transfer errors.")
         else:
-            LOG(f"{LOG_PREFIX_MSG_INFO} Log fetch completed for {ut_ip}, logs saved in '{dest_folder_path}'")
+            LOG(f"{LOG_PREFIX_MSG_INFO} Log fetch completed for {ut_ip}, logs saved in '{display_dest_path}'")
             open_path_in_explorer(dest_folder_path)
     else:
         LOG(f"{LOG_PREFIX_MSG_WARNING} No log files copied for {ut_ip}{' (transfer failed)' if transfer_failed else ' despite transfer completion'}.")

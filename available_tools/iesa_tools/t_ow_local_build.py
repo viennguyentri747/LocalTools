@@ -557,9 +557,7 @@ def get_tisdk_ref_from_ci_yml(file_path: str) -> Optional[str]:
 
 def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, use_current_ow_branch: bool, skip_repo_update=False, use_local_git_repo: bool = False) -> Path:
     LOG(f"{MAIN_STEP_LOG_PREFIX} Init and Sync repo at {OW_SW_BUILD_FOLDER_PATH}...")
-    repo_root_for_manifest = str(OW_SW_PATH)
-    if is_platform_windows():
-        repo_root_for_manifest = convert_win_to_wsl_path(repo_root_for_manifest)
+    repo_root_for_manifest = str(get_normalized_path(OW_SW_PATH, target_platform=ETargetPlatform.WSL))
     manifest_repo_url = get_manifest_repo_url(manifest_source, repo_root_for_manifest)
     
     os.environ['REPO_SKIP_UPDATE'] = '1' # Skip repo update

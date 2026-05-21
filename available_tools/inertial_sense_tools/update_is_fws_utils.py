@@ -74,7 +74,7 @@ def _extract_fpkg_data(fpkg_path: Path, *, extract_imx: bool = True) -> Tuple[Op
             imx_entries = [name for name in hex_entries if Path(name).name.startswith(IMX_PREFIX)]
             selected_entry = sorted(imx_entries or hex_entries)[0]
 
-            temp_dir = Path(TEMP_PATH)
+            temp_dir = Path(LOCAL_TOOL_TEMP_PATH)
             temp_dir.mkdir(parents=True, exist_ok=True)
             target_imx_path = temp_dir / Path(selected_entry).name
             LOG(f"📦 Extracting IMX firmware from fpkg: {selected_entry} -> {target_imx_path}")

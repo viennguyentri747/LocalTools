@@ -26,19 +26,6 @@ ARG_TIME_WINDOW = f"{ARGUMENT_LONG_PREFIX}hours"
 ARG_OUTPUT_PATH = f"{ARGUMENT_LONG_PREFIX}output"
 
 
-def normalize_runtime_path(path: Path, *, label: str = "path") -> Path:
-    normalized = Path(path).expanduser()
-    if not is_platform_windows():
-        return normalized
-    normalized_str = str(normalized)
-    if normalized_str.startswith("//") or ":" in normalized_str:
-        return normalized
-    if normalized_str.startswith("/"):
-        converted = Path(convert_wsl_to_win_path(Path(normalized_str)))
-        LOG(f"{LOG_PREFIX_MSG_INFO} Converted POSIX {label} for Windows runtime: {normalized} -> {converted}")
-        return converted
-    return normalized
-
 def get_tool_templates() -> List[ToolTemplate]:
     """
     Provide a single template pointing to sample local ACU log files.
@@ -122,7 +109,7 @@ def _extract_metadata_lines(log_text: str) -> List[str]:
 def process_plog_files(plog_files: Sequence[Path], target_columns: Sequence[str], time_window: Optional[float]) -> List[PLogData]:
     processed: List[PLogData] = []
     for plog_file in plog_files:
-        LOG(f"{LOG_PREFIX_MSG_INFO} Reading P-log: {plog_file}")
+        LOG(f"{LOG_PREFIX_MSG_INFO} Reading P-log: {format_path_for_display(plog_file)}")
         log_text = read_file_content(plog_file, encoding="utf-8", errors="replace")
         file_metadata_lines = _extract_metadata_lines(log_text)
         file_metadata_line = "\n".join(file_metadata_lines) if file_metadata_lines else None
@@ -130,7 +117,7 @@ def process_plog_files(plog_files: Sequence[Path], target_columns: Sequence[str]
         plog_data.plog_file = plog_file
         plog_data.file_metadata_line = file_metadata_line
         if not plog_data.raw_data_rows:
-            LOG(f"{LOG_PREFIX_MSG_WARNING} No rows found in {plog_file}; skipping.")
+            LOG(f"{LOG_PREFIX_MSG_WARNING} No rows found in {format_path_for_display(plog_file)}; skipping.")
         processed.append(plog_data)
     return processed
 
@@ -178,11 +165,11 @@ def _is_plog_file(candidate: Path) -> bool:
 def _validate_plog_file(plog_path: Path) -> Path:
     """Validate that input path is an existing P-log file path."""
     if not plog_path.exists():
-        LOG_EXCEPTION(ValueError(f"P-log path not found: {plog_path}"), exit=True)
+        LOG_EXCEPTION(ValueError(f"P-log path not found: {format_path_for_display(plog_path)}"), exit=True)
     if not plog_path.is_file():
-        LOG_EXCEPTION(ValueError(f"P-log path must be a file, not a directory: {plog_path}"), exit=True)
+        LOG_EXCEPTION(ValueError(f"P-log path must be a file, not a directory: {format_path_for_display(plog_path)}"), exit=True)
     if not _is_plog_file(plog_path):
-        LOG_EXCEPTION(ValueError(f"Invalid P-log file name/type: {plog_path}. Expected P_*.txt or P_*.log"), exit=True)
+        LOG_EXCEPTION(ValueError(f"Invalid P-log file name/type: {format_path_for_display(plog_path)}. Expected P_*.txt or P_*.log"), exit=True)
     return plog_path
 
 
@@ -212,8 +199,8 @@ def getToolData() -> ToolData:
 def main(argv: Optional[Sequence[str]] = None) -> None:
     args = parse_args(argv)
     input_paths_raw = get_arg_value(args, ARG_PLOG_PATHS) or []
-    input_paths = [normalize_runtime_path(Path(path), label="P-log input path") for path in input_paths_raw]
-    output_path = normalize_runtime_path(Path(get_arg_value(args, ARG_OUTPUT_PATH)), label="output path")
+    input_paths = [get_normalized_path(Path(path), target_platform=ETargetPlatform.CURRENT, log_label="P-log input path") for path in input_paths_raw]
+    output_path = get_normalized_path(Path(get_arg_value(args, ARG_OUTPUT_PATH)), target_platform=ETargetPlatform.CURRENT, log_label="output path")
     time_window = get_arg_value(args, ARG_TIME_WINDOW)
     if time_window is not None:
         time_window = float(time_window)
@@ -231,12 +218,10 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         LOG(f"{LOG_PREFIX_MSG_WARNING} No rows found across {len(plog_files)} file(s); nothing to write.")
         return
 
-    LOG(
-        f"{LOG_PREFIX_MSG_INFO} Writing {rows_written} row(s) with {len(target_columns)} column(s) to {output_path}"
-    )
+    LOG(f"{LOG_PREFIX_MSG_INFO} Writing {rows_written} row(s) with {len(target_columns)} column(s) to {format_path_for_display(output_path)}")
     compact_content = _get_compact_log_str(processed_data, target_columns)
     write_to_file(str(output_path), compact_content, mode=WriteMode.OVERWRITE)
-    LOG(f"{LOG_PREFIX_MSG_SUCCESS} Compact log created: {output_path}")
+    LOG(f"{LOG_PREFIX_MSG_SUCCESS} Compact log created: {format_path_for_display(output_path)}")
 
     metadata_path = _write_metadata_file(
         output_plog_path=output_path,
@@ -246,7 +231,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         processed_files=processed_files,
         rows_written=rows_written,
     )
-    LOG(f"{LOG_PREFIX_MSG_INFO} Metadata saved: {metadata_path}")
+    LOG(f"{LOG_PREFIX_MSG_INFO} Metadata saved: {format_path_for_display(metadata_path)}")
 
 
 if __name__ == "__main__":

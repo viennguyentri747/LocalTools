@@ -211,7 +211,7 @@ def is_current_relative_to(current: Union[str, Path], target: Union[str, Path]) 
 
 def use_posix_paths():
     """Override Path to always use POSIX-style paths in string representation."""
-    LOG("Using POSIX-style paths for all Path string representations.")
+    LOG("Overriding Path to always use POSIX-style paths in string representation.")
     _original_path_str = Path.__str__
     _original_posix_str = PosixPath.__str__
     _original_windows_str = WindowsPath.__str__

@@ -34,22 +34,6 @@ def _log_banner(title: str) -> None:
     LOG(f"{LINE_SEPARATOR_NO_ENDLINE}\n{title}\n{LINE_SEPARATOR_NO_ENDLINE}", highlight=True, show_time=False)
 
 
-def _normalize_runtime_path(path_like: Path, *, label: str) -> Path:
-    normalized = Path(path_like).expanduser()
-    if not is_platform_windows():
-        return normalized
-    normalized_str = str(normalized)
-    # Already-converted UNC input from \\wsl.localhost\Ubuntu\home\... may stringify as //wsl.localhost/Ubuntu/home/....
-    # Passing that to wslpath again creates \\wsl.localhost\Ubuntu\...; -> Need to check for both // and \\\\
-    if normalized_str.startswith(("//", "\\\\")) or ":" in normalized_str:
-        return normalized
-    if normalized_str.startswith("/"):
-        converted = Path(convert_wsl_to_win_path(Path(normalized_str)))
-        LOG(f"{LOG_PREFIX_MSG_INFO} Converted POSIX {label} for Windows runtime: {normalized} -> {converted}")
-        return converted
-    return normalized
-
-
 def get_tool_templates() -> List[ToolTemplate]:
     args = {
         ARG_LOG_OUTPUT_DIR_PATH: str(t_get_acu_logs.ACU_LOG_PATH),
@@ -99,13 +83,15 @@ def _collect_log_files_for_type(log_output_dir: Path, ips: Sequence[str], log_ty
     log_prefix = log_type.to_log_prefix()
     prefixes = [f"{log_prefix}_{date_filter}" for date_filter in date_filters] if date_filters else [f"{log_prefix}_"]
     search_roots = [log_output_dir / ip for ip in ips] if ips else [log_output_dir]
+    display_base_dir = format_path_for_display(log_output_dir)
     LOG(
-        f"{LOG_PREFIX_MSG_INFO} Collecting log type '{log_prefix}': base_dir={log_output_dir}, ips={list(ips) if ips else ['<all>']}, date_filters={list(date_filters) if date_filters else ['<any>']}")
+        f"{LOG_PREFIX_MSG_INFO} Collecting log type '{log_prefix}': base_dir={display_base_dir}, ips={list(ips) if ips else ['<all>']}, date_filters={list(date_filters) if date_filters else ['<any>']}")
     collected: set[Path] = set()
     for search_root in search_roots:
+        display_root = format_path_for_display(search_root)
         if not search_root.exists():
             LOG(
-                f"{LOG_PREFIX_MSG_WARNING} Skip missing log directory: {search_root} (expected patterns: {[f'{prefix}*' for prefix in prefixes]})")
+                f"{LOG_PREFIX_MSG_WARNING} Skip missing log directory: {display_root} (expected patterns: {[f'{prefix}*' for prefix in prefixes]})")
             continue
         root_total = 0
         for prefix in prefixes:
@@ -116,14 +102,15 @@ def _collect_log_files_for_type(log_output_dir: Path, ips: Sequence[str], log_ty
                     collected.add(candidate.resolve())
                     pattern_count += 1
             root_total += pattern_count
-            LOG(f"{LOG_PREFIX_MSG_INFO} Search files result: root={search_root}, pattern={pattern}, matched_files={pattern_count}")
-        LOG(f"{LOG_PREFIX_MSG_INFO} Search summary for root={search_root}: total_matched_files={root_total}")
+            LOG(f"{LOG_PREFIX_MSG_INFO} Search files result: root={display_root}, pattern={pattern}, matched_files={pattern_count}")
+        LOG(f"{LOG_PREFIX_MSG_INFO} Search summary for root={display_root}: total_matched_files={root_total}")
     sample_paths = sorted(collected)[:5]
     if sample_paths:
-        LOG(f"{LOG_PREFIX_MSG_INFO} Sample collected files for '{log_prefix}' (max 5): {', '.join(str(path) for path in sample_paths)}")
+        LOG(f"{LOG_PREFIX_MSG_INFO} Sample collected files for '{log_prefix}' (max 5): {', '.join(format_paths_for_display(sample_paths))}")
     else:
+        display_roots = ", ".join(format_paths_for_display(search_roots))
         LOG(
-            f"{LOG_PREFIX_MSG_WARNING} No files collected for log type '{log_prefix}'. Checked roots={', '.join(str(root) for root in search_roots)} with patterns={[f'{prefix}*' for prefix in prefixes]}")
+            f"{LOG_PREFIX_MSG_WARNING} No files collected for log type '{log_prefix}'. Checked roots={display_roots} with patterns={[f'{prefix}*' for prefix in prefixes]}")
     return sorted(collected)
 
 
@@ -158,7 +145,8 @@ def _run_selected_tests(test_names: Sequence[str], log_paths_by_type: Dict[EUtLo
     for i, test_name in enumerate(test_names, 1):
         test_impl = TEST_REGISTRY[test_name]
         _log_banner(f"[TEST {i}/{total_tests}] {test_name}")
-        LOG(f"{LOG_PREFIX_MSG_INFO} Running test: {test_name} on paths: {log_paths_by_type.values()}")
+        display_paths_by_type = {log_type.to_log_prefix(): format_paths_for_display(paths) for log_type, paths in log_paths_by_type.items()}
+        LOG(f"{LOG_PREFIX_MSG_INFO} Running test: {test_name} on paths: {display_paths_by_type}")
         try:
             test_impl.run_test(log_paths_by_type)
             LOG(f"{LOG_PREFIX_MSG_SUCCESS} Test '{test_name}' passed.")
@@ -185,8 +173,7 @@ def getToolData() -> ToolData:
 def main(argv: Optional[Sequence[str]] = None) -> None:
     args = parse_args(argv)
     selected_tests: List[str] = get_arg_value(args, ARG_TESTS) or list(DEFAULT_TESTS)
-    log_output_dir = _normalize_runtime_path(
-        Path(get_arg_value(args, ARG_LOG_OUTPUT_DIR_PATH)), label="log output path")
+    log_output_dir = get_normalized_path(Path(get_arg_value(args, ARG_LOG_OUTPUT_DIR_PATH)), target_platform=ETargetPlatform.CURRENT, log_label="log output path")
     ips: List[str] = get_arg_value(args, ARG_LIST_IPS) or []
     date_filters: Optional[List[str]] = get_arg_value(args, ARG_DATE_FILTERS)
     should_get_log: bool = bool(get_arg_value(args, ARG_SHOULD_GET_LOG))
@@ -209,7 +196,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     missing_types = [log_type.to_log_prefix() for log_type, paths in log_paths_by_type.items() if not paths]
     if missing_types:
         LOG_EXCEPTION(ValueError(
-            f"Missing required log files for type(s): {', '.join(missing_types)} under {log_output_dir}"), exit=True)
+            f"Missing required log files for type(s): {', '.join(missing_types)} under {format_path_for_display(log_output_dir)}"), exit=True)
 
     _run_selected_tests(selected_tests, log_paths_by_type)
     LOG(f"{LOG_PREFIX_MSG_SUCCESS} Completed all requested local log tests: {', '.join(selected_tests)}")

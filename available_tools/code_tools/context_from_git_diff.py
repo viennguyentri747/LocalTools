@@ -17,7 +17,7 @@ def get_diff_tool_templates() -> List[ToolTemplate]:
                 ARG_IGNORE_PATHS: [f"{INSENSE_SDK_REPO_PATH}/InsenseSDK"],
                 ARG_PATH_LONG: f"{CORE_REPOS_PATH}/intellian_pkg",
                 ARG_BASE_REF_LONG: f"origin/{BRANCH_AERO_MASTER}",
-                ARG_TARGET_REF_LONG: "origin/feat_branch",
+                ARG_TARGET_REF_LONG: "origin/vien/feat_branch",
             }
         ),
     ]

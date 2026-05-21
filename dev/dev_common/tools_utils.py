@@ -293,20 +293,21 @@ def open_path_in_explorer(file_path: Path) -> None:
     Open Windows Explorer from WSL and highlight the specified file.
     """
     try:
-        # Convert path using helper
-        windows_path = convert_wsl_to_win_path(file_path)
+        windows_path = str(get_normalized_path(file_path, target_platform=ETargetPlatform.WINDOWS))
+        display_path = format_path_for_display(file_path)
         # Launch Explorer with selected file
         command_result = run_shell(
-            [CMD_EXPLORER, WSL_SELECT_FLAG, windows_path],
+            [CMD_EXPLORER, f"{WSL_SELECT_FLAG}{windows_path}"],
+            show_cmd=False,
             check_throw_exception_on_exit_code=False,
             # When this code runs under native Windows Python, do not wrap Explorer with `wsl`.
             is_run_wsl_if_window=False
         )
 
         if command_result.returncode != 0:
-            LOG(f"{LOG_PREFIX_MSG_WARNING} Explorer returned code {command_result.returncode} for '{file_path}'")
+            LOG(f"{LOG_PREFIX_MSG_WARNING} Explorer returned code {command_result.returncode} for '{display_path}'")
             return
-        LOG(f"Opened Explorer to highlight '{file_path}'")
+        LOG(f"Opened Explorer to highlight '{display_path}'")
 
     except SystemExit as e:
         LOG(f"{LOG_PREFIX_MSG_WARNING} Failed to open Explorer (non-fatal): {e}")
@@ -406,7 +407,8 @@ def run_module_via_win_python(module_path: str, module_args: Optional[List[str]]
     package_root_path = Path(package_root).expanduser()
     win_python_path = win_python_executable_path or get_win_python_executable_path_for_wsl()
     cmd = [str(win_python_path), "-m", module_path, *module_args]
-    LOG(f"{LOG_PREFIX_MSG_INFO} Running Win Python module via shared runner: {' '.join(shlex.quote(str(part)) for part in cmd)}")
+    display_cmd = " ".join(shlex.quote(format_path_for_display(part)) if isinstance(part, (Path, str)) else shlex.quote(str(part)) for part in cmd)
+    LOG(f"{LOG_PREFIX_MSG_INFO} Running Win Python module via shared runner: {display_cmd}")
     # Detach child into its own session so terminal Ctrl+C is handled by this launcher process.
     # This avoids WSL interop cases where SIGINT appears to be delivered only to the Win child.
     process = subprocess.Popen(cmd, cwd=str(package_root_path), start_new_session=True)
@@ -486,7 +488,7 @@ def get_win_python_executable_path_for_wsl() -> str:
         candidate = candidate.strip()
         if not candidate:
             continue
-        wsl_path = convert_win_to_wsl_path(candidate)
+        wsl_path = str(get_normalized_path(candidate, target_platform=ETargetPlatform.WSL))
         if wsl_path:
             LOG(f"{LOG_PREFIX_MSG_INFO} Windows python candidate selected from 'where python': {candidate} -> {wsl_path}")
             return wsl_path

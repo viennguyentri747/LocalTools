@@ -42,8 +42,9 @@ def collect_candidate_files(base_dir: Path, ips: Sequence[str], prefixes: Sequen
     normalized_prefixes = list(prefixes)
     search_roots = [base_dir / ip for ip in ips] if ips else [base_dir]
     for root in search_roots:
+        display_root = format_path_for_display(root)
         if not root.exists():
-            LOG(f"{LOG_PREFIX_MSG_WARNING} Log directory does not exist: {root}")
+            LOG(f"{LOG_PREFIX_MSG_WARNING} Log directory does not exist: {display_root}")
             continue
         if not normalized_prefixes or normalized_prefixes == [""]:
             for path in root.rglob("*"):
@@ -80,6 +81,7 @@ def scan_patterns_in_files(patterns: Sequence[str], files: Sequence[Path], max_m
 
     matches_by_pattern: Dict[str, List[str]] = {pattern: [] for pattern in sanitized_patterns}
     for file_path in resolved_files:
+        display_file_path = format_path_for_display(file_path)
         if not file_path.is_file():
             continue
         try:
@@ -90,9 +92,9 @@ def scan_patterns_in_files(patterns: Sequence[str], files: Sequence[Path], max_m
                         if len(matches_by_pattern[pattern]) >= max_matches_per_pattern:
                             continue
                         if compiled.search(line_text):
-                            matches_by_pattern[pattern].append(f"{file_path}:{line_no}: {line_text}")
+                            matches_by_pattern[pattern].append(f"{display_file_path}:{line_no}: {line_text}")
         except Exception as exc:
-            LOG(f"{LOG_PREFIX_MSG_WARNING} Failed to scan log file '{file_path}': {exc}")
+            LOG(f"{LOG_PREFIX_MSG_WARNING} Failed to scan log file '{display_file_path}': {exc}")
     return matches_by_pattern
 
 

@@ -12,7 +12,7 @@ from available_tools.test_tools.common import *
 from dev.dev_common import *
 
 DEFAULT_LOG_TYPE_PREFIXES = [P_LOG_PREFIX, E_LOG_PREFIX]
-ACU_LOG_PATH = LOCAL_TOOL_TEMP_PATH / "acu_logs"
+ACU_LOG_PATH = get_win_persistent_temp_path() / "acu_logs"
 DEFAULT_LOG_OUTPUT_PATH = ACU_LOG_PATH
 LOCAL_LOG_WRAPPER_CMD = f"{Path(__file__).resolve().parents[1] / 't_test_logs_from_local.py'} --mode get_acu_logs"
 ARG_LOG_TYPES = f"{ARGUMENT_LONG_PREFIX}type"
@@ -286,7 +286,7 @@ def _summarize_fetch_results(ips: List[str], summaries: Dict[str, IpFetchSummary
     for index, ip in enumerate(ips):
         summary = summaries.get(ip, IpFetchSummary(log_directory=log_output_dir / ip))
         LOG(f"IP:{ip}")
-        LOG(f"Log Directory: {summary.log_directory}")
+        LOG(f"Log Directory: {format_path_for_display(summary.log_directory)}")
         LOG("Log Files Status:")
 
         if summary.log_files:
@@ -327,7 +327,7 @@ def main() -> None:
     max_thread_count: int = get_arg_value(args, ARG_MAX_THREAD_COUNT)
     log_output_dir.mkdir(parents=True, exist_ok=True)
 
-    LOG(f"Storing fetched logs under: {log_output_dir}")
+    LOG(f"Storing fetched logs under: {format_path_for_display(log_output_dir)}")
     results = batch_fetch_acu_logs(
         ut_ips=ips,
         log_types=log_types,

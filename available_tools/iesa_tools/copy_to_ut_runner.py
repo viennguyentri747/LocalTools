@@ -330,6 +330,8 @@ def main() -> None:
         else:
             handle_post_upgrade_iesa(ut_ip=target_ip)
 
+        show_noti(title="IESA Install Complete", message=f"{INSTALL_COMPLETE_MSG} ({target_ip})", no_log_on_success=True)
+
     else:
         action = "copied" if is_copied else "already up to date (copy skipped)"
         LOG(f"File {action}. Run on target UT {target_ip}!!")

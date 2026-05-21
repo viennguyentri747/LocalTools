@@ -671,7 +671,11 @@ def _copy_to_local_scp_impl(remote_src_paths: str | List[str], remote_host_ip: s
     remote_sources = [remote_src_paths] if isinstance(remote_src_paths, str) else list(remote_src_paths or [])
     if not remote_sources:
         raise ValueError("remote_src_paths cannot be empty.")
-    local_dest = Path(local_dest_path).expanduser().resolve()
+    # We need two forms of the same destination:
+    # - CURRENT for local Python file ops (mkdir/rglob in the current runtime)
+    # - WSL for the scp command string executed via `wsl bash -lc ...`
+    local_dest = get_normalized_path(local_dest_path, target_platform=ETargetPlatform.CURRENT, log_label="scp local destination").expanduser().resolve()
+    local_dest_for_scp = get_normalized_path(local_dest_path, target_platform=ETargetPlatform.WSL)
     local_dest.mkdir(parents=True, exist_ok=True)
     before_files = set(str(p.resolve()) for p in local_dest.rglob("*") if p.is_file())
     cmd: List[str] = ["scp"]
@@ -687,8 +691,12 @@ def _copy_to_local_scp_impl(remote_src_paths: str | List[str], remote_host_ip: s
         cmd.extend(["-o", proxy_option])
     for src in remote_sources:
         cmd.append(f"{remote_user}@{remote_host_ip}:{src}")
-    cmd.append(str(local_dest))
-    result = run_shell(cmd, capture_output=False, timeout=timeout if timeout and timeout > 0 else None, check_throw_exception_on_exit_code=False)
+    cmd.append(str(local_dest_for_scp))
+    scp_cmd_str = " ".join(shlex.quote(str(arg)) for arg in cmd)
+    # OpenSSH scp only renders the transfer meter when stderr is a TTY. `script`
+    # gives scp a pseudo-terminal even when launched through Win Python/WSL.
+    progress_cmd = ["script", "-qfec", scp_cmd_str, "/dev/null"]
+    result = run_shell(progress_cmd, capture_output=False, timeout=timeout if timeout and timeout > 0 else None, check_throw_exception_on_exit_code=False)
     if result.returncode != 0:
         raise RuntimeError(f"SCP copy failed with exit_code={result.returncode}. See SCP output above.")
     after_files = [str(p.resolve()) for p in local_dest.rglob("*") if p.is_file()]
@@ -723,7 +731,8 @@ def copy_to_local(remote_src_paths: str | List[str], remote_host_ip: str, local_
                   timeout: Optional[int] = None, copy_type: ECopyType = ECopyType.SFTP) -> List[str]:
     """Copy remote files/directories to local path via SFTP (Paramiko) or SCP."""
     remote_desc = remote_src_paths if isinstance(remote_src_paths, str) else f"{len(remote_src_paths)} source(s)"
-    LOG(f"{LOG_PREFIX_MSG_INFO} Copying '{remote_desc}' from {remote_user}@{remote_host_ip} to '{Path(local_dest_path).expanduser()}' using {copy_type.value.upper()}")
+    display_dest = format_path_for_display(Path(local_dest_path).expanduser())
+    LOG(f"{LOG_PREFIX_MSG_INFO} Copying '{remote_desc}' from {remote_user}@{remote_host_ip} to '{display_dest}' using {copy_type.value.upper()}")
     if copy_type == ECopyType.SCP:
         if password:
             setup_passwordless_ssh(user=remote_user, remote_ip=remote_host_ip, remote_password=password)
@@ -736,7 +745,8 @@ def copy_to_local(remote_src_paths: str | List[str], remote_host_ip: str, local_
 def copy_to_local_via_jump_host(remote_src_paths: str | List[str], remote_host_ip: str, local_dest_path: str | Path, jump_host_ip: str, remote_user: str = ACU_USER, remote_password: Optional[str] = None, jump_user: Optional[str] = None, jump_password: Optional[str] = None, recursive: Optional[bool] = None, strict_host_key_checking: bool = False, timeout: Optional[int] = None, copy_type: ECopyType = ECopyType.SFTP) -> List[str]:
     """Copy remote files/directories through a jump host to local path via SFTP (Paramiko) or SCP."""
     remote_desc = remote_src_paths if isinstance(remote_src_paths, str) else f"{len(remote_src_paths)} source(s)"
-    LOG(f"{LOG_PREFIX_MSG_INFO} Copying '{remote_desc}' from {remote_user}@{remote_host_ip} to '{Path(local_dest_path).expanduser()}' via jump host {jump_user}@{jump_host_ip} using {copy_type.value.upper()}.")
+    display_dest = format_path_for_display(Path(local_dest_path).expanduser())
+    LOG(f"{LOG_PREFIX_MSG_INFO} Copying '{remote_desc}' from {remote_user}@{remote_host_ip} to '{display_dest}' via jump host {jump_user}@{jump_host_ip} using {copy_type.value.upper()}.")
     if copy_type == ECopyType.SCP:
         if jump_user and jump_password:
             setup_passwordless_ssh(user=jump_user, remote_ip=jump_host_ip, remote_password=jump_password)

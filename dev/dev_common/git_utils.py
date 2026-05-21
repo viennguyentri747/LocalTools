@@ -95,17 +95,22 @@ def git_get_ref_type(repo_path: Path, git_ref: str) -> Optional[str]:
     """Returns ref type: branch, tag, commit, tree, blob, or None if not found."""
     ref = git_ref.strip()
 
-    # Check branch
+    # 1. Check local branch
     if run_shell(["git", "show-ref", "--verify", "--quiet", f"refs/heads/{ref}"],
                  cwd=repo_path, stdout=DEVNULL, stderr=DEVNULL, check_throw_exception_on_exit_code=False).returncode == 0:
         return "branch"
 
-    # Check tag
+    # 2. Check remote tracking branch
+    if run_shell(["git", "show-ref", "--verify", "--quiet", f"refs/remotes/{ref}"],
+                 cwd=repo_path, stdout=DEVNULL, stderr=DEVNULL, check_throw_exception_on_exit_code=False).returncode == 0:
+        return "branch"
+
+    # 3. Check tag
     if run_shell(["git", "show-ref", "--verify", "--quiet", f"refs/tags/{ref}"],
                  cwd=repo_path, stdout=DEVNULL, stderr=DEVNULL, check_throw_exception_on_exit_code=False).returncode == 0:
         return "tag"
 
-    # Check object type (commit/tree/blob)
+    # 4. Check object type (commit/tree/blob)
     result = run_shell(["git", "cat-file", "-t", ref],
                        cwd=repo_path, capture_output=True, text=True, check_throw_exception_on_exit_code=False)
     return result.stdout.strip() if result.returncode == 0 else None

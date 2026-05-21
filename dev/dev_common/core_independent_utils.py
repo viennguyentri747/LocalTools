@@ -8,12 +8,11 @@ import shlex
 import shutil
 import subprocess
 import sys
-from typing import List, Literal, Optional, Union, Tuple
+from typing import List, Optional, Sequence, Union, Tuple
 from datetime import datetime, timezone, tzinfo
 import traceback
 import platform
-from enum import IntEnum
-from .shell_utils import get_shell_exec_cmd_as_list
+from enum import Enum, IntEnum
 
 WSL_ROOT_FROM_WIN_DRIVE = "X:"
 DEFAULT_TIMEZONE: tzinfo = timezone.utc
@@ -123,6 +122,7 @@ def get_wsl_home_path() -> Path:
         resolved_path = Path.home()
     return resolved_path
 
+
 def get_win_home_path() -> Path:
     if is_platform_windows():
         # Running on Windows natively, USERPROFILE is available directly
@@ -131,12 +131,45 @@ def get_win_home_path() -> Path:
         # Running on WSL, need to query Windows environment via cmd.exe
         result = run_shell(["cmd.exe", "/c", "echo %USERPROFILE%"], capture_output=True, timeout=3)
         win_home = result.stdout.strip()
-        # Convert Windows path to WSL-accessible path (e.g. C:\Users\foo -> /mnt/c/Users/foo)
-        return Path(convert_win_to_wsl_path(win_home))
+        return get_normalized_path(win_home, target_platform=ETargetPlatform.WSL)
 
 
 def get_win_persistent_temp_path() -> Path:
     return get_win_home_path() / "temp"
+
+
+class ETargetPlatform(str, Enum):
+    CURRENT = "current"
+    WINDOWS = "windows"
+    WSL = "wsl"
+
+
+def _is_windows_path_text(path_text: str) -> bool:
+    stripped = path_text.strip().strip('"').strip("'")
+    return bool(re.match(r'^[a-zA-Z]:[\\/]', stripped)) or stripped.startswith(('\\\\', '//wsl.localhost/', '//wsl$/'))
+
+
+def _is_wsl_unc_path_text(path_text: str) -> bool:
+    stripped = path_text.strip().strip('"').strip("'").replace("\\", "/")
+    return bool(re.match(r'^//wsl(?:\.localhost|\$)/[^/]+(/.*)?$', stripped, flags=re.IGNORECASE))
+
+
+def format_path_for_display(path_like: str | Path) -> str:
+    """Return a user-facing path string in WSL/POSIX style when possible."""
+    raw_text = str(path_like)
+    clean_text = raw_text.strip().strip('"').strip("'")
+    if not clean_text:
+        return clean_text
+    try:
+        if _is_windows_path_text(clean_text):
+            return convert_win_to_wsl_path(clean_text)
+    except Exception:
+        pass
+    return clean_text.replace("\\", "/")
+
+
+def format_paths_for_display(paths: Sequence[str | Path]) -> List[str]:
+    return [format_path_for_display(path) for path in paths]
 
 
 def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[Path | str] = None,
@@ -149,15 +182,14 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
         return ' '.join(shlex.quote(str(arg)) for arg in cmd_list)
 
     def _looks_like_windows_path(token: str) -> bool:
-        stripped = token.strip().strip('"').strip("'")
-        return bool(re.match(r'^[a-zA-Z]:[\\/]', stripped)) or stripped.startswith(('\\\\', '//wsl.localhost/', '//wsl$/'))
+        return _is_windows_path_text(token)
 
     def _normalize_wsl_args(args: List[Union[str, Path]]) -> List[str]:
         normalized: List[str] = []
         for arg in args:
             arg_str = str(arg)
             if _looks_like_windows_path(arg_str):
-                normalized.append(convert_win_to_wsl_path(arg_str))
+                normalized.append(str(get_normalized_path(arg_str, target_platform=ETargetPlatform.WSL)))
             else:
                 normalized.append(arg_str)
         return normalized
@@ -208,14 +240,12 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
         if run_in_wsl:
             exec_path = None
             if cwd:
-                wsl_cwd = convert_win_to_wsl_path(str(cwd))
+                wsl_cwd = str(get_normalized_path(cwd, target_platform=ETargetPlatform.WSL))
                 LOG(f"Converting cwd '{cwd}' to WSL path '{wsl_cwd}'", log_type=ELogType.DEBUG)
                 exec_cwd = wsl_cwd
         else:
             if cwd:
-                cwd_str = str(cwd)
-                if ":" not in cwd_str and "\\\\" not in cwd_str:
-                    exec_cwd = convert_wsl_to_win_path(Path(cwd))
+                exec_cwd = get_normalized_path(cwd, target_platform=ETargetPlatform.WINDOWS)
                 if not os.path.exists(str(exec_cwd)):
                     LOG(f"WARNING: CWD '{exec_cwd}' not found. Mapped drives ({WSL_ROOT_FROM_WIN_DRIVE}) may be invisible to Python.",
                         log_type=ELogType.WARNING)
@@ -238,9 +268,79 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
             cmd = shlex.split(cmd)
 
     if show_cmd:
-        LOG(f"{format_cmd_for_log(cmd)} (cwd={exec_cwd or Path.cwd()})", log_type=ELogType.NORMAL)
+        display_cwd = format_path_for_display(exec_cwd or Path.cwd())
+        LOG(f"{format_cmd_for_log(cmd)} (cwd={display_cwd})", log_type=ELogType.NORMAL)
 
     return subprocess.run(cmd, shell=want_shell, cwd=exec_cwd, check=check_throw_exception_on_exit_code, stdout=stdout, stderr=stderr, text=text, capture_output=capture_output, encoding=encoding, executable=exec_path, timeout=timeout)
+
+
+def get_shell_exec_cmd_as_list() -> List[str]:
+    """
+    Return the shell command with flags for executing commands as a list.
+    Uses login shell (-l) to ensure PATH and environment are properly set up.
+
+    Returns a list like ["bash", "-lc"] that can be used directly with subprocess.
+    """
+    shell = get_shell_name()
+    return [shell, "-lc"]
+
+
+def get_shell_name() -> str:
+    """
+    Return the shell command to use (bash/zsh/sh), preferring the *current* shell,
+    not the login shell stored in $SHELL.
+    """
+    BASH = "bash"
+    ZSH = "zsh"
+    SH = "sh"
+
+    # 1) If we're actually running inside bash/zsh, these are the most reliable.
+    if os.environ.get("BASH_VERSION") and shutil.which(BASH):
+        return BASH
+    if os.environ.get("ZSH_VERSION") and shutil.which(ZSH):
+        return ZSH
+
+    # 2) Try to infer from the immediate parent process of this Python script.
+    #    Works for interactive shell sessions, but may fail for nested processes
+    #    (IDEs, make, systemd, etc.) where the parent isn't a shell.
+    ppid = os.getppid()
+    parent = _proc_name(ppid)
+    KNOWN_SHELLS = (BASH, ZSH, SH)
+    if parent in KNOWN_SHELLS and shutil.which(parent):
+        return parent
+
+    # 3) Fallback to user's preferred/login shell ($SHELL basename).
+    env_shell = os.environ.get("SHELL")
+    if env_shell:
+        shell_name = os.path.basename(env_shell)
+        if shutil.which(shell_name):
+            return shell_name
+
+    # 4) Final fallback
+    return BASH if shutil.which(BASH) else SH
+
+
+def resolve_executable_path(cmd: Union[str, Path]) -> str:
+    """Resolve executable path for any command; return original if unresolved."""
+    cmd_str = str(cmd)
+    if not cmd_str:
+        return cmd_str
+    expanded = os.path.expanduser(cmd_str)
+    if os.path.sep in expanded or (os.path.altsep and os.path.altsep in expanded):
+        return expanded if Path(expanded).exists() else cmd_str
+    resolved = shutil.which(expanded)
+    return resolved or cmd_str
+
+
+def wrap_cmd_for_bash(cmd: str) -> str:
+    return cmd if cmd.strip().startswith("bash -lic ") else f"bash -lic {shlex.quote(cmd)}"
+
+
+def _proc_name(pid: int) -> str:
+    try:
+        return Path(f"/proc/{pid}/comm").read_text().strip()
+    except Exception:
+        return ""
 
 
 def convert_wsl_to_win_path(file_path: Path) -> str:
@@ -253,16 +353,17 @@ def convert_wsl_to_win_path(file_path: Path) -> str:
     # 1. Optimization: If it's already a Windows path (has drive letter or backslash), return it.
     if ":" in path_str or "\\" in path_str:
         return path_str.replace("/", "\\")
+    resolved_wsl_path = _resolve_existing_wsl_path_text(path_str)
 
     cmd = []
 
     # 2. Determine how to call wslpath based on OS
     if is_platform_windows():
         # On Windows, 'wslpath' is not in PATH. We must call 'wsl.exe' with the command.
-        cmd = ["wsl", "wslpath", "-w", path_str]
+        cmd = ["wsl", "wslpath", "-w", resolved_wsl_path]
     else:
         # On Linux/WSL, wslpath is a native binary
-        cmd = ["wslpath", "-w", path_str]
+        cmd = ["wslpath", "-w", resolved_wsl_path]
 
     try:
         result = run_shell(
@@ -272,10 +373,44 @@ def convert_wsl_to_win_path(file_path: Path) -> str:
             check_throw_exception_on_exit_code=True
         )
         win_path = result.stdout.strip()
-        LOG(f"Converted WSL path {file_path} to Windows path: {win_path}")
+        LOG(f"Converted WSL path {format_path_for_display(file_path)} to Windows path (display): {format_path_for_display(win_path)}")
         return win_path
     except Exception as e:
+        alias_path = _apply_custom_wsl_to_win_aliases(resolved_wsl_path)
+        if alias_path:
+            LOG(f"[WARNING] Native WSL->Windows conversion failed; using alias path fallback: {alias_path}")
+            return alias_path
         LOG_EXCEPTION_STR(f"Failed to convert WSL path {file_path} to Windows path: {e}")
+
+
+def _resolve_existing_wsl_path_text(path_text: str) -> str:
+    if not path_text.startswith("/"):
+        return path_text
+    path_obj = Path(path_text).expanduser()
+    if not is_platform_windows():
+        return str(path_obj.resolve()) if path_obj.exists() else str(path_obj)
+    if shutil.which("wsl"):
+        try:
+            result = subprocess.run(["wsl", "readlink", "-f", str(path_obj)],
+                                    capture_output=True, text=True, check=True)
+            resolved = result.stdout.strip()
+            if resolved:
+                return resolved
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass
+    return str(path_obj)
+
+
+def _apply_custom_wsl_to_win_aliases(wsl_path: str) -> Optional[str]:
+    normalized = str(wsl_path).replace("\\", "/")
+    if not normalized.startswith("/"):
+        return None
+    mnt_drive_match = re.match(r'^/mnt/([a-zA-Z])(?:/(.*))?$', normalized)
+    if mnt_drive_match:
+        drive_letter = mnt_drive_match.group(1).upper()
+        suffix = (mnt_drive_match.group(2) or "").replace("/", "\\")
+        return f"{drive_letter}:\\{suffix}" if suffix else f"{drive_letter}:\\"
+    return f"{WSL_ROOT_FROM_WIN_DRIVE}/{normalized.lstrip('/')}"
 
 
 def _apply_custom_win_to_wsl_aliases(win_path: str) -> Optional[str]:
@@ -337,8 +472,39 @@ def convert_win_to_wsl_path(win_path: str) -> str:
             rest_of_path = drive_match.group(2)
             wsl_path = f"/mnt/{drive_letter}/{rest_of_path}"
 
-    LOG(f"Converted Windows path {win_path} to WSL path: {wsl_path}", log_type=ELogType.DEBUG)
+    LOG(f"Converted Windows path {format_path_for_display(win_path)} to WSL path: {format_path_for_display(wsl_path)}", log_type=ELogType.DEBUG)
     return wsl_path
+
+
+def get_normalized_path(path_like: str | Path, target_platform: ETargetPlatform | str = ETargetPlatform.CURRENT, *, log_label: Optional[str] = None) -> Path:
+    """Normalize a path for the target runtime platform.
+
+    Use ETargetPlatform.WINDOWS for paths passed to Windows tools,
+    ETargetPlatform.WSL for paths passed to WSL/Linux tools, and
+    ETargetPlatform.CURRENT for local file access.
+    """
+    if isinstance(target_platform, str):
+        target_platform = ETargetPlatform(target_platform)
+    path_text = str(path_like).strip().strip('"').strip("'")
+    if target_platform == ETargetPlatform.CURRENT:
+        target_platform = ETargetPlatform.WINDOWS if is_platform_windows() else ETargetPlatform.WSL
+    if target_platform == ETargetPlatform.WSL:
+        normalized_text = convert_win_to_wsl_path(path_text) if _is_windows_path_text(path_text) else path_text
+        normalized_path = Path(normalized_text).expanduser()
+        if not is_platform_windows() and normalized_path.exists():
+            normalized_path = normalized_path.resolve()
+    elif target_platform == ETargetPlatform.WINDOWS:
+        if _is_windows_path_text(path_text) and not _is_wsl_unc_path_text(path_text):
+            normalized_path = Path(path_text.replace("/", "\\") if re.match(r'^[a-zA-Z]:/', path_text) else path_text)
+        else:
+            wsl_text = convert_win_to_wsl_path(path_text) if _is_wsl_unc_path_text(path_text) else path_text
+            normalized_path = Path(convert_wsl_to_win_path(Path(wsl_text)))
+    else:
+        raise ValueError(
+            f"Unsupported target_platform='{target_platform}'. Expected one of {[item.value for item in ETargetPlatform]}.")
+    if log_label and str(normalized_path) != path_text:
+        LOG(f"[INFO] Normalized {log_label}: {format_path_for_display(path_text)} -> {format_path_for_display(normalized_path)}")
+    return normalized_path
 
 
 def is_platform_windows() -> bool:
@@ -418,8 +584,7 @@ def read_value_from_credential_file(credentials_file_path: str, key_to_read: str
     Reads a specific key's value from a credentials file.
     Returns the value if found, otherwise None.
     """
-    if is_platform_windows():
-        credentials_file_path = convert_wsl_to_win_path(Path(credentials_file_path))
+    credentials_file_path = str(get_normalized_path(credentials_file_path, target_platform=ETargetPlatform.CURRENT))
     if os.path.exists(credentials_file_path):
         try:
             with open(credentials_file_path, 'r') as f:
@@ -440,7 +605,7 @@ def read_value_from_credential_file(credentials_file_path: str, key_to_read: str
                 sys.exit(1)
     else:
         LOG(f"Credentials file {credentials_file_path} not found.")
-        #breakpoint()
+        # breakpoint()
 
     LOG(f"ERROR: Key '{key_to_read}' not found in {credentials_file_path}")
     return None
@@ -479,24 +644,17 @@ def LOG_EXCEPTION(exception: Exception, msg=None, exit: bool = True):
         if hasattr(exception, 'filename') and exception.filename:
             LOG(f"File: {exception.filename}", file=sys.stderr)
 
-    # Show full traceback but filter out library internals
-    tb = traceback.extract_tb(exception.__traceback__)
+    tb = traceback.extract_stack()
     if tb:
         LOG("- Call stack:", file=sys.stderr)
 
-        # Get the directory of your main script to identify "your" code
-        main_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
         for frame in tb:
-            # Highlight frames from your code vs library code
-            is_local = frame.filename.startswith(main_dir)
-            prefix = "  →" if is_local else "   "
-            # Make filename relative if it's in your project
+            # Display everything identically with a uniform prefix
+            prefix = "   "
             display_filename = frame.filename
-            if is_local:
-                display_filename = os.path.relpath(frame.filename, main_dir)
 
             LOG(f"{prefix} {display_filename}:{frame.lineno} in {frame.name}()",
-                file=sys.stderr, highlight=is_local)
+                file=sys.stderr, highlight=True)
 
     if exit:
         sys.exit(1)

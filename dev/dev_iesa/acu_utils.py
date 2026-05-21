@@ -2,8 +2,7 @@ from pathlib import Path
 import shlex
 from typing import Optional, Union
 from dev.dev_common.constants import *
-from dev.dev_common.shell_utils import wrap_cmd_for_bash
-
+from dev.dev_common.core_independent_utils import *
 
 def create_install_iesa_cmd(iesa_name: str, cache_upgrade_log_file_path: str = ACU_CACHE_UPGRADE_LOG_FILE) -> str:
     upgrade_log_out_path = f"{cache_upgrade_log_file_path}"

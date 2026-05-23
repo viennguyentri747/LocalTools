@@ -308,7 +308,8 @@ def main() -> None:
             LOG(line)
             if INSTALL_COMPLETE_MSG not in line:
                 return False
-            show_noti(title="IESA Install Complete", message=f"{INSTALL_COMPLETE_MSG} ({target_ip})", no_log_on_success=True)
+            # Install complete here
+            #show_noti(title="IESA Install Complete", message=f"{INSTALL_COMPLETE_MSG} ({target_ip})", no_log_on_success=True)
             return True
 
         install_result, install_reason, _ = _run_iesa_install_via_python(remote_name=dest_name, remote_host_ip=acu_host_ip, remote_user=ACU_USER, jump_host_ip=target_ip, should_prompt=should_prompt, on_install_line_recv=_on_install_iesa_line_recv, remote_password=ACU_PASSWORD, jump_user=SSM_USER, jump_password=SSM_PASSWORD)

@@ -38,6 +38,7 @@ ARG_IS_DEBUG_BUILD = f"{ARGUMENT_LONG_PREFIX}is_debug_build"
 ARG_OW_BUILD_TYPE = f"{ARGUMENT_LONG_PREFIX}build_type"
 ARG_RUN_VIA_PYTHON = f"{ARGUMENT_LONG_PREFIX}run_via_python"
 ARG_USE_LOCAL_GIT_REPO = f"{ARGUMENT_LONG_PREFIX}use_local_git_repo"
+ARG_SHOW_BUILD_OUTPUT_STDOUT = f"{ARGUMENT_LONG_PREFIX}show_build_output_stdout"
 PREFIX_OW_BUILD_ARTIFACT = f"iesa_test_"
 WIN_CMD_INVOCATION = get_win_python_runner_cmd_invocation("available_tools.iesa_tools.t_ow_local_build")
 IESA_TEST_DIFF_FILE_PREFIX = f"iesa_test_diff_"
@@ -46,7 +47,8 @@ IESA_METADATA_FILE = f"iesa_ow_build_metadata.json"
 TEMP_OW_BUILD_OUTPUT_PATH = LOCAL_TOOL_TEMP_PATH / "ow_build_output/"
 MANIFEST_OUT_ARTIFACT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}manifest.xml"
 IESA_OUT_ARTIFACT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}build.iesa"
-LOG_OUT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}log.txt"
+PROG_LOG_OUT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}program_log.txt"
+BUILD_LOG_OUT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}build_log.txt"
 COPY_TO_UT_RUNNER_PATH = Path(__file__).resolve().parent / "copy_to_ut_runner.py"
 
 def get_tool_templates() -> List[ToolTemplate]:
@@ -58,6 +60,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_INTERACTIVE: False,
                 ARG_OW_BUILD_TYPE: BUILD_TYPE_IESA,
                 ARG_RUN_VIA_PYTHON: True,
+                ARG_SHOW_BUILD_OUTPUT_STDOUT: False,
                 ARG_MANIFEST_SOURCE: MANIFEST_SOURCE_LOCAL,
                 ARG_BASE_REMOTE_MANIFEST_BRANCH: BRANCH_AERO_MASTER,
                 ARG_TISDK_REF: BRANCH_AERO_MASTER,
@@ -79,6 +82,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_BASE_REMOTE_MANIFEST_BRANCH: BRANCH_AERO_MASTER,
                 ARG_MAKE_CLEAN: True,
                 ARG_IS_DEBUG_BUILD: True,
+                ARG_SHOW_BUILD_OUTPUT_STDOUT: False,
                 ARG_OVERWRITE_REPOS: [IESA_INSENSE_SDK_REPO_NAME, IESA_INTELLIAN_PKG_REPO_NAME],
             },
             need_sudo_on_wsl=True,
@@ -95,6 +99,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_TISDK_REF: BRANCH_MANPACK_MASTER,
                 ARG_MAKE_CLEAN: True,
                 ARG_IS_DEBUG_BUILD: True,
+                ARG_SHOW_BUILD_OUTPUT_STDOUT: False,
                 ARG_OVERWRITE_REPOS: [IESA_INTELLIAN_PKG_REPO_NAME, IESA_INSENSE_SDK_REPO_NAME],
             },
             hidden=True,
@@ -133,6 +138,8 @@ def main() -> None:
                         help="Display Python-based UT copy runner command instead of the legacy shell copy command (true or false). Defaults to false.")
     parser.add_argument(ARG_USE_LOCAL_GIT_REPO, type=lambda x: x.lower() == TRUE_STR_VALUE, default=False,
                         help="Use local git-repo mirror via --repo-url (true or false). Defaults to false.")
+    parser.add_argument(ARG_SHOW_BUILD_OUTPUT_STDOUT, type=lambda x: x.lower() == TRUE_STR_VALUE, default=False,
+                        help="Show full build command output in stdout while also logging to build log (true or false). Defaults to false.")
     args = parser.parse_args()
     LOG(
         textwrap.dedent(
@@ -152,9 +159,11 @@ def main() -> None:
     is_debug_build: bool = get_arg_value(args, ARG_IS_DEBUG_BUILD)
     run_via_python: bool = get_arg_value(args, ARG_RUN_VIA_PYTHON)
     use_local_git_repo: bool = get_arg_value(args, ARG_USE_LOCAL_GIT_REPO)
+    show_build_output_stdout: bool = get_arg_value(args, ARG_SHOW_BUILD_OUTPUT_STDOUT)
     # Update overwrite repos no git suffix
     overwrite_repos = [get_path_no_suffix(r, GIT_SUFFIX) for r in overwrite_repos]
     init_ow_build_log()
+    init_iesa_build_log()
 
     append_build_log(f"Build type: {build_type}")
     append_build_log(f"Manifest source: {manifest_source}")
@@ -188,7 +197,7 @@ def main() -> None:
         build_type, manifest_source, ow_manifest_branch, base_remote_manifest_branch, tisdk_ref, overwrite_repos,
         current_branch, tisdk_ref_from_ci_yml, use_local_git_repo=use_local_git_repo)
 
-    run_build(build_type, get_arg_value(args, ARG_INTERACTIVE), make_clean, is_debug_build)
+    run_build(build_type, get_arg_value(args, ARG_INTERACTIVE), make_clean, is_debug_build, show_build_output_stdout)
     # Always display binary build finish + command to copy
     LOG(f"{MAIN_STEP_LOG_PREFIX} Binary build finished")
     LOG(f"Find output binary files in '{OW_SW_BUILD_BINARY_OUTPUT_PATH}'")
@@ -290,7 +299,8 @@ def main() -> None:
             "binary_directory": str(OW_SW_BUILD_BINARY_OUTPUT_PATH),
             "iesa_artifact_path": str(iesa_artifact_path) if iesa_artifact_path else None,
             "manifest_path": str(MANIFEST_OUT_ARTIFACT_PATH),
-            "log_path": str(LOG_OUT_PATH),
+            "log_path": str(PROG_LOG_OUT_PATH),
+            "build_log_path": str(BUILD_LOG_OUT_PATH),
         },
         "md5sum": {
             "iesa_artifact": get_file_md5sum(iesa_artifact_path) if iesa_artifact_path else None,
@@ -393,12 +403,18 @@ def setup_prebuild(build_type: str, manifest_source: str, ow_manifest_branch: st
     base_manifest = get_base_manifest_from_remote_branch(base_remote_manifest_branch)
     ow_base_ref = git_get_remote_branch_ref(base_remote_manifest_branch, ow_git_remote)
     
+    diff_file_prefix = IESA_TEST_DIFF_FILE_PREFIX
+    diff_file_output_folder = TEMP_OW_BUILD_OUTPUT_PATH
+    clear_diff_artifacts_by_prefix(diff_file_output_folder, diff_file_prefix)
+
     # Collect OW repo changes
     ow_change_snapshot = collect_repo_changes(
         repo_name=IESA_OW_SW_TOOLS_REPO_NAME,
         repo_path=OW_SW_PATH,
         base_ref=ow_base_ref,
         relative_path_vs_tmp_build=EMPTY_STR_VALUE,
+        diff_file_prefix=diff_file_prefix,
+        diff_file_output_folder=diff_file_output_folder,
     )
     repo_change_details.append(ow_change_snapshot)
     # Collect other repos changes
@@ -428,6 +444,8 @@ def setup_prebuild(build_type: str, manifest_source: str, ow_manifest_branch: st
                 repo_path=source_repo_path,
                 base_ref=resolved_base_ref,
                 relative_path_vs_tmp_build=rel_path,
+                diff_file_prefix=diff_file_prefix,
+                diff_file_output_folder=diff_file_output_folder,
             )
             change_snapshots.append(change_snapshot)
 
@@ -442,7 +460,7 @@ def setup_prebuild(build_type: str, manifest_source: str, ow_manifest_branch: st
     return actual_manifest, repo_change_details
 
 
-def run_build(build_type: str, interactive: bool, make_clean: bool = True, is_debug_build: bool = False) -> None:
+def run_build(build_type: str, interactive: bool, make_clean: bool = True, is_debug_build: bool = False, show_build_output_stdout: bool = False) -> None:
     if build_type == BUILD_TYPE_BINARY:
         make_target = "arm"
     elif build_type == BUILD_TYPE_IESA:
@@ -453,11 +471,13 @@ def run_build(build_type: str, interactive: bool, make_clean: bool = True, is_de
     docker_image: str = get_docker_image_from_gitlab_ci(GITLAB_CI_YML_PATH)
     # docker_image: str = "oneweb_test:v1"
     LOG(f"Using Docker image: {docker_image}")
+    append_iesa_build_log(f"Using Docker image: {docker_image}")
 
     # Prune stopped containers, dangling images, and orphaned volumes before starting the build
     # Note: `image prune` without `-a` only removes dangling (<none>:<none>) images, preserving the cached build image
     LOG("Cleaning up unused Docker resources...")
-    run_shell("docker container prune -f && docker image prune -f && docker volume prune -f")
+    append_iesa_build_log("Cleaning up unused Docker resources...")
+    run_shell_with_iesa_build_log("docker container prune -f && docker image prune -f && docker volume prune -f", show_build_output_stdout, spinner_message="Cleaning Docker resources")
 
     tty_flag = "-it" if interactive else ""
     docker_cmd_base = f"docker run {tty_flag} --rm -v {OW_SW_PATH}:{OW_SW_PATH} -w {OW_SW_PATH} {docker_image}"
@@ -487,6 +507,7 @@ def run_build(build_type: str, interactive: bool, make_clean: bool = True, is_de
             bash_cmd = f"""{bash_cmd_prefix} "echo 'Running dos2unix on script files...' && {dos2unix_cmd} && echo 'Granting execute permissions to script files...' && {chmod_cmd} && echo -e '\\nTo start the {build_type} build, run the command below:\\n\\nmake {make_target}{debug_suffix}\\n\\nType exit or press Ctrl+D to leave interactive mode.' && {keep_interactive_shell}" """
 
         run_shell(f"{docker_cmd_base} {bash_cmd}", check_LOG_EXCEPTION_STR_on_exit_code=False)
+        append_iesa_build_log("Interactive mode completed. Build output is printed in interactive shell.")
         LOG(f"Exiting interactive mode...")
     else:
         LOG("Running dos2unix on script files and build command...")
@@ -496,9 +517,12 @@ def run_build(build_type: str, interactive: bool, make_clean: bool = True, is_de
         else:
             bash_cmd = f"{bash_cmd_prefix} '{dos2unix_cmd} && {chmod_cmd} && make {make_target}{debug_suffix}'"
 
-        run_shell(f"{docker_cmd_base} {bash_cmd}")
+        append_iesa_build_log("Running build command:")
+        append_iesa_build_log(f"{docker_cmd_base} {bash_cmd}")
+        run_shell_with_iesa_build_log(f"{docker_cmd_base} {bash_cmd}", show_build_output_stdout, spinner_message=f"Building {build_type}")
         elapsed_time = (get_datetime_now() - time_start).total_seconds()
         LOG(f"Build finished in {elapsed_time} seconds", show_time=True)
+        append_iesa_build_log(f"Build finished in {elapsed_time} seconds")
         show_noti(title="Build finished", message=f"Build finished in {elapsed_time} seconds")
 
 
@@ -746,7 +770,7 @@ def override_fetched_repo_with_local_repo(repo_name: str, repo_rel_path_vs_tmp_b
             dest_path.mkdir(parents=True, exist_ok=True)
 
 
-def collect_repo_changes(repo_name: str, repo_path: Path, base_ref: str, relative_path_vs_tmp_build: str = EMPTY_STR_VALUE) -> Dict[str, Any]:
+def collect_repo_changes(repo_name: str, repo_path: Path, base_ref: str, relative_path_vs_tmp_build: str = EMPTY_STR_VALUE, diff_file_prefix: str = IESA_TEST_DIFF_FILE_PREFIX, diff_file_output_folder: Path = TEMP_OW_BUILD_OUTPUT_PATH) -> Dict[str, Any]:
     if not repo_path.exists():
         LOG_EXCEPTION_STR(f"WARNING: Repo path '{repo_path}' not found when collecting changes for '{repo_name}'.")
 
@@ -772,7 +796,13 @@ def collect_repo_changes(repo_name: str, repo_path: Path, base_ref: str, relativ
     LOG(f"Changed files vs {base_ref}..HEAD in '{repo_name}': {len(changed_files_base_vs_head)}")
     LOG(f"Changed files vs {base_ref} (worktree included) in '{repo_name}': {len(changed_files_base_vs_worktree)}")
     has_changes = bool(changed_files_base_vs_worktree) or bool(changes) or (ref_relation_vs_base_ref != "same_commit")
-    diff_file_path = export_repo_diff_artifact(repo_name, repo_path, base_ref)
+    diff_file_path = export_repo_diff_artifact(
+        repo_name=repo_name,
+        repo_path=repo_path,
+        base_ref=base_ref,
+        diff_file_prefix=diff_file_prefix,
+        output_diff_path=diff_file_output_folder,
+    )
 
     return {
         "repo_name": repo_name,
@@ -791,14 +821,14 @@ def collect_repo_changes(repo_name: str, repo_path: Path, base_ref: str, relativ
     }
 
 
-def export_repo_diff_artifact(repo_name: str, repo_path: Path, base_ref: str) -> Optional[Path]:
+def export_repo_diff_artifact(repo_name: str, repo_path: Path, base_ref: str, diff_file_prefix: str, output_diff_path: Path) -> Optional[Path]:
     """
     Export the working tree diff for a repo that was overwritten into the temp output folder.
     """
-    ensure_temp_build_output_dir()
+    ensure_output_dir(output_diff_path)
     safe_repo_name = sanitize_str_to_file_name(repo_name) or repo_name
-    diff_filename = f"{IESA_TEST_DIFF_FILE_PREFIX}{safe_repo_name}{IESA_TEST_DIFF_FILE_SUFFIX}"
-    diff_path = TEMP_OW_BUILD_OUTPUT_PATH / diff_filename
+    diff_filename = f"{diff_file_prefix}{safe_repo_name}{IESA_TEST_DIFF_FILE_SUFFIX}"
+    diff_path = output_diff_path / diff_filename
     diff_content = build_repo_change_artifact_content(repo_path, base_ref)
     if not diff_content:
         if diff_path.exists():
@@ -810,6 +840,18 @@ def export_repo_diff_artifact(repo_name: str, repo_path: Path, base_ref: str) ->
         diff_file.write(diff_content + "\n")
     LOG(f"Saved diff for '{repo_name}' to '{diff_path}'.")
     return diff_path
+
+
+def clear_diff_artifacts_by_prefix(output_folder: Path, diff_file_prefix: str) -> None:
+    ensure_output_dir(output_folder)
+    removed_paths: List[str] = []
+    for path in output_folder.glob(f"{diff_file_prefix}*"):
+        if not path.is_file():
+            continue
+        if remove_file(path):
+            removed_paths.append(str(path))
+    removed_paths_str = "\n".join(removed_paths) if removed_paths else "(none)"
+    LOG(f"Cleared diff artifact(s) in '{output_folder}' with prefix '{diff_file_prefix}':\n{removed_paths_str}")
 
 
 def build_repo_change_artifact_content(repo_path: Path, base_ref: str) -> str:
@@ -851,20 +893,49 @@ def git_get_changed_files_against_ref(repo_path: Path, diff_ref: str) -> List[st
 
 
 def ensure_temp_build_output_dir() -> None:
-    TEMP_OW_BUILD_OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
+    ensure_output_dir(TEMP_OW_BUILD_OUTPUT_PATH)
+
+
+def ensure_output_dir(output_path: Path) -> None:
+    output_path.mkdir(parents=True, exist_ok=True)
 
 
 def append_build_log(*values: object) -> None:
     ensure_temp_build_output_dir()
-    with open(LOG_OUT_PATH, "a", encoding="utf-8") as log_file:
+    with open(PROG_LOG_OUT_PATH, "a", encoding="utf-8") as log_file:
         LOG(*values, file=log_file, show_time=True, highlight=False)
+
+def append_iesa_build_log(*values: object) -> None:
+    ensure_temp_build_output_dir()
+    with open(BUILD_LOG_OUT_PATH, "a", encoding="utf-8") as log_file:
+        LOG(*values, file=log_file, show_time=True, highlight=False)
+
+
+def run_shell_with_iesa_build_log(cmd: str, show_build_output_stdout: bool = False, spinner_message: Optional[str] = None) -> None:
+    ensure_temp_build_output_dir()
+    if show_build_output_stdout:
+        quoted_log_path = shlex.quote(str(BUILD_LOG_OUT_PATH))
+        run_shell(f"set -o pipefail; {cmd} 2>&1 | tee -a {quoted_log_path}")
+        return
+    spinner = gui_elapsed_spinner(spinner_message or "Running command")
+    try:
+        with open(BUILD_LOG_OUT_PATH, "a", encoding="utf-8") as build_log_file:
+            run_shell(cmd, stdout=build_log_file, stderr=subprocess.STDOUT, text=True)
+    finally:
+        spinner.stop()
 
 
 def init_ow_build_log() -> None:
     ensure_temp_build_output_dir()
-    write_to_file(str(LOG_OUT_PATH), "", mode=WriteMode.OVERWRITE) # overwrite with empty
+    write_to_file(str(PROG_LOG_OUT_PATH), "", mode=WriteMode.OVERWRITE) # overwrite with empty
     append_build_log("Build log started.")
-    append_build_log(f"Log path: {LOG_OUT_PATH}")
+    append_build_log(f"Log path: {PROG_LOG_OUT_PATH}")
+
+def init_iesa_build_log() -> None:
+    ensure_temp_build_output_dir()
+    write_to_file(str(BUILD_LOG_OUT_PATH), "", mode=WriteMode.OVERWRITE) # overwrite with empty
+    append_iesa_build_log("IESA build log started.")
+    append_iesa_build_log(f"Log path: {BUILD_LOG_OUT_PATH}")
 
 
 def copy_manifest_for_metadata(manifest_source_path: Path) -> Path:

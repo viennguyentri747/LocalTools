@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import List
-from dev.dev_common.core_independent_utils import get_win_home_path, get_wsl_home_path, read_value_from_credential_file
+from dev.dev_common.core_independent_utils import get_wsl_home_path, read_value_from_credential_file
 
 ARGUMENT_LONG_PREFIX = "--"
 ARGUMENT_SHORT_PREFIX = "-"

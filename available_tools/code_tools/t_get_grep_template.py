@@ -50,6 +50,7 @@ ARG_INITIAL_QUERY = f"{ARGUMENT_LONG_PREFIX}initial-query"
 SEARCH_MODE_SYMBOL = "fzf-symbols"
 SEARCH_MODE_FILE = "fzf-files"
 SEARCH_MODE_TEXT = "fzf-text"
+SEARCH_MODE_TEXT_NONINTERACTIVE = "grep-text"
 SYMBOL_PLACEHOLDER_STR = "SYMBOL_PLACEHOLDER"
 FZF_RELOAD_KEYWORD = 'reload'
 # Template definitions
@@ -261,14 +262,14 @@ def build_fzf_rgrep_c_command(
 
 def build_fzf_rg_text_command(description: str, template_args: TemplateArgs, file_exts: List[str], initial_query: str = "") -> str:
     """Build the fzf command for a simple text search using ripgrep."""
-    base_rg_command = build_rg_base_command(template_args, file_exts, is_regex_filter_pattern=True)
+    base_rg_command = build_rg_base_command(template_args, file_exts, is_regex_filter_pattern=False)
     search_dir = str(template_args.search_path)
     search_dir_arg = quote(search_dir)
 
     # Command to run inside fzf's reload binding
     empty_query_command = 'echo "Type text to search..."'
     # Define the complex bind command,  this triggers on every input change in fzf's query field.
-    bind_command = f'change:{FZF_RELOAD_KEYWORD}:(if [ -n "{{q}}" ]; then {base_rg_command} -e {{q}} {search_dir_arg} 2>/dev/null; else {empty_query_command}; fi)'
+    bind_command = f'change:{FZF_RELOAD_KEYWORD}:(set -f; text={{q}}; if [ -n "$text" ]; then {base_rg_command} -e "$text" {search_dir_arg} 2>/dev/null; else {empty_query_command}; fi)'
 
     # --- Call the Shared Wrapper ---
     return _build_fzf_wrapper_command(
@@ -279,6 +280,16 @@ def build_fzf_rg_text_command(description: str, template_args: TemplateArgs, fil
         search_dir=search_dir,
         prerequisite_commands="",  # No prerequisites
     )
+
+
+def build_rg_text_noninteractive_command(template_args: TemplateArgs, file_exts: List[str], initial_query: str = "") -> str:
+    """Build a non-interactive fixed-string ripgrep command."""
+    if not initial_query:
+        return 'echo "Please provide search text. Usage: ftext_noninteractive <text>"'
+    base_rg_command = build_rg_base_command(template_args, file_exts, is_regex_filter_pattern=False)
+    search_dir = str(template_args.search_path)
+    search_dir_arg = quote(search_dir)
+    return f"{base_rg_command} -e {quote(initial_query)} {search_dir_arg} 2>/dev/null || true"
 
 
 def build_fzf_fd_command(search_dir: str, initial_query: str = "") -> str:
@@ -593,7 +604,7 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(ARG_DISPLAY_NAME, default="", help="Display name for the interactive command header.")
-    parser.add_argument(ARG_SEARCH_MODE, choices=[SEARCH_MODE_SYMBOL, SEARCH_MODE_FILE, SEARCH_MODE_TEXT], required=True,
+    parser.add_argument(ARG_SEARCH_MODE, choices=[SEARCH_MODE_SYMBOL, SEARCH_MODE_FILE, SEARCH_MODE_TEXT, SEARCH_MODE_TEXT_NONINTERACTIVE], required=True,
                         help="Search mode to execute.")
     parser.add_argument(ARG_PATTERN_KEYS, nargs='*', default=[],
                         help="Pattern keys to include when using symbol search. Order will be preserved when displaying results.")
@@ -646,6 +657,8 @@ def main() -> None:
     elif search_mode == SEARCH_MODE_TEXT:
         full_output = build_fzf_rg_text_command(display_name, template_args,
                                                 file_exts, initial_query=template_args.initial_query)
+    elif search_mode == SEARCH_MODE_TEXT_NONINTERACTIVE:
+        full_output = build_rg_text_noninteractive_command(template_args, file_exts, initial_query=template_args.initial_query)
     elif search_mode == SEARCH_MODE_SYMBOL:
         ordered_patterns = get_ordered_patterns(pattern_keys)
         if not ordered_patterns:

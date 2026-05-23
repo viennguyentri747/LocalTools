@@ -8,6 +8,10 @@ _MY_AGENT_INPUT_DIR_NAME="INPUT"
 _MY_AGENT_OUTPUT_DIR_NAME="OUTPUT"
 _MY_AGENT_TODO_NEXT_FILE_NAME="AGENT_TODO_NEXT.md"
 
+codex() {
+    
+}
+
 # AI agent tools
 check_create_agent_dir_if_not_exist(){
     # Check if the agent directory exists in current dir, if not, create it
@@ -25,6 +29,13 @@ agent_todo_next(){
     code "$_MY_AGENT_DIR_NAME/$_MY_AGENT_INPUT_DIR_NAME/$_MY_AGENT_TODO_NEXT_FILE_NAME"
 }
 
+codex() {
+    # 1. Run the prerequisite command
+    agent_todo_next
+    
+    # 2. Run the actual codex command, passing all arguments ($@)
+    command codex "$@"
+}
 
 tool(){
 	~/core_repos/local_tools/main_tools.py "$@"
@@ -97,4 +108,10 @@ ftext() {
     local initial_query=()
     [ $# -gt 0 ] && initial_query=(--initial-query "$*")
     "${_DT_GREP_TOOL[@]}" --display-name "Search for Text (grep)" --search-mode fzf-text --case-sensitive False "${initial_query[@]}"
+}
+
+ftext_noninteractive() {
+    local initial_query=()
+    [ $# -gt 0 ] && initial_query=(--initial-query "$*")
+    "${_DT_GREP_TOOL[@]}" --display-name "Search for Text (grep)" --search-mode grep-text --case-sensitive False "${initial_query[@]}"
 }

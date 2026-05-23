@@ -3,11 +3,70 @@ from __future__ import annotations
 import curses
 import shutil
 import sys
+import threading
+import time
 from typing import List, Optional
 from dataclasses import dataclass, field
 from typing import Any
 
 from dev.dev_common.core_utils import LOG
+
+
+class ElapsedSpinner:
+    def __init__(self, message: str = "Working", interval_sec: float = 0.1, stream=None):
+        self.message = message.strip() or "Working"
+        self.interval_sec = max(0.05, interval_sec)
+        self.stream = stream or sys.stdout
+        self._frames = ("|", "/", "-", "\\")
+        self._stop_event = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+        self._start_ts: float = 0.0
+        self._last_render_len = 0
+        self._enabled = bool(getattr(self.stream, "isatty", lambda: False)())
+
+    def _render(self, text: str) -> None:
+        if not self._enabled:
+            return
+        output = f"\r{text}"
+        pad = " " * max(0, self._last_render_len - len(text))
+        self.stream.write(output + pad)
+        self.stream.flush()
+        self._last_render_len = len(text)
+
+    def _loop(self) -> None:
+        idx = 0
+        while not self._stop_event.is_set():
+            elapsed = int(time.time() - self._start_ts)
+            self._render(f"{self.message} {self._frames[idx % len(self._frames)]} [{elapsed}s]")
+            idx += 1
+            self._stop_event.wait(self.interval_sec)
+
+    def start(self) -> None:
+        if self._thread is not None:
+            return
+        self._start_ts = time.time()
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+
+    def stop(self, final_message: Optional[str] = None) -> None:
+        if self._thread is None:
+            return
+        self._stop_event.set()
+        self._thread.join()
+        elapsed = int(time.time() - self._start_ts)
+        done_text = final_message or f"{self.message} done [{elapsed}s]"
+        self._render(done_text)
+        if self._enabled:
+            self.stream.write("\n")
+            self.stream.flush()
+        self._thread = None
+
+
+def gui_elapsed_spinner(message: str = "Working", interval_sec: float = 0.1, stream=None) -> ElapsedSpinner:
+    spinner = ElapsedSpinner(message=message, interval_sec=interval_sec, stream=stream)
+    spinner.start()
+    return spinner
 
 
 @dataclass
@@ -445,4 +504,4 @@ def _numeric_fallback(option_data: List[OptionData], title: Optional[str] = None
         print("Invalid choice. Enter a number from the list.")
 
 
-__all__ = ["interactive_select_with_arrows", "OptionData"]
+__all__ = ["interactive_select_with_arrows", "OptionData", "ElapsedSpinner", "gui_elapsed_spinner"]

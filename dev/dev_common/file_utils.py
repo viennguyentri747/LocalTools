@@ -47,9 +47,12 @@ def copy_file(src_path: str, dst_path: str) -> None:
     shutil.copy(src_path, dst_path)
 
 
-def remove_file(file_path: str) -> None:
-    if os.path.exists(file_path):
-        os.remove(file_path)
+def remove_file(file_path: Union[str, Path]) -> bool:
+    file_path_obj = Path(file_path)
+    if not file_path_obj.exists() or not file_path_obj.is_file():
+        return False
+    file_path_obj.unlink()
+    return True
 
 
 def dump_sqlite_db(sqlite_db_path: Union[str, Path], output_dump_path: Union[str, Path], timeout: int = 60) -> None:

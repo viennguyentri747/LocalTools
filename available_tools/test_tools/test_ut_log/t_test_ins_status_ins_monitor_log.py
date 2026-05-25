@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Sequence
 
-from dev.dev_common.custom_structures import ToolData
+from dev.dev_common.custom_structures import EToolPriority, ToolData
 from dev.dev_common.core_independent_utils import LOG
 from dev.dev_common.tools_utils import ToolTemplate, build_examples_epilog
 from available_tools.inertial_sense_tools.decode_ins_status_utils import (
@@ -50,6 +50,24 @@ class InsMessageTimeDiffStats:
     median_secs: float
     count: int
 
+
+def getToolData() -> ToolData:
+    tool_templates = [
+        ToolTemplate(
+            name="Analyze INS Status from log",
+            extra_description=(
+                "Parse INS1Msg lines from stdin and group by insStatus changes. "
+                "Example: `grep INS1Msg /var/log/ins_monitor_log | t_is_analyze_ins_status`"
+            ),
+            args={},
+        ),
+        ToolTemplate(
+            name="Analyze INS Status from file",
+            extra_description="Parse INS1Msg lines from a log file.",
+            args={"-f": "/path/to/ins_monitor_log"},
+        ),
+    ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
 
 def parse_ins_status_data_from_line(line: str) -> Optional[InsStatusData]:
     m = INS1MSG_PATTERN.search(line)
@@ -116,34 +134,12 @@ def print_ins_messages_time_diff_stats(stats: Optional[InsMessageTimeDiffStats])
     print()
 
 
-def get_tool_templates() -> List[ToolTemplate]:
-    return [
-        ToolTemplate(
-            name="Analyze INS Status from log",
-            extra_description=(
-                "Parse INS1Msg lines from stdin and group by insStatus changes. "
-                "Example: `grep INS1Msg /var/log/ins_monitor_log | t_is_analyze_ins_status`"
-            ),
-            args={},
-        ),
-        ToolTemplate(
-            name="Analyze INS Status from file",
-            extra_description="Parse INS1Msg lines from a log file.",
-            args={"-f": "/path/to/ins_monitor_log"},
-        ),
-    ]
-
-
-def getToolData():
-    return ToolData(tool_template=get_tool_templates())
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Analyze INS1Msg lines grouped by insStatus changes.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
     parser.add_argument(
         "-f", "--file", type=str, default=None,
         help="Log file to parse (reads from stdin if omitted).",

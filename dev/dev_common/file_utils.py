@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Tuple, Union
 import xml.etree.ElementTree as ET
 
-from dev.dev_common.core_utils import LOG, LOG_EXCEPTION, LOG_EXCEPTION_STR, run_shell
+from dev.dev_common.core_utils import ELogType, LOG, LOG_EXCEPTION, LOG_EXCEPTION_STR, run_shell
 
 def colorize_patch(patch_content_str: str) -> str:
     lines = patch_content_str.splitlines(keepends=True)
@@ -214,7 +214,7 @@ def is_current_relative_to(current: Union[str, Path], target: Union[str, Path]) 
 
 def use_posix_paths():
     """Override Path to always use POSIX-style paths in string representation."""
-    LOG("Overriding Path to always use POSIX-style paths in string representation.")
+    LOG("Overriding Path to always use POSIX-style paths in string representation.", log_type=ELogType.DEBUG)
     _original_path_str = Path.__str__
     _original_posix_str = PosixPath.__str__
     _original_windows_str = WindowsPath.__str__

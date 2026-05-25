@@ -33,13 +33,16 @@ FORWARDED_TOOLS: Dict[str, ForwardedTool] = {
 }
 
 
-def get_tool_templates() -> List[ToolTemplate]:
+def getToolData() -> ToolData:
     """Provide ready-to-run templates for remote UT helpers."""
     aggregated_templates: List[ToolTemplate] = []
     for mode, tool in FORWARDED_TOOLS.items():
         aggregated_templates.extend([template.clone_with_args({ARG_TEST_MODE: mode}) for template in tool.get_templates_list()])
 
-    return aggregated_templates
+    
+    tool_templates = aggregated_templates
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
+
 
 
 def parse_args(argv: List[str]) -> Tuple[argparse.Namespace, List[str]]:
@@ -54,7 +57,7 @@ def parse_args(argv: List[str]) -> Tuple[argparse.Namespace, List[str]]:
         help="Which UT remote helper to run (e.g. ins_monitor, tail_p_log).",
     )
 
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
     return parser.parse_known_args(argv)
 
 
@@ -72,9 +75,6 @@ def _run_forwarded_tool(forwarded_tool: ForwardedTool, passthrough_args: List[st
         sys.argv = original_argv
 
 
-
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
 
 def main(argv: List[str] | None = None) -> None:
     if argv is None:

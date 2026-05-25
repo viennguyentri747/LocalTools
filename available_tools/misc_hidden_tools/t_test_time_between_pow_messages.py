@@ -12,7 +12,7 @@ from dev.dev_common import *
 
 POWGPS_MESSAGE_TYPE = "POWGPS"
 POWTLV_MESSAGE_TYPE = "POWTLV"
-DEFAULT_POW_LOG_PATH = LOCAL_TOOL_TEMP_PATH / "live_logs" / "ttymxc0_56.log"
+DEFAULT_POW_LOG_PATH = get_temp_path(ETargetPlatform.WINDOWS) / "live_logs" / "ttymxc0_56.log"
 DEFAULT_POW_MESSAGE_TYPES = [POWTLV_MESSAGE_TYPE]
 DEFAULT_POWTLV_SECONDS_PER_MESSAGE = 0.2
 DEFAULT_POWGPS_SECONDS_PER_MESSAGE = 1.0
@@ -41,8 +41,8 @@ class PowEntry:
     line_timestamp_seconds: Optional[float] = None
 
 
-def get_tool_templates() -> List[ToolTemplate]:
-    return [
+def getToolData() -> ToolData:
+    tool_templates = [
         ToolTemplate(
             name=f"Check {POWTLV_MESSAGE_TYPE} timing",
             extra_description="Verify POW sentence timestamps advance at a fixed interval.",
@@ -54,7 +54,7 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_CHECK_TIMESTAMP: DEFAULT_CHECK_TIMESTAMP,
                 ARG_MAX_DRIFT_BETWEEN_MSG_TIME: DEFAULT_MAX_DRIFT_BETWEEN_MSG_SECONDS,
             },
-            search_root=LOCAL_TOOL_TEMP_PATH / "live_logs",
+            search_root=get_temp_path(ETargetPlatform.WINDOWS) / "live_logs",
             usage_note="Point --log_paths at one or more captured live-log files.",
         ),
         ToolTemplate(
@@ -68,14 +68,12 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_CHECK_TIMESTAMP: DEFAULT_CHECK_TIMESTAMP,
                 ARG_MAX_DRIFT_BETWEEN_MSG_TIME: DEFAULT_MAX_DRIFT_BETWEEN_MSG_SECONDS,
             },
-            search_root=LOCAL_TOOL_TEMP_PATH / "live_logs",
+            search_root=get_temp_path(ETargetPlatform.WINDOWS) / "live_logs",
             usage_note="Point --log_paths at one or more captured live-log files.",
         ),
     ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
 
-
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
 
 
 def _parse_bool_arg(raw_value: str | bool) -> bool:
@@ -89,7 +87,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         description="Check whether POW sentence timestamps increase at the expected cadence.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
     parser.add_argument(ARG_LOG_PATHS, nargs="+", type=Path, required=True, help="One or more local log files to scan.")
     parser.add_argument(ARG_MESSAGE_TYPES, nargs="+", default=list(DEFAULT_POW_MESSAGE_TYPES),
                         help=f"POW sentence types to validate, e.g. {POWTLV_MESSAGE_TYPE} {POWGPS_MESSAGE_TYPE}.")

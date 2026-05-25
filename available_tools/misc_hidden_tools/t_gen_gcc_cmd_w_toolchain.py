@@ -52,9 +52,10 @@ class ToolchainSettings:
     linker_flags: List[str] = field(default_factory=list)
 
 
-def get_tool_templates() -> List[ToolTemplate]:
+def getToolData() -> ToolData:
     ARM_TOOLCHAIN_PATH = f"{OW_SW_BUILD_TOOLS_PATH}/ToolChain_adc_apps.cmake"
-    return [
+    
+    tool_templates = [
         ToolTemplate(
             name="Generate g++ command from ARM ToolChain",
             extra_description="Use the cross C++ compiler defined inside the toolchain file.",
@@ -74,6 +75,8 @@ def get_tool_templates() -> List[ToolTemplate]:
             should_run_now=True,
         ),
     ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
+
 
 
 def parse_toolchain_file(toolchain_path: Path) -> ToolchainSettings:
@@ -156,15 +159,12 @@ def build_compilation_command(settings: ToolchainSettings, mode: str) -> str:
 
 
 
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
-
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Generate gcc/g++ commands from a CMake toolchain file.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
     parser.add_argument(
         ARG_TOOL_CHAIN_PATH,
         required=True,

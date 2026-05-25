@@ -46,7 +46,7 @@ GPS_HDW_STATUS_RESET_CAUSE_HDW: int = _get("GPX_HDW_STATUS_RESET_CAUSE_HDW")
 GPS_HDW_STATUS_ERR_PPS_MASK: int = _get("GPX_HDW_STATUS_ERR_PPS_MASK")
 GPS_HDW_STATUS_ERR_CNO_MASK: int = _get("GPX_HDW_STATUS_ERR_CNO_MASK")
 
-LOG(f"[IESA] Parsed enum {ENUM_EGPX_HDW_STATUS_FLAGS_NAME}")
+LOG(f"[IESA] Parsed enum {ENUM_EGPX_HDW_STATUS_FLAGS_NAME}", log_type=ELogType.DEBUG)
 LOG(
     f"{ {k: hex(v) if isinstance(v, int) else v for k, v in _GPX_HDW_VALUES.items()} }",
     log_type=ELogType.DEBUG,

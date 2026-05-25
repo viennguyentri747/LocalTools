@@ -15,8 +15,8 @@ from dev.dev_common import *
 SYSTEM_PYTHON3_PATH = Path("/usr/bin/python3")
 
 
-def get_tool_templates() -> List[ToolTemplate]:
-    return [
+def getToolData() -> ToolData:
+    tool_templates = [
         ToolTemplate(
             name="Open Log Inspector",
             args={},
@@ -29,10 +29,8 @@ def get_tool_templates() -> List[ToolTemplate]:
 			hidden=True
         ),
     ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
 
-
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
 
 
 def build_command(log_dir: str | None, passthrough_args: List[str]) -> List[str]:
@@ -51,7 +49,7 @@ def main() -> None:
         description="Launch the external Inertial Sense Log Inspector GUI.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
     parser.add_argument(ARG_PATH_SHORT, ARG_PATH_LONG, type=str, default=None,
                         help="Optional log directory to open immediately in Log Inspector.", )
     args, passthrough_args = parser.parse_known_args()

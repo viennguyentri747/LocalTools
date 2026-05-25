@@ -70,8 +70,8 @@ class Fix3DIterationResult:
     fix_record: MetricRecord
 
 
-def get_tool_templates() -> List[ToolTemplate]:
-    return [
+def getToolData() -> ToolData:
+    tool_templates = [
         ToolTemplate(
             name="Check UT 3D fix after reboot",
             extra_description="Optionally wait for antenna GOOD, reboot the UT, then measure time to GNSS 3D fix.",
@@ -88,17 +88,15 @@ def get_tool_templates() -> List[ToolTemplate]:
             override_cmd_invocation=LOCAL_UT_WRAPPER_CMD,
         ),
     ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
 
-
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Optionally wait for antenna GOOD, reboot a UT, and measure how long GNSS takes to reach 3D fix.",
         formatter_class=argparse.RawTextHelpFormatter,
-        epilog=build_examples_epilog(getToolData().tool_template, Path(__file__)),
+        epilog=build_examples_epilog(getToolData().get_tool_templates(), Path(__file__)),
     )
     add_arg_generic(parser, ARG_SSM_IP, required=True,
                     help_text="Base URL or IP for the SSM API (e.g. http://10.0.0.5 or 10.0.0.5:8080).", )

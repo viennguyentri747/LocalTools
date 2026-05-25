@@ -8,11 +8,13 @@ from typing import List, Optional
 
 from dev.dev_common import *
 from dev.dev_common.custom_structures import ToolData
+from dev.dev_common.network_utils import ELineType
 from dev.dev_common.tools_utils import ToolTemplate, build_examples_epilog
 from dev.dev_iesa.iesa_ut_install_utils import check_safe_reboot_ut
 from available_tools.test_tools.test_ut_log.t_get_ut_live_log import ELogStreamMode, build_live_log_handlers, close_live_log_handlers, start_stop_timer, stream_live_remote_log_to_file
 from available_tools.test_tools.test_ut_log.t_get_acu_logs import DEFAULT_LOG_OUTPUT_PATH
 from available_tools.test_tools.test_ut_log.t_test_ins_status_ins_monitor_log import (
+    InsStatusData,
     compute_ins_message_time_diff_stats,
     group_consecutive_status_spans,
     parse_ins_status_data_from_line,
@@ -31,18 +33,16 @@ ARG_FILE = f"{ARGUMENT_LONG_PREFIX}file"
 FIRST_LOG_TIMEOUT_SECS = 300.0
 
 
-def get_tool_templates() -> List[ToolTemplate]:
-    return [
+def getToolData() -> ToolData:
+    tool_templates = [
         ToolTemplate(
             name="Capture + analyze INS monitor log",
             extra_description="Stream INS monitor log for a duration, then analyze insStatus transitions.",
             args={SSM_IP: f"{SSM_NORMAL_IP_PREFIX}.57", ARG_STREAM_DURATION_SECS: 300},
         )
     ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
 
-
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
 
 
 def parse_args() -> argparse.Namespace:
@@ -50,7 +50,7 @@ def parse_args() -> argparse.Namespace:
         description="Capture INS monitor log for a period, then run INS status analysis.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
     parser.add_argument(ARG_STREAM_DURATION_SECS, type=float, default=300.0, help="How long to stream the log before analysis.")
     parser.add_argument(SSM_IP, default=f"{SSM_NORMAL_IP_PREFIX}.57", help="SSM IP for ACU log access.")
     parser.add_argument(ARG_REMOTE_PATH, default="/var/log/ins_monitor_log", help="Remote INS monitor log path.")
@@ -92,7 +92,7 @@ def analyze_ins_status_file(log_path: Path) -> int:
     lines: List[str] = []
     for log_path in log_paths:
         lines.extend(read_lines(str(log_path)))
-    status_entries = [entry for line in lines if (entry := parse_ins_status_data_from_line(line)) is not None]
+    status_entries: List[InsStatusData] = [entry for line in lines if (entry := parse_ins_status_data_from_line(line)) is not None]
     if not status_entries:
         LOG("No INS1Msg lines found in input.")
         return 0
@@ -145,8 +145,10 @@ def main() -> int:
         LOG(f"{LOG_PREFIX_MSG_ERROR} No log line received within {int(FIRST_LOG_TIMEOUT_SECS)}s. Stop streaming.")
         stop_event.set()
 
-    def _on_line_recv(line: str) -> None:
+    def _on_line_recv(line: str, line_type: ELineType) -> None:
         nonlocal first_log_at, first_log_monotonic, stop_timer
+        if line_type != ELineType.LiveLog:
+            return
         if first_log_at is not None:
             return
         first_log_at, first_log_monotonic = get_datetime_now(), time.time()

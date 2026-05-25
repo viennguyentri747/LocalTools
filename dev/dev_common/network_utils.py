@@ -37,6 +37,11 @@ class ECopyType(Enum):
     SCP = "scp"
 
 
+class ELineType(str, Enum):
+    ProgramLog = "ProgramLog"
+    LiveLog = "LiveLog"
+
+
 def get_remote_file_checksum(remote_host_ip: str, remote_path: str, remote_user: str = ACU_USER, password: Optional[str] = None,
                              checksum_type: str = CHECKSUM_TYPE_MD5, timeout: int = 10, jump_host_ip: Optional[str] = None,
                              jump_user: Optional[str] = None, jump_password: Optional[str] = None) -> Optional[str]:
@@ -99,12 +104,12 @@ def copy_remote_file_if_needed(local_path: str | Path, remote_host_ip: str, remo
 def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_path: str, connect_timeout: int = 5,
                         jump_host_ip: Optional[str] = None, jump_user: Optional[str] = None,
                         jump_password: Optional[str] = None, tail_lines: int = 0, read_timeout: int = 900,
-                        poll_interval: float = 0.1, stop_event=None, on_line: Optional[Callable[[str], None]] = None,
+                        poll_interval: float = 0.1, stop_event=None, on_line: Optional[Callable[[str, ELineType], None]] = None,
                         retry_interval: float = 5.0) -> None:
     """Continuously tail a remote log file or read from a serial device until interrupted or stop_event is set.
     Automatically retries on connection loss or timeout."""
     LOG(f"Getting live log at {remote_log_path} from {host_ip}" + f"via jump host {jump_host_ip}" if jump_host_ip else EMPTY_STR_VALUE)
-    on_line = on_line or (lambda line: print(line, flush=True))
+    on_line = on_line or (lambda line, _line_type: print(line, flush=True))
     is_device = remote_log_path.startswith("/dev/")
     if is_device:
         remote_cmd = f"cat {shlex.quote(remote_log_path)}"
@@ -112,15 +117,15 @@ def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_pa
         remote_cmd = f"tail -F -n {max(0, int(tail_lines))} {shlex.quote(remote_log_path)}"
 
     # Add first line starting
-    on_line(f"[{get_log_timestamp()}] Getting live log at {remote_log_path} from {host_ip} via jump host {jump_host_ip}")
+    on_line(f"[{get_log_timestamp()}] Getting live log at {remote_log_path} from {host_ip} via jump host {jump_host_ip}", ELineType.ProgramLog)
     def _emit_line(text: str, saw_first: bool) -> bool:
         clean = (text or "").rstrip("\r\n")
         if not clean:
             return saw_first
         if not saw_first:
-            on_line(clean + f"\r\nGET_UT_LIVE_LOG START at {get_log_timestamp()}!!")
+            on_line(clean + f"\r\nGET_UT_LIVE_LOG START at {get_log_timestamp()}!!", ELineType.LiveLog)
             return True
-        on_line(clean)
+        on_line(clean, ELineType.LiveLog)
         return saw_first
     # Some device logs occasionally emit non-UTF8 bytes; decode with replacement and keep streaming.
     def _emit_decoded_lines(decoded: str, saw_first: bool) -> bool:
@@ -475,8 +480,18 @@ def _sftp_put_file_with_progress(sftp: paramiko.SFTPClient, local_file: Path, re
         sftp.put(str(local_file), remote_file_path, callback=_on_progress)
         reporter.report(base_offset + file_size, force=True)
     except Exception as exc:
+        uploaded_h = format_bytes_human(file_uploaded)
+        total_h = format_bytes_human(file_size)
+        progress_pct = 100.0 if file_size <= 0 else (file_uploaded * 100.0 / file_size)
+        if isinstance(exc, EOFError):
+            raise RuntimeError(
+                f"Failed to upload '{local_file}' to '{remote_file_path}': EOFError "
+                f"(SFTP/SSH stream closed during transfer at {progress_pct:.1f}% [{uploaded_h}/{total_h}]). "
+                f"Likely connection drop/reset via target or jump host, or remote-side SSH/service restart."
+            ) from exc
         raise RuntimeError(
-            f"Failed to upload '{local_file}' to '{remote_file_path}': {type(exc).__name__}: {exc}"
+            f"Failed to upload '{local_file}' to '{remote_file_path}' at {progress_pct:.1f}% [{uploaded_h}/{total_h}]: "
+            f"{type(exc).__name__}: {exc}"
         ) from exc
     finally:
         reporter.finish_line()

@@ -20,8 +20,8 @@ from dev.dev_common.custom_structures import ToolData
 from dev.dev_common.tools_utils import ToolTemplate, build_examples_epilog
 
 
-def get_tool_templates() -> List[ToolTemplate]:
-    return [
+def getToolData() -> ToolData:
+    tool_templates = [
         ToolTemplate(
             name="Basic Search",
             extra_description="Search for version with default settings",
@@ -35,6 +35,8 @@ def get_tool_templates() -> List[ToolTemplate]:
             args={"version": "29.9.1.6", "--base-url": "http://10.1.26.170:8765", "--page-size": 100, }
         ),
     ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
+
 
 
 def clamp_page_size(n: int) -> int:
@@ -94,15 +96,12 @@ def find_version(base_url: str, target_version: str, page_size: int = 100, timeo
 
 
 
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
-
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Search /version/history for a given version_string."
     )
     # Fill help epilog from templates
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
     parser.add_argument("--version",  help="Exact version_string to search for")
     parser.add_argument("--base-url", default="http://10.1.26.170:8765",
                         help="Base server URL (default: %(default)s)", )

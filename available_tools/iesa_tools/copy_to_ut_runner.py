@@ -233,9 +233,9 @@ def _run_iesa_install_via_python(remote_name: str, remote_host_ip: str, remote_u
     try:
         LOG(f"{LOG_PREFIX_MSG_INFO} Tailing upgrade logs from {cache_upgrade_log_path}")
 
-        def _on_line(line: str) -> None:
+        def _on_line(line: str, line_type: ELineType) -> None:
             nonlocal install_result, install_reason
-            if on_install_line_recv and on_install_line_recv(line):
+            if line_type == ELineType.LiveLog and on_install_line_recv and on_install_line_recv(line):
                 LOG(f"{LOG_PREFIX_MSG_INFO} Install completion detected for UT {jump_host_ip}. Stopping remote log stream.'")
                 install_result = EIesaInstallResult.INSTALL_SUCCESS
                 install_reason = "install completion marker detected"

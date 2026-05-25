@@ -29,12 +29,7 @@ TEST_REGISTRY: Dict[str, Type[TestLogInterface]] = {
 DEFAULT_TESTS: List[str] = sorted(TEST_REGISTRY.keys())
 
 
-def _log_banner(title: str) -> None:
-    LOG("", show_time=True)
-    LOG(f"{LINE_SEPARATOR_NO_ENDLINE}\n{title}\n{LINE_SEPARATOR_NO_ENDLINE}", highlight=True, show_time=False)
-
-
-def get_tool_templates() -> List[ToolTemplate]:
+def getToolData() -> ToolData:
     args = {
         ARG_LOG_OUTPUT_DIR_PATH: str(t_get_acu_logs.ACU_LOG_PATH),
         ARG_LIST_IPS: [UT_77, UT_56],
@@ -42,7 +37,8 @@ def get_tool_templates() -> List[ToolTemplate]:
         ARG_SHOULD_GET_LOG: True,
         ARG_TESTS: list(DEFAULT_TESTS),
     }
-    return [
+    
+    tool_templates = [
         ToolTemplate(
             name="Run selected local log tests",
             extra_description="Collect required logs by type and run selected tests in one command.",
@@ -51,6 +47,11 @@ def get_tool_templates() -> List[ToolTemplate]:
             override_cmd_invocation=WIN_CMD_INVOCATION,
         ),
     ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=True)
+
+def _log_banner(title: str) -> None:
+    LOG("", show_time=True)
+    LOG(f"{LINE_SEPARATOR_NO_ENDLINE}\n{title}\n{LINE_SEPARATOR_NO_ENDLINE}", highlight=True, show_time=False)
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
@@ -58,7 +59,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         description="Run selected local-log tests after collecting all required log files by log type.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
 
     parser.add_argument(ARG_TESTS, nargs="+", default=list(DEFAULT_TESTS),
                         choices=sorted(TEST_REGISTRY.keys()), help="Which local log tests to run.")
@@ -164,10 +165,6 @@ def _run_selected_tests(test_names: Sequence[str], log_paths_by_type: Dict[EUtLo
         LOG(f"{LOG_PREFIX_MSG_ERROR} Failed tests: {', '.join(sorted(set(failed_tests)))}")
         raise SystemExit(1)
     _log_banner("[TEST SUMMARY] PASS")
-
-
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:

@@ -10,7 +10,7 @@ from dev.dev_common import *
 
 LOCAL_UT_WRAPPER_CMD = f"{Path(__file__).resolve().parents[1] / 't_test_ut_from_local.py'} --mode status_since_startup"
 
-def get_tool_templates() -> List[ToolTemplate]:
+def getToolData() -> ToolData:
     """Provide ready-to-run templates for integration with main_tools."""
     default_ssm = f"{LIST_MP_IPS[0]}" if LIST_MP_IPS else "192.168.100.54"
 
@@ -25,7 +25,8 @@ def get_tool_templates() -> List[ToolTemplate]:
         ARG_SSM_IP: default_ssm,
     }
 
-    return [
+    
+    tool_templates = [
         ToolTemplate(
             name="Check UT statuses since startup (reboot)",
             extra_description="Generate the multi-step bash one-liner to reboot a UT and confirm services.",
@@ -34,13 +35,15 @@ def get_tool_templates() -> List[ToolTemplate]:
             override_cmd_invocation=LOCAL_UT_WRAPPER_CMD,
         ),
     ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
+
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate a bash command that reboots a UT, waits for it to come back online, and checks key statuses.",
         formatter_class=argparse.RawTextHelpFormatter,
-        epilog=build_examples_epilog(getToolData().tool_template, Path(__file__)),
+        epilog=build_examples_epilog(getToolData().get_tool_templates(), Path(__file__)),
     )
     parser.add_argument(ARG_SSM_IP, required=True,
                         help="Base URL or IP for the SSM API (e.g. http://10.0.0.5 or 10.0.0.5:8080).", )
@@ -346,9 +349,6 @@ def build_reboot_sequence_command(config: TestSequenceConfig) -> str:
     return command.strip()
 
 
-
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
 
 def main() -> None:
     args = parse_args()

@@ -9,9 +9,10 @@ from dev.dev_iesa import *
 PATH_TO_WORKING_NOTES = f"Notes/_Root/CurrentWorking/Intellian Working (Link, How to…)/Intellian Note working, diary (work log)/"
 
 
-def get_tool_templates() -> List[ToolTemplate]:
+def getToolData() -> ToolData:
     """Get tool templates."""
-    return [
+    
+    tool_templates = [
         ToolTemplate(
             name="Gen content by Company Jira Ticket",
             # extra_description="Generate coding task markdown from a Jira ticket URL.",
@@ -26,6 +27,8 @@ def get_tool_templates() -> List[ToolTemplate]:
             },
         )
     ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
+
 
 
 def extract_key_from_jira_url(url: str) -> Optional[str]:
@@ -157,15 +160,11 @@ def get_repo_manifest_from_remote(main_manifest_branch: str) -> IesaManifest:
     return manifest
 
 
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Generate coding task markdown from a Jira ticket.",
         formatter_class=argparse.RawTextHelpFormatter,
-        epilog=build_examples_epilog(getToolData().tool_template, Path(__file__))
+        epilog=build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
     )
 
     parser.add_argument(ARG_TICKET_URL, type=str, required=False, help="The full URL of the Jira ticket.")
@@ -219,7 +218,7 @@ if __name__ == "__main__":
     # Save the generated markdown content to a file
     file_prefix = f"{ticket.key} "
     file_name = f"{sanitize_obsidian_md_file_name(file_prefix + ticket.title)}.md"
-    file_path = LOCAL_TOOL_TEMP_PATH / file_name
+    file_path = get_temp_path(ETargetPlatform.WINDOWS) / file_name
     if vault_dir_str and rel_note_dir:
         should_create_note = True
         destination_dir_path = Path(strip_quotes(vault_dir_str)) / strip_quotes(rel_note_dir)  # Clean the path first
@@ -232,7 +231,7 @@ if __name__ == "__main__":
             destination_path = destination_dir_path / file_name
             if destination_path.exists():
                 if prompt_confirmation(f"Warning: File '{file_name}' already exists in destination. Overwrite?"):
-                    backup_path = LOCAL_TOOL_TEMP_PATH / f"{file_name}.backup"
+                    backup_path = get_temp_path(ETargetPlatform.WINDOWS) / f"{file_name}.backup"
                     copy_file(destination_path, backup_path)
                     LOG(f"Backed up existing file to {backup_path}")
                 else:

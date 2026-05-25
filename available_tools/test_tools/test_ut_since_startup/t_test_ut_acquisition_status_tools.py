@@ -208,6 +208,34 @@ class ApnConnectionStatus(ApiResponse):
 
 # --- Logging Infrastructure ---
 
+def getToolData() -> ToolData:
+    """Provide ready-to-run templates for integration with main_tools."""
+    default_ssm = f"{LIST_MP_IPS[0]}" if LIST_MP_IPS else "192.168.100.54"
+
+    base_args = {
+        ARG_REQUEST_INTERVAL: DEFAULT_REQUEST_INTERVAL,
+        ARG_SSM_REBOOT_TIMEOUT: DEFAULT_SSM_REBOOT_TIMEOUT,
+        ARG_GPX_FIX_TIMEOUT: DEFAULT_GPX_FIX_TIMEOUT,
+        ARG_PING_TIMEOUT: DEFAULT_PING_TIMEOUT,
+        ARG_ONLINE_TIMEOUT: DEFAULT_ONLINE_TIMEOUT,
+        ARG_WAIT_SECS_AFTER_EACH_ITERATION: DEFAULT_WAIT_SECS_AFTER_EACH_ITERATION,
+        ARG_TOTAL_ITERATIONS: DEFAULT_TOTAL_ITERATIONS,
+        ARG_PRINT_TIMESTAMP: False,
+        ARG_TESTS: list(DEFAULT_TESTS),
+        ARG_SSM_IP: default_ssm,
+    }
+
+    
+    tool_templates = [
+        ToolTemplate(
+            name="Check UT statuses since startup (reboot) via python",
+            extra_description="Reboot a UT/SSM, wait for acquisition, and record timing stats.",
+            args=dict(base_args),
+            override_cmd_invocation=LOCAL_UT_WRAPPER_CMD,
+        ),
+    ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
+
 def _log_status_line(text: str, last_len: int) -> int:
     LOG(f"{text}{' ' * max(0, last_len - len(text))}", same_line=True)
     return len(text)
@@ -344,38 +372,11 @@ def set_tn_offset(client: SsmHttpClient, offset: int) -> None:
 # --- Configuration & Setup ---
 LOCAL_UT_WRAPPER_CMD = f"{Path(__file__).resolve().parents[1] / 't_test_ut_from_local.py'} --mode status_since_startup_python"
 
-def get_tool_templates() -> List[ToolTemplate]:
-    """Provide ready-to-run templates for integration with main_tools."""
-    default_ssm = f"{LIST_MP_IPS[0]}" if LIST_MP_IPS else "192.168.100.54"
-
-    base_args = {
-        ARG_REQUEST_INTERVAL: DEFAULT_REQUEST_INTERVAL,
-        ARG_SSM_REBOOT_TIMEOUT: DEFAULT_SSM_REBOOT_TIMEOUT,
-        ARG_GPX_FIX_TIMEOUT: DEFAULT_GPX_FIX_TIMEOUT,
-        ARG_PING_TIMEOUT: DEFAULT_PING_TIMEOUT,
-        ARG_ONLINE_TIMEOUT: DEFAULT_ONLINE_TIMEOUT,
-        ARG_WAIT_SECS_AFTER_EACH_ITERATION: DEFAULT_WAIT_SECS_AFTER_EACH_ITERATION,
-        ARG_TOTAL_ITERATIONS: DEFAULT_TOTAL_ITERATIONS,
-        ARG_PRINT_TIMESTAMP: False,
-        ARG_TESTS: list(DEFAULT_TESTS),
-        ARG_SSM_IP: default_ssm,
-    }
-
-    return [
-        ToolTemplate(
-            name="Check UT statuses since startup (reboot) via python",
-            extra_description="Reboot a UT/SSM, wait for acquisition, and record timing stats.",
-            args=dict(base_args),
-            override_cmd_invocation=LOCAL_UT_WRAPPER_CMD,
-        ),
-    ]
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Reboot a UT, poll its REST APIs until acquisition completes, and log the timing.",
         formatter_class=argparse.RawTextHelpFormatter,
-        epilog=build_examples_epilog(getToolData().tool_template, Path(__file__)),
+        epilog=build_examples_epilog(getToolData().get_tool_templates(), Path(__file__)),
     )
     add_arg_generic(parser, ARG_SSM_IP, required=True,
                     help_text="Base URL or IP for the SSM API (e.g. http://10.0.0.5 or 10.0.0.5:8080).", )
@@ -748,9 +749,6 @@ def run_test_sequence(config: TestSequenceConfig) -> List[IterationMetrics]:
         client.close()
 
 
-
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
 
 def main() -> None:
     args = parse_args()

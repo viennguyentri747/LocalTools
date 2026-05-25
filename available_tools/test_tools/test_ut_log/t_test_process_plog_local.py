@@ -19,14 +19,14 @@ use_posix_paths()
 WIN_CMD_INVOCATION = get_win_python_runner_cmd_invocation("available_tools.test_tools.test_ut_log.t_test_process_plog_local")
 DEFAULT_TIME_WINDOW_HOURS: Optional[float] = None
 DEFAULT_COLUMNS: List[str] = [TIME_COLUMN, LAST_TIME_SYNC_COLUMN, LAST_GPS1_CNO_COLUMN, LAST_GPS2_CNO_COLUMN, LAST_KIM_HW_STATUS_COLUMN, LAST_VELOCITY_COLUMN, LAST_RTK_COMPASS_STATUS_COLUMN, LAST_ROLL_P_COLUMN, LAST_PITCH_P_COLUMN, LAST_YAW_P_COLUMN]
-DEFAULT_OUTPUT_PATH = get_win_persistent_temp_path() / "compact_plog.tsv"
+DEFAULT_OUTPUT_PATH = get_temp_path(ETargetPlatform.WINDOWS) / "compact_plog.tsv"
 ARG_PLOG_PATHS = f"{ARGUMENT_LONG_PREFIX}plog_paths"
 ARG_COLUMNS = f"{ARGUMENT_LONG_PREFIX}columns"
 ARG_TIME_WINDOW = f"{ARGUMENT_LONG_PREFIX}hours"
 ARG_OUTPUT_PATH = f"{ARGUMENT_LONG_PREFIX}output"
 
 
-def get_tool_templates() -> List[ToolTemplate]:
+def getToolData() -> ToolData:
     """
     Provide a single template pointing to sample local ACU log files.
     """
@@ -39,7 +39,8 @@ def get_tool_templates() -> List[ToolTemplate]:
         # ARG_TIME_WINDOW: 1.5,
     }
    
-    return [
+    
+    tool_templates = [
         ToolTemplate(
             name="Compact P-log (Time/Velocity/RTK)",
             extra_description="Keeps Time/Velocity/RTK Compass columns and saves TSV under temp/.",
@@ -49,6 +50,8 @@ def get_tool_templates() -> List[ToolTemplate]:
             override_cmd_invocation=WIN_CMD_INVOCATION,
         ),
     ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
+
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
@@ -56,7 +59,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         description="Filter Intellian P-log files down to a compact TSV with selected columns.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
 
     parser.add_argument(ARG_PLOG_PATHS, required=True, nargs="+", type=Path, help="One or more periodic log file paths (P_*.txt/P_*.log).")
     parser.add_argument( ARG_COLUMNS, nargs="+", default=None, help="Space-separated list of column names to keep (default: Time/Velocity/RTK Compass).", )
@@ -192,9 +195,6 @@ def _write_metadata_file(output_plog_path: Path, input_paths: Sequence[Path], ti
     return metadata_path
 
 
-
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
     args = parse_args(argv)

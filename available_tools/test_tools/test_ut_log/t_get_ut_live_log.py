@@ -10,7 +10,7 @@ from typing import Callable, List, Optional, Sequence, Tuple
 from dev.dev_common import *
 from dev.dev_common.core_independent_utils import read_value_from_credential_file
 from dev.dev_common.network_utils import ping_remote_host_via_jump_host
-from dev.dev_common.network_utils import stream_live_remote_log
+from dev.dev_common.network_utils import ELineType, stream_live_remote_log
 from available_tools.test_tools.test_ut_log.t_get_acu_logs import DEFAULT_LOG_OUTPUT_PATH
 
 ARG_HOST_IP = f"{ARGUMENT_LONG_PREFIX}host_ip"
@@ -78,23 +78,21 @@ class RotateWithDiscardHandler(RotatingFileHandler):
 RotateWithDisacardHandler = RotateWithDiscardHandler
 
 
-def get_tool_templates() -> List[ToolTemplate]:
-    return [
+def getToolData() -> ToolData:
+    tool_templates = [
         ToolTemplate(name="Tail GNSS live log", extra_description="Direct tail on an SSM host",
                      args={ARG_HOST_IP: f"{SSM_NORMAL_IP_PREFIX}.57", ARG_REMOTE_PATH: DEFAULT_GNSS_LOG_PATH, ARG_STREAM_DURATION_SECS: 60.0}),
         ToolTemplate(name="Tail INS monitor live log", extra_description="Tail ACU log through an SSM jump host",
                      args={ARG_HOST_IP: ACU_IP, ARG_JUMP_HOST_IP: f"{SSM_NORMAL_IP_PREFIX}.57", ARG_REMOTE_PATH: DEFAULT_INS_MONITOR_LOG_PATH, ARG_STREAM_DURATION_SECS: 60.0}),
     ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
 
-
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Tail a remote UT log over SSH with optional jump-host forwarding.", formatter_class=argparse.RawTextHelpFormatter)
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
     parser.add_argument(ARG_HOST_IP, help="Target host IP to tail on. Use the ACU IP when getting ACU logs.")
     parser.add_argument(ARG_REMOTE_PATH, help="Absolute remote log path to follow.")
     parser.add_argument(ARG_JUMP_HOST_IP, default=None,
@@ -177,8 +175,9 @@ def build_live_log_handlers(output_log_path: str, log_stream_mode: ELogStreamMod
 
 def stream_live_remote_log_to_file(host_ip: str, remote_log_path: str, user: str = SSM_USER, password: Optional[str] = None, jump_host_ip: Optional[str] = None,
                         jump_user: Optional[str] = None, jump_password: Optional[str] = None, timeout: int = 5, read_timeout: int = 60, tail_lines: int = 0,
-                        handlers: Optional[Sequence[logging.Handler]] = None,
-                        on_line_recv: Optional[Callable[[str], None]] = None, stop_event: Optional[threading.Event] = None) -> None:
+                        stream_duration_secs: float = 0.0, log_path: Optional[str] = None, log_stream_mode: ELogStreamMode = ELogStreamMode.OverrideSingleFile,
+                        handlers: Optional[Sequence[logging.Handler]] = None, on_line_recv: Optional[Callable[[str, ELineType], None]] = None,
+                        stop_event: Optional[threading.Event] = None) -> None:
     password = password or read_value_from_credential_file(CREDENTIALS_FILE_PATH, UT_PWD_KEY_NAME)
     if not password:
         raise ValueError(f"Missing UT password in {CREDENTIALS_FILE_PATH} with key {UT_PWD_KEY_NAME}")
@@ -189,18 +188,30 @@ def stream_live_remote_log_to_file(host_ip: str, remote_log_path: str, user: str
         via_text = f" via jump host {jump_host_ip}" if jump_host_ip else EMPTY_STR_VALUE
         raise RuntimeError(f"{host_ip} is not reachable{via_text} within {DEFAULT_REACHABLE_WAIT_SECS}s")
     owns_handlers = handlers is None
-    resolved_handlers: List[logging.Handler] = list(handlers) if handlers else [logging.StreamHandler(sys.stdout)]
+    resolved_handlers: List[logging.Handler]
+    if handlers:
+        resolved_handlers = list(handlers)
+        if log_path:
+            LOG(f"{LOG_PREFIX_MSG_WARNING} handlers is provided; log_path '{log_path}' is ignored.")
+    elif log_path:
+        resolved_handlers = build_live_log_handlers(output_log_path=log_path, log_stream_mode=log_stream_mode)
+    else:
+        resolved_handlers = [logging.StreamHandler(sys.stdout)]
     for handler in resolved_handlers:
         if handler.formatter is None:
             handler.setFormatter(logging.Formatter("%(message)s"))
     effective_stop_event = stop_event or threading.Event()
-    def _on_line(line: str) -> None:
+    stop_timer: Optional[threading.Timer] = start_stop_timer(stream_duration_secs=stream_duration_secs, stop_event=effective_stop_event) if stream_duration_secs > 0 else None
+
+    def _on_line(line: str, line_type: ELineType) -> None:
         if on_line_recv:
-            on_line_recv(line)
+            on_line_recv(line, line_type)
         LOG(line, show_time=True, handlers=resolved_handlers)
     try:
         stream_live_remote_log(host_ip=host_ip, user=user, password=password, remote_log_path=remote_log_path, connect_timeout=timeout, jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=resolved_jump_password, tail_lines=tail_lines, read_timeout=read_timeout, stop_event=effective_stop_event, on_line=_on_line)
     finally:
+        if stop_timer:
+            stop_timer.cancel()
         if owns_handlers:
             close_live_log_handlers(resolved_handlers)
 

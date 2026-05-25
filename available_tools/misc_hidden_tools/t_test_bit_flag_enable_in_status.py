@@ -14,8 +14,8 @@ ARG_STATUS = "--status"
 ARG_FLAG = "--flag"
 
 
-def get_tool_templates() -> List[ToolTemplate]:
-    return [
+def getToolData() -> ToolData:
+    tool_templates = [
         ToolTemplate(
             name="Check GPX_STATUS_COM0_RX_TRAFFIC_NOT_DECTECTED",
             extra_description="status=0x70 includes flag=0x10, so result is enabled.",
@@ -27,10 +27,8 @@ def get_tool_templates() -> List[ToolTemplate]:
             args={ARG_STATUS: "0x20", ARG_FLAG: "0x10"},
         ),
     ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
 
-
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
 
 
 def parse_int(value: str) -> int:
@@ -46,7 +44,7 @@ def parse_args() -> argparse.Namespace:
         description="Test whether a flag bit is enabled in a status value.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
     parser.add_argument(ARG_STATUS, required=True, type=parse_int, help="Status value (e.g. 0x70).")
     parser.add_argument(ARG_FLAG, required=True, type=parse_int, help="Flag value (e.g. 0x10).")
     return parser.parse_args()

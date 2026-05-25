@@ -17,9 +17,10 @@ from dev.dev_common import *
 ARG_SENTENCE = f"{ARGUMENT_LONG_PREFIX}sentence"
 
 
-def get_tool_templates() -> List[ToolTemplate]:
+def getToolData() -> ToolData:
     """Return ready-to-run examples for this tool."""
-    return [
+    
+    tool_templates = [
         ToolTemplate(
             name="Checksum for INS Monitor Feed",
             extra_description="Typical INS monitor sentence with multiple GNSS messages. Ex: $ASCE,4,GXGGA,1,POWGPS,5,POWTLV,1,POSGXGLL,5,GXGSA,5,GXZDA,5,GXVTG,5,GXRMC,5,PASHR,5,INTEL,5,GPGSV_1,5,GAGSV_1,0,GLGSV_1,5 will return 5B",
@@ -38,6 +39,8 @@ def get_tool_templates() -> List[ToolTemplate]:
             args={ARG_SENTENCE: "$ASCE,0,GNGGA,0,GNRMC,0,GNVTG,0"},
         ),
     ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
+
 
 
 def parse_args() -> argparse.Namespace:
@@ -46,7 +49,7 @@ def parse_args() -> argparse.Namespace:
         description="Calculate the NMEA checksum for an ASCE-formatted sentence.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
     parser.add_argument(
         ARG_SENTENCE,
         required=True,
@@ -77,9 +80,6 @@ def normalize_sentence(raw_sentence: str) -> str:
     return stripped.split("*")[0]
 
 
-
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
 
 def main() -> None:
     args = parse_args()

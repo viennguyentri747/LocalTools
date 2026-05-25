@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import sys
+import time
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 from dataclasses import dataclass, field
@@ -18,13 +19,19 @@ class ToolEntryNode:
     """Represents a node in the tool hierarchy."""
     name: str
     tool: Optional[ToolEntry] = None
-    tool_priority_number: int = 999
+    tool_priority: int = 999
     children: List[ToolEntryNode] = field(default_factory=list)
     metadata: Optional[ToolFolderMetadata] = None
     folder_name: Optional[str] = None
 
 
-DEFAULT_TOOL_PRIORITY_NUMBER = 999
+DEFAULT_TOOL_PRIORITY = EToolPriority.Level10_Last
+_LOG_LEVEL_NAME_TO_TYPE: Dict[str, ELogType] = {
+    "debug": ELogType.DEBUG,
+    "normal": ELogType.NORMAL,
+    "warning": ELogType.WARNING,
+    "critical": ELogType.CRITICAL,
+}
 
 
 def _tool_cache_key(tool_path: Path) -> str:
@@ -36,15 +43,6 @@ def _ensure_tool_import_paths(tools_dir: Path) -> None:
         path_str = str(path_candidate)
         if path_str not in sys.path:
             sys.path.insert(0, path_str)
-
-
-def _tool_declares_custom_priority(tool_path: Path) -> bool:
-    if tool_path.suffix != ".py":
-        return False
-    try:
-        return "priority_number" in tool_path.read_text(encoding="utf-8")
-    except Exception:
-        return False
 
 
 def _extract_tool_data_from_module(module: object) -> Optional[ToolData]:
@@ -62,7 +60,7 @@ def _resolve_tool_data(tool: ToolEntry, tools_dir: Path, tool_data_cache: Dict[s
     if cache_key in tool_data_cache:
         return tool_data_cache[cache_key]
 
-    default_tool_data = ToolData(tool_template=[], priority_number=DEFAULT_TOOL_PRIORITY_NUMBER)
+    default_tool_data = ToolData(tool_templates=[], tool_priority=DEFAULT_TOOL_PRIORITY, hidden=False)
     if tool.path.suffix != ".py":
         tool_data_cache[cache_key] = default_tool_data
         return default_tool_data
@@ -84,26 +82,24 @@ def discover_and_nest_tools(project_root: Path, folder_pattern: str, tool_prefix
     for tool_entry in tools:
         if tool_entry.folder not in root_nodes:
             folder_path = tool_entry.folder_path
-            LOG(f"Loading tool folder: {tool_entry.folder}")
+            folder_load_start = time.perf_counter()
             metadata: ToolFolderMetadata = load_tools_metadata(folder_path)
-            LOG(f"Loading tool folder: {tool_entry.folder} with metadata: {metadata}")
+            LOG(
+                f"Loading tool folder: {tool_entry.folder} with metadata: {metadata} "
+                f"(metadata load {time.perf_counter() - folder_load_start:.3f}s)",
+                log_type=ELogType.DEBUG,
+            )
             root_nodes[tool_entry.folder] = ToolEntryNode(name=tool_entry.folder.upper(), metadata=metadata, folder_name=tool_entry.folder)
 
-        folder_metadata = root_nodes[tool_entry.folder].metadata or ToolFolderMetadata()
-        if tool_entry.filename in folder_metadata.hidden_tool_filenames:
+        tool_data = _resolve_tool_data(tool_entry, project_root, tool_data_cache)
+        if tool_data.hidden:
             LOG(f"Skipping hidden tool '{tool_entry.filename}' from folder '{tool_entry.folder}'.")
             continue
-
-        tool_priority_number = DEFAULT_TOOL_PRIORITY_NUMBER
-        # Avoid eager imports for all tools and cause slow startup; only preload ToolData for priority if custom priority is declared
-        if _tool_declares_custom_priority(tool_entry.path):
-            tool_data = _resolve_tool_data(tool_entry, project_root, tool_data_cache)
-            tool_priority_number = tool_data.priority_number
-        tool_node = ToolEntryNode(name=tool_entry.filename, tool=tool_entry, tool_priority_number=tool_priority_number)
+        tool_node = ToolEntryNode(name=tool_entry.filename, tool=tool_entry, tool_priority=tool_data.tool_priority.value)
         root_nodes[tool_entry.folder].children.append(tool_node)
 
     for node in root_nodes.values():
-        node.children.sort(key=lambda child: (child.tool_priority_number, child.name))
+        node.children.sort(key=lambda child: (child.tool_priority, child.name))
 
     # Sort the root nodes based on priority from folder name
     sorted_nodes = sorted(list(root_nodes.values()), key=lambda node: node.metadata.priority)
@@ -228,6 +224,12 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         default=str(AVAILABLE_TOOLS_PATH),
         help="Root folder that contains tool subdirectories (default: ~/core_repos/local_tools/available_tools)"
     )
+    p.add_argument(
+        "--log-level", "--log_level",
+        choices=list(_LOG_LEVEL_NAME_TO_TYPE.keys()),
+        default="normal",
+        help="Runtime log verbosity for loader messages (default: normal)",
+    )
 
     return p.parse_args(argv)
 
@@ -269,9 +271,12 @@ def interactive_tool_select(message: str, tool_nodes: List[ToolEntryNode]) -> Op
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = parse_args(argv)
+    set_log_level(_LOG_LEVEL_NAME_TO_TYPE[getattr(args, "log_level", "normal")])
     tools_dir = Path(get_arg_value(args, ARG_TOOLS_DIR))
-
-    tool_nodes, tool_data_cache = discover_and_nest_tools( tools_dir, get_arg_value(args, ARG_TOOL_FOLDER_PATTERN), get_arg_value(args, ARG_TOOL_PREFIX), is_recursive=True, )
+    load_start = time.perf_counter()
+    tool_nodes, tool_data_cache = discover_and_nest_tools(tools_dir, get_arg_value(args, ARG_TOOL_FOLDER_PATTERN), get_arg_value(args, ARG_TOOL_PREFIX), is_recursive=True)
+    total_tools = sum(len(node.children) for node in tool_nodes)
+    LOG(f"Loaded {len(tool_nodes)} tool folders and {total_tools} tools in {time.perf_counter() - load_start:.3f}s.", log_type=ELogType.DEBUG)
 
     tool = interactive_tool_select(f"Select a tool", tool_nodes)
     if tool is None:
@@ -283,7 +288,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     if tool_data is None:
         tool_data = _resolve_tool_data(tool, tools_dir, tool_data_cache)
 
-    templates: List[ToolTemplate] = tool_data.tool_template if isinstance(tool_data.tool_template, list) else []
+    templates: List[ToolTemplate] = tool_data.tool_templates
     if templates:
         return diplay_templates(tool.path, templates)
 

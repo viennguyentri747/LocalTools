@@ -9,8 +9,8 @@ from available_tools.inertial_sense_tools.update_is_fws_utils import *
 from available_tools.inertial_sense_tools.update_is_sdk_utils import *
 
 
-def get_tool_templates() -> List[ToolTemplate]:
-    return [
+def getToolData() -> ToolData:
+    tool_templates = [
         ToolTemplate(
             name="Update BOTH Firmware and SDK",
             args={
@@ -62,18 +62,17 @@ def get_tool_templates() -> List[ToolTemplate]:
         #    extra_description="SDK branch-based update. Use --sdk_path if you prefer a zip. For SDK zip: Go to branch on https://github.com/inertialsense/inertial-sense-sdk/branches -> Download inertial-sense-sdk-2.7.0-rc.zip via `< > Code` button -> Local Tab -> Download ZIP.",
         #),
     ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
 
 
 
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
 
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Update Inertial Sense firmware packages and/or SDK from a single entry point.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
     parser.add_argument(ARG_UPDATE_FW, type=lambda x: x.lower() == TRUE_STR_VALUE, default=False,
                         help="Run firmware update workflow (true or false).", )
     parser.add_argument(ARG_UPDATE_SDK, type=lambda x: x.lower() == TRUE_STR_VALUE,

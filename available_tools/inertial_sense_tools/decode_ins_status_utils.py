@@ -100,12 +100,12 @@ INS_STATUS_RTOS_TASK_PERIOD_OVERRUN = _require(
 INS_STATUS_GENERAL_FAULT = _require(_INS_STATUS_VALUES, "INS_STATUS_GENERAL_FAULT", ENUM_INS_STATUS_FLAGS)
 
 
-LOG(f"[IESA] Parsed enum {ENUM_INS_STATUS_FLAGS}")
+LOG(f"[IESA] Parsed enum {ENUM_INS_STATUS_FLAGS}", log_type=ELogType.DEBUG)
 LOG(
     f"{ {k: hex(v) if isinstance(v, int) else v for k, v in _INS_STATUS_VALUES.items()} }",
     log_type=ELogType.DEBUG,
 )
-LOG(f"[IESA] Parsed enum {ENUM_GPS_NAV_FIX_STATUS}")
+LOG(f"[IESA] Parsed enum {ENUM_GPS_NAV_FIX_STATUS}", log_type=ELogType.DEBUG)
 LOG(
     f"{ {k: hex(v) if isinstance(v, int) else v for k, v in _GPS_NAV_FIX_VALUES.items()} }",
     log_type=ELogType.DEBUG,

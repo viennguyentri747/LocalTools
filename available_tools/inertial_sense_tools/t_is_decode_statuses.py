@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 from typing import List, Tuple
 
-from dev.dev_common.custom_structures import ToolData
+from dev.dev_common import *
 from dev.dev_common.tools_utils import ToolTemplate, build_examples_epilog
 from available_tools.inertial_sense_tools.decode_gen_fault_status_utils import (
     decode_gen_fault_status,
@@ -31,8 +31,8 @@ from available_tools.inertial_sense_tools.decode_ins_status_utils import (
 SUPPORTED_TYPES: Tuple[str, ...] = ("gen_fault", "gps", "gps_hdw", "gpx", "system_hdw", "ins")
 
 
-def get_tool_templates() -> List[ToolTemplate]:
-    return [
+def getToolData() -> ToolData:
+    tool_templates = [
         ToolTemplate(
             name="Decode INS Status Integer",
             extra_description="Check it in `insStatus` in ``tail -F /var/log/ins_monitor_log | grep -i INS1Msg`",
@@ -82,10 +82,8 @@ def get_tool_templates() -> List[ToolTemplate]:
             },
         ),
     ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
 
-
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
 
 
 def main() -> None:
@@ -93,7 +91,7 @@ def main() -> None:
         description="Decode an Inertial Sense status value for multiple message types.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
     parser.add_argument(
         "-t",
         "--type",

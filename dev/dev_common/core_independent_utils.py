@@ -2,6 +2,7 @@
 import hashlib
 import logging
 import os
+from functools import lru_cache
 from pathlib import Path
 import re
 import shlex
@@ -123,6 +124,7 @@ def get_wsl_home_path() -> Path:
     return resolved_path
 
 
+@lru_cache(maxsize=1)
 def get_win_home_path() -> Path:
     if is_platform_windows():
         # Running on Windows natively, USERPROFILE is available directly
@@ -134,6 +136,7 @@ def get_win_home_path() -> Path:
         return get_normalized_path(win_home, target_platform=ETargetPlatform.WSL)
 
 
+@lru_cache(maxsize=1)
 def get_win_persistent_temp_path() -> Path:
     return get_win_home_path() / "temp"
 
@@ -142,6 +145,45 @@ class ETargetPlatform(str, Enum):
     CURRENT = "current"
     WINDOWS = "windows"
     WSL = "wsl"
+
+
+def _is_running_in_wsl() -> bool:
+    if is_platform_windows():
+        return False
+    if os.environ.get("WSL_DISTRO_NAME") or os.environ.get("WSL_INTEROP"):
+        return True
+    try:
+        with open("/proc/version", "r", encoding="utf-8", errors="replace") as fp:
+            content = fp.read().lower()
+        return "microsoft" in content or "wsl" in content
+    except Exception:
+        return False
+
+
+def _get_local_repo_temp_path() -> Path:
+    return Path(__file__).resolve().parents[2] / "temp"
+
+
+def get_temp_path(prefer_platform: ETargetPlatform | str = ETargetPlatform.WINDOWS) -> Path:
+    if isinstance(prefer_platform, str):
+        prefer_platform = ETargetPlatform(prefer_platform)
+    if prefer_platform == ETargetPlatform.CURRENT:
+        prefer_platform = ETargetPlatform.WINDOWS if is_platform_windows() else ETargetPlatform.WSL
+
+    local_temp_path = _get_local_repo_temp_path()
+    if is_platform_windows():
+        if prefer_platform == ETargetPlatform.WSL:
+            return get_normalized_path(get_win_persistent_temp_path(), target_platform=ETargetPlatform.WSL)
+        return get_win_persistent_temp_path()
+
+    if _is_running_in_wsl():
+        if prefer_platform == ETargetPlatform.WINDOWS:
+            return get_win_persistent_temp_path()
+        return local_temp_path
+
+    if prefer_platform == ETargetPlatform.WINDOWS:
+        LOG(f"[WARNING] Windows temp path is not supported on pure Linux. Falling back to WSL/local temp path: {local_temp_path}")
+    return local_temp_path
 
 
 def _is_windows_path_text(path_text: str) -> bool:

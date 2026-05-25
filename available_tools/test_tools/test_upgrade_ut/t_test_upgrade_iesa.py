@@ -54,6 +54,27 @@ class UpgradeCheckState:
     success_log_first_seen_at: Optional[float] = None
 
 
+def getToolData() -> ToolData:
+    tool_templates = [
+        ToolTemplate(
+            name="Upgrade One IESA",
+            extra_description="Copy one .iesa package via UT jump host and run install with live callback logs.",
+            args={
+                ARG_IESA_PATH: DEFAULT_IESA_PATH,
+                ARG_UT_IP: DEFAULT_UT_IP,
+                ARG_LOG_PATH: str(LOCAL_TOOL_REPO_PATH / "logs" / "upgrade_install"),
+                ARG_UT_USER: SSM_USER,
+                ARG_UT_PASSWORD: SSM_PASSWORD,
+                ARG_ACU_IP: ACU_IP,
+                ARG_ACU_USER: ACU_USER,
+                ARG_ACU_PASSWORD: ACU_PASSWORD,
+                ARG_REMOTE_DIR: REMOTE_DOWNLOAD_DIR,
+                ARG_TIMEOUT_SECS: 1800,
+            },
+        ),
+    ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
+
 def _resolve_path(path: str, base_path: Optional[str] = None) -> str:
     candidate = Path(path).expanduser()
     if candidate.is_absolute():
@@ -262,7 +283,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         usage=f"{Path(__file__).name} {ARG_IESA_PATH} <iesa_path> {ARG_UT_IP} <ssm_ip> {ARG_TIMEOUT_SECS} <seconds> [{ARG_LOG_PATH} <log_file_or_dir>]",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
     parser.add_argument(ARG_IESA_PATH, required=True, help="IESA path to install once")
     parser.add_argument(ARG_UT_IP, required=True, help="UT/SSM jump-host IP")
     parser.add_argument(ARG_LOG_PATH, required=False, help="Install log output path (file or directory)")
@@ -274,31 +295,6 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(ARG_REMOTE_DIR, default=REMOTE_DOWNLOAD_DIR, help=f"ACU remote directory (default: {REMOTE_DOWNLOAD_DIR})")
     parser.add_argument(ARG_TIMEOUT_SECS, required=True, type=int, help="Mandatory total timeout in seconds (must be > start_timeout_secs)")
     return parser.parse_args(argv)
-
-
-def get_tool_templates() -> List[ToolTemplate]:
-    return [
-        ToolTemplate(
-            name="Upgrade One IESA",
-            extra_description="Copy one .iesa package via UT jump host and run install with live callback logs.",
-            args={
-                ARG_IESA_PATH: DEFAULT_IESA_PATH,
-                ARG_UT_IP: DEFAULT_UT_IP,
-                ARG_LOG_PATH: str(LOCAL_TOOL_REPO_PATH / "logs" / "upgrade_install"),
-                ARG_UT_USER: SSM_USER,
-                ARG_UT_PASSWORD: SSM_PASSWORD,
-                ARG_ACU_IP: ACU_IP,
-                ARG_ACU_USER: ACU_USER,
-                ARG_ACU_PASSWORD: ACU_PASSWORD,
-                ARG_REMOTE_DIR: REMOTE_DOWNLOAD_DIR,
-                ARG_TIMEOUT_SECS: 1800,
-            },
-        ),
-    ]
-
-
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
 
 
 def main(argv: Optional[List[str]] = None) -> None:

@@ -45,6 +45,16 @@ class BundleRuntime:
     acu_password: str = ACU_PASSWORD
 
 
+def getToolData() -> ToolData:
+    tool_templates = [
+        ToolTemplate(
+            name="Upgrade One Bundle",
+            extra_description="Upload and apply one .tar.gz bundle to a UT SSM endpoint.",
+            args={ARG_BUNDLE_PATH: DEFAULT_BUNDLE_PATH, ARG_SSM_IP: DEFAULT_SSM_IP},
+        ),
+    ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
+
 def _resolve_path(path: str, base_path: Optional[str] = None) -> str:
     candidate = Path(path).expanduser()
     if candidate.is_absolute():
@@ -185,24 +195,10 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         usage=f"{Path(__file__).name} {ARG_BUNDLE_PATH} <bundle_path> {ARG_SSM_IP} <ssm_ip>",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
     parser.add_argument(ARG_BUNDLE_PATH, required=True, help="Bundle path to install once")
     parser.add_argument(ARG_SSM_IP, required=True, help="SSM IP for bundle install API")
     return parser.parse_args(argv)
-
-
-def get_tool_templates() -> List[ToolTemplate]:
-    return [
-        ToolTemplate(
-            name="Upgrade One Bundle",
-            extra_description="Upload and apply one .tar.gz bundle to a UT SSM endpoint.",
-            args={ARG_BUNDLE_PATH: DEFAULT_BUNDLE_PATH, ARG_SSM_IP: DEFAULT_SSM_IP},
-        ),
-    ]
-
-
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
 
 
 def main(argv: Optional[List[str]] = None) -> None:

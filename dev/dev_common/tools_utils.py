@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 # import fcntl
 import importlib.util
 import os
@@ -71,7 +71,6 @@ class ToolFolderMetadata:
     always_expand: bool = False
     start_collapsed: Optional[bool] = None
     priority: ToolFolderPriority = ToolFolderPriority.LAST
-    hidden_tool_filenames: List[str] = field(default_factory=list)
 
     def __init__(self, **kwargs: Any):
         self.title = None
@@ -79,7 +78,6 @@ class ToolFolderMetadata:
         self.always_expand = False
         self.start_collapsed = None
         self.priority = ToolFolderPriority.LAST
-        self.hidden_tool_filenames = []
         for key, value in kwargs.items():
             if hasattr(self, key):
                 setattr(self, key, value)
@@ -111,15 +109,20 @@ def discover_tools(root: Path, folder_pattern: str, prefix: str, is_recursive: b
 def discover_tool_folders(root: Path, folder_pattern: str, is_recursive: bool = False) -> List[Path]:
     pattern = re.compile(folder_pattern)
     folders: List[Path] = []
-    # Choose iterator based on recursion flag
-    iterator = root.rglob("*") if is_recursive else root.iterdir()
-    
-    for p in sorted(iterator):
-        if p.is_dir() and pattern.match(p.name):
-            LOG(f"Discovered tool folder: {p}, pattern: {folder_pattern}")
-            folders.append(p)
-        # else:
-            # LOG(f"Skipped path: {p}, does not match folder pattern: {folder_pattern}")
+    if is_recursive:
+        for current_root, dir_names, _ in os.walk(root):
+            current_root_path = Path(current_root)
+            for dir_name in dir_names:
+                if pattern.match(dir_name):
+                    matched = current_root_path / dir_name
+                    LOG(f"Discovered tool folder: {matched}, pattern: {folder_pattern}")
+                    folders.append(matched)
+    else:
+        for p in root.iterdir():
+            if p.is_dir() and pattern.match(p.name):
+                LOG(f"Discovered tool folder: {p}, pattern: {folder_pattern}")
+                folders.append(p)
+    folders.sort()
     return folders
 
 

@@ -24,8 +24,8 @@ ARG_CYCLES_LEGACY = f"{ARGUMENT_LONG_PREFIX}cycles"
 ARG_MAX_RETRIES_PER_UPGRADE_LEGACY = f"{ARGUMENT_LONG_PREFIX}max_retries_per_upgrade"
 DEFAULT_CONFIG_PATH = str(LOCAL_TOOL_REPO_PATH / "storage" / "automate_upgrade_ut_configs" / "sample_automate_upgrade_ut_config.json")
 DEFAULT_UT_IP = f"{SSM_NORMAL_IP_PREFIX}.79"
-def get_tool_templates() -> List[ToolTemplate]:
-    return [
+def getToolData() -> ToolData:
+    tool_templates = [
         ToolTemplate(
             name="Automate UT Upgrade Sequence",
             extra_description="Run upgrade_sequence items in order with cycle + retry handling.",
@@ -37,10 +37,9 @@ def get_tool_templates() -> List[ToolTemplate]:
             },
         ),
     ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
 
 
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
 
 def _resolve_log_dir_path(log_dir_path: Optional[str], config_path: str) -> Optional[Path]:
     if not log_dir_path:
@@ -205,7 +204,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         usage=f"{Path(__file__).name} {ARG_CONFIG} <json_config> {ARG_IP} <ssm_ip> [{ARG_OVERRIDE_CYCLES} <n>] [{ARG_OVERRIDE_MAX_RETRIES_PER_UPGRADE} <n>]",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
     parser.add_argument(ARG_CONFIG, required=True, help="Path to JSON configuration file")
     parser.add_argument(ARG_IP, required=True, help="SSM/UT IP (required)")
     parser.add_argument(ARG_OVERRIDE_CYCLES, ARG_CYCLES_LEGACY, dest="override_cycles", type=int, help="Override cycle count")

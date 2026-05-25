@@ -44,15 +44,15 @@ WIN_CMD_INVOCATION = get_win_python_runner_cmd_invocation("available_tools.iesa_
 IESA_TEST_DIFF_FILE_PREFIX = f"iesa_test_diff_"
 IESA_TEST_DIFF_FILE_SUFFIX = f".txt"
 IESA_METADATA_FILE = f"iesa_ow_build_metadata.json"
-TEMP_OW_BUILD_OUTPUT_PATH = LOCAL_TOOL_TEMP_PATH / "ow_build_output/"
+TEMP_OW_BUILD_OUTPUT_PATH = get_temp_path(ETargetPlatform.WSL) / "ow_build_output/"
 MANIFEST_OUT_ARTIFACT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}manifest.xml"
 IESA_OUT_ARTIFACT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}build.iesa"
 PROG_LOG_OUT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}program_log.txt"
 BUILD_LOG_OUT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}build_log.txt"
 COPY_TO_UT_RUNNER_PATH = Path(__file__).resolve().parent / "copy_to_ut_runner.py"
 
-def get_tool_templates() -> List[ToolTemplate]:
-    return [
+def getToolData() -> ToolData:
+    tool_templates = [
         ToolTemplate(
             name="Build IESA (.iesa) using current branch in local manifest",
             extra_description=f"{NOTE_AVAILABLE_LOCAL_COMPONENT_REPO_NAMES}",
@@ -107,17 +107,16 @@ def get_tool_templates() -> List[ToolTemplate]:
             # override_cmd_invocation=WIN_CMD_INVOCATION,
         ),
     ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
 
 
 
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="OneWeb SW-Tools local build helper.")
     parser.formatter_class = argparse.RawTextHelpFormatter
     # Fill help epilog from templates
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
     parser.add_argument(ARG_OW_BUILD_TYPE, choices=[BUILD_TYPE_BINARY, BUILD_TYPE_IESA], type=str, default=BUILD_TYPE_BINARY,
                         help="Build type (binary or iesa). Defaults to binary.")
     parser.add_argument(ARG_MANIFEST_SOURCE, choices=[MANIFEST_SOURCE_LOCAL, MANIFEST_SOURCE_REMOTE], default=MANIFEST_SOURCE_LOCAL,
@@ -495,16 +494,52 @@ def run_build(build_type: str, interactive: bool, make_clean: bool = True, is_de
     bash_cmd_prefix = f"bash -c"
     make_clean_cmd = "make clean"
     debug_suffix = " DEBUG=1" if is_debug_build else ""
+    make_build_cmd = f"make {make_target}{debug_suffix}"
+    make_wrapper_extra_args = ["-j$(nproc)"]
+    make_wrapper_extra_args_lines = "\n".join([f"  \"{arg}\"" for arg in make_wrapper_extra_args])
+    make_wrapper_setup_cmd = (
+        "REAL_MAKE=\"$(command -v make)\" && "
+        "[ -n \"$REAL_MAKE\" ] && "
+        "WRAP_DIR=\"$(mktemp -d)\" && "
+        "cat > \"$WRAP_DIR/make\" <<EOF\n"
+        "#!/usr/bin/env bash\n"
+        "MAKE_EXTRA_ARGS=(\n"
+        f"{make_wrapper_extra_args_lines}\n"
+        ")\n"
+        "exec \"$REAL_MAKE\" \"\\${MAKE_EXTRA_ARGS[@]}\" \"\\$@\"\n"
+        "EOF\n"
+        "chmod +x \"$WRAP_DIR/make\" && "
+        "export PATH=\"$WRAP_DIR:$PATH\""
+    )
+    make_wrapper_debug_cmd = (
+        "echo \"Resolved original make: $REAL_MAKE\" && "
+        "echo \"Resolved active make: $(command -v make)\" && "
+        "type make && "
+        "echo \"--- active make wrapper content ---\" && "
+        "cat \"$WRAP_DIR/make\" && "
+        "echo \"--- end make wrapper content ---\""
+    )
     if interactive:
         show_noti(title="Interactive Mode", message="Starting interactive mode...")
         LOG(f"{LINE_SEPARATOR}Entering interactive mode.")
 
         # Build the command sequence based on make_clean flag
         keep_interactive_shell = "exec bash"  # Keep container alive with an interactive shell after setup
+        interactive_prep_cmd = (
+            f"echo \"Running dos2unix on script files...\" && {dos2unix_cmd} && "
+            f"echo \"Granting execute permissions to script files...\" && {chmod_cmd} && "
+            f"echo \"Preparing make wrapper for parallel jobs...\" && {make_wrapper_setup_cmd} && {make_wrapper_debug_cmd}"
+        )
         if make_clean:
-            bash_cmd = f"""{bash_cmd_prefix} "echo 'Running dos2unix on script files...' && {dos2unix_cmd} && echo 'Granting execute permissions to script files...' && {chmod_cmd} && echo 'Cleaning build' && {make_clean_cmd} && echo -e '\\nTo start the {build_type} build, run the command below:\\n\\nmake {make_target}{debug_suffix}\\n\\nType exit or press Ctrl+D to leave interactive mode.' && {keep_interactive_shell}" """
+            bash_cmd = (
+                f"{bash_cmd_prefix} '{interactive_prep_cmd} && echo \"Cleaning build\" && {make_clean_cmd} && "
+                f"echo -e \"\\nTo start the {build_type} build, run the command below:\\n\\n{make_build_cmd}\\n\\nType exit or press Ctrl+D to leave interactive mode.\" && {keep_interactive_shell}'"
+            )
         else:
-            bash_cmd = f"""{bash_cmd_prefix} "echo 'Running dos2unix on script files...' && {dos2unix_cmd} && echo 'Granting execute permissions to script files...' && {chmod_cmd} && echo -e '\\nTo start the {build_type} build, run the command below:\\n\\nmake {make_target}{debug_suffix}\\n\\nType exit or press Ctrl+D to leave interactive mode.' && {keep_interactive_shell}" """
+            bash_cmd = (
+                f"{bash_cmd_prefix} '{interactive_prep_cmd} && "
+                f"echo -e \"\\nTo start the {build_type} build, run the command below:\\n\\n{make_build_cmd}\\n\\nType exit or press Ctrl+D to leave interactive mode.\" && {keep_interactive_shell}'"
+            )
 
         run_shell(f"{docker_cmd_base} {bash_cmd}", check_LOG_EXCEPTION_STR_on_exit_code=False)
         append_iesa_build_log("Interactive mode completed. Build output is printed in interactive shell.")
@@ -513,13 +548,13 @@ def run_build(build_type: str, interactive: bool, make_clean: bool = True, is_de
         LOG("Running dos2unix on script files and build command...")
         # Build the command sequence based on make_clean flag
         if make_clean:
-            bash_cmd = f"{bash_cmd_prefix} '{dos2unix_cmd} && {chmod_cmd} && {make_clean_cmd} && make {make_target}{debug_suffix}'"
+            bash_cmd = f"{bash_cmd_prefix} '{dos2unix_cmd} && {chmod_cmd} && {make_wrapper_setup_cmd} && {make_wrapper_debug_cmd} && {make_clean_cmd} && {make_build_cmd}'"
         else:
-            bash_cmd = f"{bash_cmd_prefix} '{dos2unix_cmd} && {chmod_cmd} && make {make_target}{debug_suffix}'"
+            bash_cmd = f"{bash_cmd_prefix} '{dos2unix_cmd} && {chmod_cmd} && {make_wrapper_setup_cmd} && {make_wrapper_debug_cmd} && {make_build_cmd}'"
 
         append_iesa_build_log("Running build command:")
         append_iesa_build_log(f"{docker_cmd_base} {bash_cmd}")
-        run_shell_with_iesa_build_log(f"{docker_cmd_base} {bash_cmd}", show_build_output_stdout, spinner_message=f"Building {build_type}")
+        run_shell_with_iesa_build_log(f"{docker_cmd_base} {bash_cmd}", show_build_output_stdout, spinner_message=f"Building {build_type.capitalize()}")
         elapsed_time = (get_datetime_now() - time_start).total_seconds()
         LOG(f"Build finished in {elapsed_time} seconds", show_time=True)
         append_iesa_build_log(f"Build finished in {elapsed_time} seconds")
@@ -658,7 +693,7 @@ def configure_git_credentials_for_manifest(manifest: IesaManifest):
         parsed = urlparse(fetch_url)
         authed_url = f"https://oauth2:{access_token}@{parsed.netloc}{parsed.path}"
 
-        LOG(f"Configuring credentials for: {fetch_url}, parsed: {parsed}, authed: {authed_url}")
+        LOG(f"Configuring credentials for: {fetch_url}, parsed: {parsed}, authed: {authed_url}", log_type=ELogType.DEBUG)
         run_shell(f'git config --global url."{authed_url}".insteadOf "{fetch_url}"')
         LOG(f"Configured credentials for: {fetch_url}")
         configured_urls.add(fetch_url)
@@ -913,17 +948,19 @@ def append_iesa_build_log(*values: object) -> None:
 
 def run_shell_with_iesa_build_log(cmd: str, show_build_output_stdout: bool = False, spinner_message: Optional[str] = None) -> None:
     ensure_temp_build_output_dir()
+    append_iesa_build_log(f"Running shell command: {cmd}")
     if show_build_output_stdout:
         quoted_log_path = shlex.quote(str(BUILD_LOG_OUT_PATH))
         run_shell(f"set -o pipefail; {cmd} 2>&1 | tee -a {quoted_log_path}")
         return
-    spinner = gui_elapsed_spinner(spinner_message or "Running command")
+    spinner_text = spinner_message
+    LOG(f"{spinner_text}. Command logged at: {BUILD_LOG_OUT_PATH}", highlight=True)
+    spinner = gui_elapsed_spinner(f"{spinner_text}. Log: {BUILD_LOG_OUT_PATH}")
     try:
         with open(BUILD_LOG_OUT_PATH, "a", encoding="utf-8") as build_log_file:
-            run_shell(cmd, stdout=build_log_file, stderr=subprocess.STDOUT, text=True)
+            run_shell(cmd, show_cmd=False, stdout=build_log_file, stderr=subprocess.STDOUT, text=True)
     finally:
-        spinner.stop()
-
+        spinner.stop(f"{spinner_text} done. Log: {BUILD_LOG_OUT_PATH}")
 
 def init_ow_build_log() -> None:
     ensure_temp_build_output_dir()

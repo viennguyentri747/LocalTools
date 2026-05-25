@@ -6,5 +6,4 @@ def get_tools_metadata() -> ToolFolderMetadata:
         title="TEST Tools",
         extra_title_description="Interact with remote environments (collect + check ELOG, run test on ACU, ...)",
         priority=ToolFolderPriority.test_tool,
-        hidden_tool_filenames=["t_test_all_local_logs.py"],
     )

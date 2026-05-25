@@ -24,7 +24,7 @@ DEFAULT_MAX_DRIFT_TOLERANCE_SECS = 0.2
 DRIFT_RECOVERY_GRACE_ROWS = 3
 DRIFT_KIND_SYNC_LAG = "sync_lag"
 DRIFT_KIND_SYNC_LEAD = "sync_lead"
-DEFAULT_OUTPUT_PATH = get_win_persistent_temp_path() / "time_sync_plog.tsv"
+DEFAULT_OUTPUT_PATH = get_temp_path(ETargetPlatform.WINDOWS) / "time_sync_plog.tsv"
 
 ARG_PLOG_PATHS = ARG_PLOG_PATHS
 ARG_TIME_WINDOW = ARG_TIME_WINDOW
@@ -108,7 +108,7 @@ class TimeSyncRunInfo:
         self.run_start_sync_int = sync_value
 
 
-def get_tool_templates() -> List[ToolTemplate]:
+def getToolData() -> ToolData:
     sample_log_path_1 = ACU_LOG_PATH / "192.168.100.61" / "P_20260216_000000.txt"
     args = {
         ARG_PLOG_PATHS: [str(sample_log_path_1)],
@@ -116,7 +116,8 @@ def get_tool_templates() -> List[ToolTemplate]:
         ARG_MAX_DRIFT_TOLERANCE_SECS: DEFAULT_MAX_DRIFT_TOLERANCE_SECS,
     }
     
-    return [
+    
+    tool_templates = [
         ToolTemplate(
             name="Check P-log time sync",
             extra_description="Validate LAST_TIME_SYNC increments and export a compact Time/LAST_TIME_SYNC log.",
@@ -125,6 +126,8 @@ def get_tool_templates() -> List[ToolTemplate]:
             override_cmd_invocation=WIN_CMD_INVOCATION,
         ),
     ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
+
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
@@ -132,7 +135,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         description="Check LAST_TIME_SYNC increments and write a compact Time/LAST_TIME_SYNC log.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
 
     parser.add_argument( ARG_PLOG_PATHS, required=True, nargs="+", type=Path, help="One or more periodic log file paths (P_*.txt/P_*.log).", )
     parser.add_argument(ARG_TIME_WINDOW, type=float, default=None,
@@ -486,9 +489,6 @@ def _write_metadata_file(output_plog_path: Path, input_paths: Sequence[Path], ti
     return metadata_path
 
 
-
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
 
 def run_time_sync_test(input_paths: Sequence[Path], output_path: Path, time_window: Optional[float], drift_tolerance_secs: float) -> None:
     LOG(f"{LOG_PREFIX_MSG_INFO} Time-sync runtime python: sys.executable={format_path_for_display(sys.executable)}, argv0={format_path_for_display(sys.argv[0])}")

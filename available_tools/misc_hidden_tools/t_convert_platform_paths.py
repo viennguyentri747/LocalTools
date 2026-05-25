@@ -26,8 +26,8 @@ MODE_HANDLERS: Dict[str, Callable[[str], str]] = {
 }
 
 
-def get_tool_templates() -> List[ToolTemplate]:
-    return [
+def getToolData() -> ToolData:
+    tool_templates = [
         ToolTemplate(
             name="Window path -> WSL path: Standard C Drive",
             extra_description="Convert a standard C drive path to WSL",
@@ -52,10 +52,8 @@ def get_tool_templates() -> List[ToolTemplate]:
             },
         ),
     ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
 
-
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
 
 
 # --- Example Usage ---
@@ -64,7 +62,7 @@ if __name__ == "__main__":
         description="Convert file paths between Windows and WSL formats."
     )
     parser.formatter_class = argparse.RawTextHelpFormatter
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
     parser.add_argument(
         ARG_MODE,
         choices=MODE_CHOICES,

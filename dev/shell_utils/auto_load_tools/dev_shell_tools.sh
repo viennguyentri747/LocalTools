@@ -42,7 +42,32 @@ tool(){
 }
 
 tools(){
-	tool "$@"
+    local show_help=0 log_level=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -h|--help) show_help=1; shift ;;
+            -l|--log-level|--log_level)
+                [ -n "$2" ] || { echo "Usage: tools [-h] [-l <debug|normal|warning|critical>] [main_tools args...]"; return 1; }
+                log_level="$2"; shift 2 ;;
+            --log-level=*|--log_level=*) log_level="${1#*=}"; shift ;;
+            *) break ;;
+        esac
+    done
+
+    if [ "$show_help" -eq 1 ]; then
+        cat <<'EOF'
+Usage: tools [-h] [-l <debug|normal|warning|critical>] [main_tools args...]
+  -h, --help               Show this wrapper help and main_tools.py help
+  -l, --log-level LEVEL    Set loader log verbosity for main_tools.py
+EOF
+        tool -h
+        return 0
+    fi
+
+    local -a args=()
+    [ -n "$log_level" ] && args+=(--log-level "$log_level")
+    args+=("$@")
+	tool "${args[@]}"
 }
 
 is_tools(){

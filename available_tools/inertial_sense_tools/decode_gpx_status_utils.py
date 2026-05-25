@@ -76,7 +76,7 @@ _FATAL_DESCRIPTIONS: Dict[int, str] = {
     GpxFatalCode.UNKNOWN: "Unknown fatal",
 }
 
-LOG(f"[IESA] Parsed enum {ENUM_GPX_STATUS_NAME}")
+LOG(f"[IESA] Parsed enum {ENUM_GPX_STATUS_NAME}", log_type=ELogType.DEBUG)
 LOG(
     f"{ {k: hex(v) if isinstance(v, int) else v for k, v in _GPX_STATUS_VALUES.items()} }",
     log_type=ELogType.DEBUG,

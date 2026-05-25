@@ -14,7 +14,7 @@ from available_tools.test_tools.test_ut_log.t_get_acu_logs import DEFAULT_LOG_OU
 from available_tools.test_tools.test_ut_log.t_get_ut_live_log import ELogStreamMode, build_live_log_handlers, close_live_log_handlers, stream_live_remote_log_to_file
 from dev.dev_common import *
 from dev.dev_common.custom_structures import ToolData
-from dev.dev_common.network_utils import ping_remote_host_via_jump_host
+from dev.dev_common.network_utils import ELineType, ping_remote_host_via_jump_host
 from dev.dev_common.tools_utils import ToolTemplate, build_examples_epilog
 
 ARG_TARGET_IP = f"{ARGUMENT_LONG_PREFIX}target_ip"
@@ -139,19 +139,17 @@ class UtLiveLogBatchSession:
         return {log_type: handle.log_path for log_type, handle in self.streams.items()}
 
 
-def get_tool_templates() -> List[ToolTemplate]:
-    return [
+def getToolData() -> ToolData:
+    tool_templates = [
         ToolTemplate(name="Stream GNSS + INS monitor", extra_description="Route SSM logs directly and ACU logs via jump host automatically.", args={ARG_TARGET_IP: f"{SSM_NORMAL_IP_PREFIX}.57", ARG_ACU_IP: ACU_IP, ARG_LOG_TYPES: [EUtLiveLogType.SSM_GNSS_LOG.value, EUtLiveLogType.ACU_INS_MONITOR_LOG.value], ARG_LOG_DIR_NAME: DEFAULT_LOG_DIR_NAME, ARG_STREAM_DURATION_SECS: DEFAULT_STREAM_DURATION_SECS}),
     ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
 
-
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Stream multiple UT live logs with enum-based routing (acu_/ssm_ prefix).", formatter_class=argparse.RawTextHelpFormatter)
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
     parser.add_argument(ARG_TARGET_IP, required=True, help="UT/SSM target IP. Accepts full IP or last octet.")
     parser.add_argument(ARG_ACU_IP, default=ACU_IP, help=f"ACU IP (default: {ACU_IP}).")
     parser.add_argument(ARG_LOG_TYPES, nargs="+", required=True, choices=[item.value for item in EUtLiveLogType], help="Live log types. Prefix decides route: ssm_* direct, acu_* via jump host.")
@@ -229,12 +227,12 @@ def _resolve_remote_log_path_pattern(host_ip: str, user: str, password: str, rem
     raise RuntimeError(f"No remote file matched pattern '{pattern}' on {host_ip}")
 
 
-def _start_batch_stream(log_type: EUtLiveLogType, route: UtLiveLogRoute, log_path: Path, handlers: Sequence[logging.Handler], tail_lines: int, read_timeout: int, on_line_recv_single: Optional[Callable[[str], None]], stop_event: threading.Event, wait_acu_reachable: bool, acu_reachable_wait_timeout_secs: int) -> UtLiveLogStreamHandle:
+def _start_batch_stream(log_type: EUtLiveLogType, route: UtLiveLogRoute, log_path: Path, handlers: Sequence[logging.Handler], tail_lines: int, read_timeout: int, on_line_recv_single: Optional[Callable[[str, ELineType], None]], stop_event: threading.Event, wait_acu_reachable: bool, acu_reachable_wait_timeout_secs: int) -> UtLiveLogStreamHandle:
     errors: List[BaseException] = []
 
-    def _stream_on_line(line: str) -> None:
+    def _stream_on_line(line: str, line_type: ELineType) -> None:
         if on_line_recv_single:
-            on_line_recv_single(line)
+            on_line_recv_single(line, line_type)
 
     def _run() -> None:
         try:
@@ -258,7 +256,7 @@ def _start_batch_stream(log_type: EUtLiveLogType, route: UtLiveLogRoute, log_pat
 def start_ut_live_log_batch_stream(target_ip: str, acu_ip: str, log_types: Sequence[Union[str, EUtLiveLogType]], log_dir_name: str = DEFAULT_LOG_DIR_NAME,
                                    tail_lines: int = 0, read_timeout: int = 600, stream_duration_secs: float = DEFAULT_STREAM_DURATION_SECS,
                                    handlers_by_type: Optional[Dict[Union[str, EUtLiveLogType], Sequence[logging.Handler]]] = None,
-                                   on_line_recv_by_type: Optional[Dict[Union[str, EUtLiveLogType], Callable[[str], None]]] = None,
+                                   on_line_recv_by_type: Optional[Dict[Union[str, EUtLiveLogType], Callable[[str, ELineType], None]]] = None,
                                    stop_event: Optional[threading.Event] = None,
                                    wait_acu_reachable: bool = True,
                                    acu_reachable_wait_timeout_secs: int = DEFAULT_ACU_REACHABLE_WAIT_TIMEOUT_SECS) -> UtLiveLogBatchSession:
@@ -271,7 +269,7 @@ def start_ut_live_log_batch_stream(target_ip: str, acu_ip: str, log_types: Seque
     if not handlers_by_type:
         raise ValueError("handlers_by_type is required. Caller must build and pass handlers for each requested log type.")
 
-    per_type_cb: Dict[EUtLiveLogType, Callable[[str], None]] = {}
+    per_type_cb: Dict[EUtLiveLogType, Callable[[str, ELineType], None]] = {}
     if on_line_recv_by_type:
         for raw_log_type, callback in on_line_recv_by_type.items():
             per_type_cb[EUtLiveLogType.from_value(raw_log_type)] = callback

@@ -1,5 +1,10 @@
 from typing import Dict, List
 from tabulate import tabulate
+from dev.dev_common.custom_structures import ToolData, EToolPriority
+
+def getToolData() -> ToolData:
+    return ToolData(tool_templates=[], tool_priority=EToolPriority.Level10_Last, hidden=False)
+
 
 from dev.dev_common.constants import *
 from dev.dev_common.core_utils import read_value_from_credential_file

@@ -24,8 +24,8 @@ ARG_SENTENCE = "--sentence"
 ARG_CHECKSUM = "--check-checksum"
 
 
-def get_tool_templates() -> List[ToolTemplate]:
-    return [
+def getToolData() -> ToolData:
+    tool_templates = [
         ToolTemplate(
             name="Parse GGA sentence",
             extra_description="Parse a standard GPS fix data sentence.",
@@ -40,10 +40,8 @@ def get_tool_templates() -> List[ToolTemplate]:
             },
         ),
     ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
 
-
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
 
 
 def parse_args() -> argparse.Namespace:
@@ -51,7 +49,7 @@ def parse_args() -> argparse.Namespace:
         description="Parse one NMEA sentence and print parsed fields as JSON.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
     parser.add_argument(ARG_SENTENCE, required=True, help="Full NMEA sentence (with or without checksum).")
     parser.add_argument(ARG_CHECKSUM, action="store_true", help="Validate checksum strictly while parsing.")
     return parser.parse_args()

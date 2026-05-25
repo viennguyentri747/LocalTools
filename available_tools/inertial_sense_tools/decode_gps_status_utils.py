@@ -72,7 +72,7 @@ GPS_STATUS_FLAGS_MASK: int = 0
 for _flag in GpsStatusFlags:
     GPS_STATUS_FLAGS_MASK |= _flag.value
 
-LOG(f"[IESA] Parsed enum {ENUM_GPS_STATUS_NAME}")
+LOG(f"[IESA] Parsed enum {ENUM_GPS_STATUS_NAME}", log_type=ELogType.DEBUG)
 LOG(
     f"{ {k: hex(v) if isinstance(v, int) else v for k, v in _GPS_STATUS_VALUES.items()} }",
     log_type=ELogType.DEBUG,

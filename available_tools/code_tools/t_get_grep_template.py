@@ -74,6 +74,62 @@ class PatternGroup(str, Enum):
 
 _pattern_specs_cache: Optional[List[PatternSpec]] = None
 
+def getToolData() -> ToolData:
+    """Generate examples for CLI help."""
+    definition_pattern_keys = _get_pattern_keys_by_group(PatternGroup.DEFINITION)
+    declaration_pattern_keys = _get_pattern_keys_by_group(PatternGroup.DECLARATION)
+    usage_pattern_keys = _get_pattern_keys_by_group(PatternGroup.USAGE)
+    
+    tool_templates = [
+        ToolTemplate(
+            name="Fzf C/C++ definitions",
+            extra_description="Interactively search definitions (functions, variables, etc.) using fzf",
+            args={
+                ARG_DISPLAY_NAME: "Fzf C/C++ definitions (functions, variables, etc.)",
+                ARG_SEARCH_MODE: SEARCH_MODE_SYMBOL,
+                ARG_PATTERN_KEYS: definition_pattern_keys,
+                ARG_FILE_EXTS: C_CPP_EXTS,
+                ARG_PATH_LONG: f"{get_cwd_path_str()}",
+            },
+            should_run_now=True,
+        ),
+        ToolTemplate(
+            name="Fzf C/C++ declarations",
+            extra_description="Interactively search function declarations/prototypes using fzf",
+            args={
+                ARG_DISPLAY_NAME: "Fzf C/C++ declarations (function prototypes)",
+                ARG_SEARCH_MODE: SEARCH_MODE_SYMBOL,
+                ARG_PATTERN_KEYS: declaration_pattern_keys,
+                ARG_FILE_EXTS: C_CPP_EXTS,
+                ARG_PATH_LONG: f"{get_cwd_path_str()}",
+            },
+            should_run_now=True,
+        ),
+        ToolTemplate(
+            name="Fzf C/C++ symbol usages",
+            extra_description="Interactively search symbol usages (function calls, references, etc.) using fzf",
+            args={
+                ARG_DISPLAY_NAME: "Fzf C/C++ symbol usages (function calls, references, etc.)",
+                ARG_SEARCH_MODE: SEARCH_MODE_SYMBOL,
+                ARG_PATTERN_KEYS: usage_pattern_keys,
+                ARG_FILE_EXTS: C_CPP_EXTS,
+                ARG_PATH_LONG: f"{get_cwd_path_str()}",
+            },
+            should_run_now=True,
+        ),
+        ToolTemplate(
+            name="Fzf file name",
+            extra_description="Interactively search for files by name using fd and fzf.",
+            args={
+                ARG_DISPLAY_NAME: "Fzf file name",
+                ARG_SEARCH_MODE: SEARCH_MODE_FILE,
+                ARG_PATH_LONG: f"{get_cwd_path_str()}",
+            },
+            should_run_now=True,
+        ),
+    ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
+
 def _get_pattern_specs() -> List[PatternSpec]:
     global _pattern_specs_cache
     if _pattern_specs_cache is None:
@@ -541,66 +597,11 @@ def get_ordered_patterns(pattern_keys: List[str]) -> List[Tuple[str, SearchPatte
     return resolved
 
 
-def get_tool_templates() -> List[ToolTemplate]:
-    """Generate examples for CLI help."""
-    definition_pattern_keys = _get_pattern_keys_by_group(PatternGroup.DEFINITION)
-    declaration_pattern_keys = _get_pattern_keys_by_group(PatternGroup.DECLARATION)
-    usage_pattern_keys = _get_pattern_keys_by_group(PatternGroup.USAGE)
-    return [
-        ToolTemplate(
-            name="Fzf C/C++ definitions",
-            extra_description="Interactively search definitions (functions, variables, etc.) using fzf",
-            args={
-                ARG_DISPLAY_NAME: "Fzf C/C++ definitions (functions, variables, etc.)",
-                ARG_SEARCH_MODE: SEARCH_MODE_SYMBOL,
-                ARG_PATTERN_KEYS: definition_pattern_keys,
-                ARG_FILE_EXTS: C_CPP_EXTS,
-                ARG_PATH_LONG: f"{get_cwd_path_str()}",
-            },
-            should_run_now=True,
-        ),
-        ToolTemplate(
-            name="Fzf C/C++ declarations",
-            extra_description="Interactively search function declarations/prototypes using fzf",
-            args={
-                ARG_DISPLAY_NAME: "Fzf C/C++ declarations (function prototypes)",
-                ARG_SEARCH_MODE: SEARCH_MODE_SYMBOL,
-                ARG_PATTERN_KEYS: declaration_pattern_keys,
-                ARG_FILE_EXTS: C_CPP_EXTS,
-                ARG_PATH_LONG: f"{get_cwd_path_str()}",
-            },
-            should_run_now=True,
-        ),
-        ToolTemplate(
-            name="Fzf C/C++ symbol usages",
-            extra_description="Interactively search symbol usages (function calls, references, etc.) using fzf",
-            args={
-                ARG_DISPLAY_NAME: "Fzf C/C++ symbol usages (function calls, references, etc.)",
-                ARG_SEARCH_MODE: SEARCH_MODE_SYMBOL,
-                ARG_PATTERN_KEYS: usage_pattern_keys,
-                ARG_FILE_EXTS: C_CPP_EXTS,
-                ARG_PATH_LONG: f"{get_cwd_path_str()}",
-            },
-            should_run_now=True,
-        ),
-        ToolTemplate(
-            name="Fzf file name",
-            extra_description="Interactively search for files by name using fd and fzf.",
-            args={
-                ARG_DISPLAY_NAME: "Fzf file name",
-                ARG_SEARCH_MODE: SEARCH_MODE_FILE,
-                ARG_PATH_LONG: f"{get_cwd_path_str()}",
-            },
-            should_run_now=True,
-        ),
-    ]
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate ripgrep/fd command templates for code search",
         formatter_class=argparse.RawTextHelpFormatter,
-        epilog=build_examples_epilog(getToolData().tool_template, Path(__file__)),
+        epilog=build_examples_epilog(getToolData().get_tool_templates(), Path(__file__)),
     )
 
     parser.add_argument(ARG_DISPLAY_NAME, default="", help="Display name for the interactive command header.")
@@ -624,9 +625,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
 
 def main() -> None:
     args = parse_args()

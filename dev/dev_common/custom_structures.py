@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 from typing import Callable, Dict, List, Any, Optional, Union
+from enum import IntEnum
 from dev.dev_common import *
 from dev.dev_common.constants import *
 
@@ -176,12 +177,31 @@ class ToolTemplate:
 
 @dataclass
 class ToolData:
-    priority_number: int # Higher priority number means the tool will be placed lower in the list, default to 999 for backward compatibility
-    tool_template: List[ToolTemplate]
+    tool_priority: "EToolPriority"
+    hidden: bool
+    tool_templates: List[ToolTemplate]
 
-    def __init__(self, tool_template: List[ToolTemplate], priority_number: int = 999):
-        self.tool_template = tool_template
-        self.priority_number = priority_number
+    def __init__(self, tool_templates: List[ToolTemplate], tool_priority: "EToolPriority", hidden: bool):
+        self.tool_templates = tool_templates
+        self.tool_priority = tool_priority
+        self.hidden = hidden
+
+    def get_tool_templates(self) -> List[ToolTemplate]:
+        return self.tool_templates
+
+
+class EToolPriority(IntEnum):
+    Level0_First = 0
+    Level1 = 1
+    Level2 = 2
+    Level3 = 3
+    Level4 = 4
+    Level5 = 5
+    Level6 = 6
+    Level7 = 7
+    Level8 = 8
+    Level9 = 9
+    Level10_Last = 10
 
 @dataclass(frozen=True)
 class ForwardedTool:
@@ -195,5 +215,5 @@ class ForwardedTool:
     def get_templates_list(self) -> List[ToolTemplate]:
         templates = self.get_templates()
         if isinstance(templates, ToolData):
-            return templates.tool_template
+            return templates.tool_templates
         return templates

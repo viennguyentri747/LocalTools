@@ -15,7 +15,7 @@ from dev.dev_common import *
 POWGPS_MESSAGE_TYPE = "POWGPS"
 POWTLV_MESSAGE_TYPE = "POWTLV"
 DEFAULT_REFERENCE_TYPES = ["GNZDA", "GXZDA", "GPZDA"]
-DEFAULT_POW_LOG_PATH = LOCAL_TOOL_TEMP_PATH / "live_logs" / "ttymxc0_56.log"
+DEFAULT_POW_LOG_PATH = get_temp_path(ETargetPlatform.WINDOWS) / "live_logs" / "ttymxc0_56.log"
 
 DEFAULT_EXPECTED_POWGPS_SEC = 1.0
 DEFAULT_EXPECTED_POWTLV_SEC = 0.2
@@ -81,9 +81,10 @@ class ReferenceMessage:
     raw_payload: str
 
 
-def get_tool_templates() -> List[ToolTemplate]:
+def getToolData() -> ToolData:
     # Define reusable CLI template metadata for this validation tool.
-    return [
+    
+    tool_templates = [
         ToolTemplate(
             name="Comprehensive POW timing + GNZDA correlation check",
             extra_description="Validate POW cadence, POWGPS/POWTLV coherence, host offset stability, and reference UTC alignment.",
@@ -98,15 +99,12 @@ def get_tool_templates() -> List[ToolTemplate]:
                 ARG_MAX_POWGPS_REF_UTC_DRIFT_SEC: DEFAULT_MAX_POWGPS_REF_UTC_DRIFT_SEC,
                 ARG_MAX_POWGPS_REF_HOST_DELTA_SEC: DEFAULT_MAX_POWGPS_REF_HOST_DELTA_SEC,
             },
-            search_root=LOCAL_TOOL_TEMP_PATH / "live_logs",
+            search_root=get_temp_path(ETargetPlatform.WINDOWS) / "live_logs",
             usage_note="Use --reference_types GNZDA when GNZDA is present in the same log.",
         ),
     ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
 
-
-def getToolData() -> ToolData:
-    # Expose tool metadata in the common wrapper format.
-    return ToolData(tool_template=get_tool_templates())
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
@@ -115,7 +113,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         description="Run comprehensive POW timing validation and optional correlation with reference ZDA sentences.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
     parser.add_argument(ARG_LOG_PATHS, nargs="+", type=Path, required=True, help="One or more local log files to scan.")
     parser.add_argument(ARG_REFERENCE_TYPES, nargs="+", default=list(DEFAULT_REFERENCE_TYPES),
                         help="Reference sentence types for UTC correlation (e.g. GNZDA GXZDA).")

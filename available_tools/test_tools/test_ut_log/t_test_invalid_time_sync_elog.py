@@ -19,9 +19,10 @@ ARG_PATTERNS = f"{ARGUMENT_LONG_PREFIX}patterns"
 WIN_CMD_INVOCATION = get_win_python_runner_cmd_invocation("available_tools.test_tools.test_ut_log.t_test_invalid_time_sync_elog")
 
 
-def get_tool_templates() -> List[ToolTemplate]:
+def getToolData() -> ToolData:
     sample_log_path = ACU_LOG_PATH / "192.168.100.57" / "E_20260216_000000.txt"
-    return [
+    
+    tool_templates = [
         ToolTemplate(
             name="Check invalid time sync in E-log files",
             extra_description="Validate invalid-time-sync patterns in downloaded E-log files.",
@@ -30,6 +31,8 @@ def get_tool_templates() -> List[ToolTemplate]:
             override_cmd_invocation=WIN_CMD_INVOCATION,
         ),
     ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
+
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
@@ -37,7 +40,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         description="Check invalid-time-sync patterns in local E-log files.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
     parser.add_argument(ARG_ELOG_PATHS, nargs="+", type=Path, required=True, help="One or more local E-log files to scan.")
     parser.add_argument(ARG_PATTERNS, nargs="+", default=list(DEFAULT_INVALID_TIME_SYNC_PATTERNS), help="Pattern(s) to scan in the E-log files.")
     return parser.parse_args(argv)
@@ -65,10 +68,6 @@ class InvalidTimeSyncElogTest(TestLogInterface):
         if not elog_paths:
             LOG_EXCEPTION(ValueError("No E-log files found for invalid-time-sync test."), exit=True)
         run_invalid_time_sync_elog_test(elog_paths=elog_paths, patterns=DEFAULT_INVALID_TIME_SYNC_PATTERNS)
-
-
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:

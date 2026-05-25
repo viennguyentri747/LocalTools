@@ -60,12 +60,12 @@ def get_tool_templates() -> List[ToolTemplate]:
 
 
 def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
+    return ToolData(tool_templates=get_tool_templates())
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="ESA1W-7312 TOD sync test helper: capture logs, wait for KIM/FTM complete, then reboot and repeat.", formatter_class=argparse.RawTextHelpFormatter)
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().tool_templates, Path(__file__))
     parser.add_argument(ARG_TARGET_IP, required=True, help="UT jump-host IP. Accepts full IP or last octet (e.g. 57).")
     parser.add_argument(ARG_ACU_IP, default=ACU_IP, help=f"ACU IP (default: {ACU_IP}).")
     parser.add_argument(ARG_TAIL_LINES, type=int, default=0, help="Initial lines before follow.")

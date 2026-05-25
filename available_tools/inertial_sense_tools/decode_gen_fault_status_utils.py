@@ -54,7 +54,7 @@ class GeneralFaultCode(IntFlag):
     GNSS_GENERAL_FAULT = _get("GFC_GNSS_GENERAL_FAULT")
 
 
-LOG(f"[IESA] Parsed enum {ENUM_GEN_FAULT_CODES}")
+LOG(f"[IESA] Parsed enum {ENUM_GEN_FAULT_CODES}", log_type=ELogType.DEBUG)
 LOG(
     f"{ {k: hex(v) if isinstance(v, int) else v for k, v in _GEN_FAULT_VALUES.items()} }",
     log_type=ELogType.DEBUG,

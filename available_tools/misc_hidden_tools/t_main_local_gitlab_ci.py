@@ -14,8 +14,8 @@ from dev.dev_common.tools_utils import ToolTemplate
 ARG_GL_YML_FILE_PATH = f"{ARGUMENT_LONG_PREFIX}gl_yml_file_path"
 
 
-def get_tool_templates() -> List[ToolTemplate]:
-    return [
+def getToolData() -> ToolData:
+    tool_templates = [
         ToolTemplate(
             name="Process GitLab CI",
             extra_description="Process .gitlab-ci.yml for local execution",
@@ -24,16 +24,15 @@ def get_tool_templates() -> List[ToolTemplate]:
             }
         ),
     ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
 
 
 
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
 
 def main():
     parser = argparse.ArgumentParser(description="Process .gitlab-ci.yml for local execution.")
     parser.formatter_class = argparse.RawTextHelpFormatter
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
 
     parser.add_argument(ARG_PATH_SHORT, ARG_GL_YML_FILE_PATH,
                         help="Path to the source .gitlab-ci.yml file", required=True)

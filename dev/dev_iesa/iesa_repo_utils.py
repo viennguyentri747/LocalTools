@@ -14,10 +14,11 @@ from dev.dev_common.core_independent_utils import LOG, ELogType
 _DEFAULT_HEADER_PATTERN = INSENSE_SDK_REPO_PATH / "InsenseSDK" / "inertial-sense*" / "src" / "data_sets.h"
 
 
+# Cache latest resolved data_sets.h path for this process; avoids repeated glob/version scans.
+@lru_cache(maxsize=1)
 def get_path_to_inertial_sense_data_set_header() -> Path:
     """
     Return the path to the Inertial Sense SDK data_sets.h header.
-
     The SDK folder name contains the version (for example inertial-sense-sdk-2.6.0).
     We choose the highest version number available to stay resilient across SDK upgrades.
     """
@@ -26,7 +27,7 @@ def get_path_to_inertial_sense_data_set_header() -> Path:
         raise FileNotFoundError(f"Unable to find data_sets.h using pattern: {_DEFAULT_HEADER_PATTERN}")
 
     selected = _pick_latest_sdk_header(matches)
-    LOG(f"[IESA] Using Inertial Sense data_sets.h at: {selected}")
+    LOG(f"[IESA] Using Inertial Sense data_sets.h at: {selected}", log_type=ELogType.DEBUG)
     return selected
 
 
@@ -49,8 +50,7 @@ def _pick_latest_sdk_header(candidates: Iterable[Path]) -> Path:
     return best_path
 
 
-@lru_cache(maxsize=None)
-def get_enum_declaration_from_path(enum_name: str, header_path: Path | None = None) -> Dict[str, int]:
+def get_enum_declaration_from_path(enum_name: str, header_path: Path | str | None = None) -> Dict[str, int]:
     """
     Parse the provided enum from data_sets.h and return a mapping of {name: value}.
 
@@ -58,7 +58,14 @@ def get_enum_declaration_from_path(enum_name: str, header_path: Path | None = No
     that reference other names within the same enum.
     """
     header = Path(header_path) if header_path else get_path_to_inertial_sense_data_set_header()
-    content = header.read_text()
+    return _get_enum_declaration_cached(enum_name, str(header.resolve()))
+
+
+# Unbounded cache keyed by (enum_name, resolved_header_path).
+# Fast for repeated enum lookups, but stale until process restart if header content changes.
+@lru_cache(maxsize=None)
+def _get_enum_declaration_cached(enum_name: str, header_path: str) -> Dict[str, int]:
+    content = _read_header_text_cached(header_path)
     body = _extract_enum_body(content, enum_name)
 
     values: Dict[str, int] = {}
@@ -70,9 +77,15 @@ def get_enum_declaration_from_path(enum_name: str, header_path: Path | None = No
             raise ValueError(f"Failed to evaluate expression '{expr}' for {name} in {enum_name}") from exc
         values[name] = value
         LOG(f"[IESA] Finish evaluating expression '{expr}' for {name} in {enum_name} -> Result: {value}", log_type=ELogType.DEBUG)
-    LOG(f"[IESA] Parsed enum {enum_name} ({len(values)} entries)")
+    LOG(f"[IESA] Parsed enum {enum_name} ({len(values)} entries)", log_type=ELogType.DEBUG)
     LOG(f"{ {k: hex(v) if v > 9 else v for k, v in values.items()} }", log_type=ELogType.DEBUG)
     return values
+
+
+# Unbounded cache of header file text by absolute path.
+@lru_cache(maxsize=None)
+def _read_header_text_cached(header_path: str) -> str:
+    return Path(header_path).read_text()
 
 
 def _extract_enum_body(content: str, enum_name: str) -> str:

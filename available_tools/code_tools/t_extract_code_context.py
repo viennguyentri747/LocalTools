@@ -16,30 +16,32 @@ FORWARDED_TOOLS: Dict[str, ForwardedTool] = {
         mode=EXTRACT_MODE_PATHS,
         description="Extract context archives from explicit filesystem paths.",
         main=main_paths,
-        get_templates=lambda: ToolData(tool_template=get_paths_tool_templates()),
+        get_templates=lambda: ToolData(tool_templates=get_paths_tool_templates(), tool_priority=EToolPriority.Level10_Last, hidden=False),
     ),
     EXTRACT_MODE_GIT_DIFF: ForwardedTool(
         mode=EXTRACT_MODE_GIT_DIFF,
         description="Generate context from a git diff between two refs.",
         main=main_git_diff,
-        get_templates=lambda: ToolData(tool_template=get_diff_tool_templates()),
+        get_templates=lambda: ToolData(tool_templates=get_diff_tool_templates(), tool_priority=EToolPriority.Level10_Last, hidden=False),
     ),
     EXTRACT_MODE_GIT_MR: ForwardedTool(
         mode=EXTRACT_MODE_GIT_MR,
         description="Fetch merge-request metadata and context from GitLab.",
         main=main_git_mr,
-        get_templates=lambda: ToolData(tool_template=get_mr_tool_templates()),
+        get_templates=lambda: ToolData(tool_templates=get_mr_tool_templates(), tool_priority=EToolPriority.Level10_Last, hidden=False),
     ),
 }
 
 
-def get_tool_templates() -> List[ToolTemplate]:
+def getToolData() -> ToolData:
     """Aggregate templates from each forwarded extraction mode."""
     aggregated_templates: List[ToolTemplate] = []
     for mode, tool in FORWARDED_TOOLS.items():
         aggregated_templates.extend([template.clone_with_args({ARG_EXTRACT_MODE: mode}) for template in tool.get_templates_list()])
 
-    return aggregated_templates
+    tool_templates = aggregated_templates
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
+
 
 
 def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
@@ -140,7 +142,7 @@ def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
         help="Include changed file contents in the output (true or false). Defaults to true.",
     )
 
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
 
     return parser.parse_args(argv)
 
@@ -173,9 +175,6 @@ def _run_forwarded_tool(forwarded_tool: ForwardedTool, args: argparse.Namespace)
     forwarded_tool.main(args)
 
 
-
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
 
 def main(argv: List[str] | None = None) -> None:
     args = parse_args(argv)

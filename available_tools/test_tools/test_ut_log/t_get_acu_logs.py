@@ -12,7 +12,7 @@ from available_tools.test_tools.common import *
 from dev.dev_common import *
 
 DEFAULT_LOG_TYPE_PREFIXES = [P_LOG_PREFIX, E_LOG_PREFIX]
-ACU_LOG_PATH = get_win_persistent_temp_path() / "acu_logs"
+ACU_LOG_PATH = get_temp_path(ETargetPlatform.WINDOWS) / "acu_logs"
 DEFAULT_LOG_OUTPUT_PATH = ACU_LOG_PATH
 LOCAL_LOG_WRAPPER_CMD = f"{Path(__file__).resolve().parents[1] / 't_test_logs_from_local.py'} --mode get_acu_logs"
 ARG_LOG_TYPES = f"{ARGUMENT_LONG_PREFIX}type"
@@ -27,8 +27,8 @@ DEFAULT_DATE_VALUES = [
     for days_to_cut in range(DEFAULT_EXTRA_DAYS + 1) # Starts at 0 (for today), ends at DEFAULT_EXTRA_DAYS (for old days)
 ]
 
-def get_tool_templates() -> List[ToolTemplate]:
-    return [
+def getToolData() -> ToolData:
+    tool_templates = [
         ToolTemplate(
             name="Get ACU Logs",
             extra_description="Copy flash log files from remote",
@@ -41,6 +41,8 @@ def get_tool_templates() -> List[ToolTemplate]:
             override_cmd_invocation=LOCAL_LOG_WRAPPER_CMD,
         ),
     ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level0_First, hidden=False)
+
 
 
 def parse_args() -> argparse.Namespace:
@@ -49,7 +51,7 @@ def parse_args() -> argparse.Namespace:
         description="Pull flash log files via SSH jump hosts.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
     parser.add_argument(
         ARG_LOG_TYPES,
         nargs='+',
@@ -314,9 +316,6 @@ def _format_missing_text(summary: IpFetchSummary, has_date_filters: bool) -> str
     return "None"
 
 
-
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates(), priority_number=0)
 
 def main() -> None:
     args = parse_args()

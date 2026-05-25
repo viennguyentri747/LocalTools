@@ -11,10 +11,11 @@ from dev.dev_common.gitlab_utils import get_gl_project, is_gl_ref_exists
 from dev.dev_common.tools_utils import display_content_to_copy
 
 
-def get_tool_templates() -> List[ToolTemplate]:
+def getToolData() -> ToolData:
     """Provide starter examples for CLI help output."""
     default_repo = IESA_OW_SW_TOOLS_REPO_NAME
-    return [
+    
+    tool_templates = [
         ToolTemplate(
             name="Create GitLab MR content for target branch",
             extra_description=f"{NOTE_AVAILABLE_LOCAL_REPO_NAMES}",
@@ -26,6 +27,8 @@ def get_tool_templates() -> List[ToolTemplate]:
             },
         )
     ]
+    return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
+
 
 
 def extract_ticket_tag(branch_name: str) -> Optional[str]:
@@ -59,8 +62,9 @@ def create_mr_content(
 
 
 def ensure_temp_directory() -> Path:
-    LOCAL_TOOL_TEMP_PATH.mkdir(parents=True, exist_ok=True)
-    return LOCAL_TOOL_TEMP_PATH
+    temp_path = get_temp_path(ETargetPlatform.WINDOWS)
+    temp_path.mkdir(parents=True, exist_ok=True)
+    return temp_path
 
 
 def write_markdown_file(content: str, repo_name: str, ticket_tag: Optional[str], source_branch: str) -> Path:
@@ -73,14 +77,11 @@ def write_markdown_file(content: str, repo_name: str, ticket_tag: Optional[str],
 
 
 
-def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
-
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Generate GitLab MR metadata and create the MR automatically.",
         formatter_class=argparse.RawTextHelpFormatter,
-        epilog=build_examples_epilog(getToolData().tool_template, Path(__file__))
+        epilog=build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
     )
 
     parser.add_argument(ARG_REPO_NAME, required=False, help="Repository name as defined in local mapping.")

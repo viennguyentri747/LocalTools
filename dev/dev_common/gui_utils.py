@@ -258,6 +258,11 @@ def _interactive_menu_selector(stdscr: "curses._CursesWindow", option_data: List
     curses.curs_set(0)
     stdscr.keypad(True)
     curses.use_default_colors()
+    # Drop any keys typed during pre-menu loading to avoid accidental ESC/cancel.
+    try:
+        curses.flushinp()
+    except Exception:
+        pass
 
     # Get initial terminal dimensions
     height, width = stdscr.getmaxyx()

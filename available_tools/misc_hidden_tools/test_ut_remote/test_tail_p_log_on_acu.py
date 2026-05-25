@@ -119,14 +119,14 @@ def build_tail_command(log_glob: str, lines_per_header: int, columns: Sequence[s
 
 
 def getToolData() -> ToolData:
-    return ToolData(tool_template=get_tool_templates())
+    return ToolData(tool_templates=get_tool_templates(), tool_priority=EToolPriority.Level10_Last, hidden=False)
 
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Show (and optionally run) a tail+awk command that streams selected P-log columns on a UT.",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.epilog = build_examples_epilog(getToolData().tool_template, Path(__file__))
+    parser.epilog = build_examples_epilog(getToolData().get_tool_templates(), Path(__file__))
 
     parser.add_argument(
         ARG_COLUMN_LIST,

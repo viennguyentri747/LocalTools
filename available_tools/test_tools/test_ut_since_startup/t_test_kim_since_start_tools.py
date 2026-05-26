@@ -15,9 +15,11 @@ from available_tools.test_tools.test_ut_log.t_get_ut_live_log import ELogStreamM
 from available_tools.test_tools.test_ut_log.t_get_acu_logs import DEFAULT_LOG_OUTPUT_PATH
 from available_tools.test_tools.test_ut_log.t_test_ins_status_ins_monitor_log import (
     InsStatusData,
+    build_decoded_entries,
     compute_ins_message_time_diff_stats,
     group_consecutive_status_spans,
     parse_ins_status_data_from_line,
+    print_progression_summary,
     print_ins_messages_time_diff_stats,
     print_status_span_report,
     read_lines,
@@ -92,13 +94,14 @@ def analyze_ins_status_file(log_path: Path) -> int:
     lines: List[str] = []
     for log_path in log_paths:
         lines.extend(read_lines(str(log_path)))
-    status_entries: List[InsStatusData] = [entry for line in lines if (entry := parse_ins_status_data_from_line(line)) is not None]
+    status_entries: List[InsStatusData] = [entry for idx, line in enumerate(lines, 1) if (entry := parse_ins_status_data_from_line(line, idx)) is not None]
     if not status_entries:
         LOG("No INS1Msg lines found in input.")
         return 0
     LOG(f"Parsed {len(status_entries)} INS1Msg lines from {len(lines)} input lines across {len(log_paths)} capture file(s).")
     print()
     print_ins_messages_time_diff_stats(compute_ins_message_time_diff_stats(status_entries))
+    print_progression_summary(build_decoded_entries(status_entries))
     status_spans = group_consecutive_status_spans(status_entries)
     LOG("=== Status Changes Summary ===")
     print_status_span_report(status_spans)

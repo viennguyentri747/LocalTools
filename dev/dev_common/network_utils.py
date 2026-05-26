@@ -9,6 +9,7 @@ import re
 import shlex
 import stat
 import time
+import socket
 import subprocess
 import sys
 import select
@@ -132,6 +133,18 @@ def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_pa
         for raw_line in decoded.splitlines():
             saw_first = _emit_line(raw_line, saw_first)
         return saw_first
+    def _sleep_with_stop(seconds: float) -> None:
+        if seconds <= 0:
+            return
+        if not stop_event:
+            time.sleep(seconds)
+            return
+        deadline = time.time() + seconds
+        while not stop_event.is_set():
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                return
+            time.sleep(min(0.2, remaining))
     reconnect_attempt = 0
     while not (stop_event and stop_event.is_set()):
         target_client = None
@@ -150,12 +163,31 @@ def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_pa
                 host_ip=host_ip, user=user, password=password, timeout=connect_timeout,
                 jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=jump_password)
             _, stdout, stderr = target_client.exec_command(remote_cmd)
-            channel_read_timeout = 1.0
-            stdout.channel.settimeout(channel_read_timeout)
+            channel = stdout.channel
+            channel.settimeout(1.0)
            
             while not (stop_event and stop_event.is_set()):
-                if target_client.get_transport() is None or not target_client.get_transport().is_active():
+                transport = target_client.get_transport()
+                if transport is None or not transport.is_active():
                     raise ConnectionError(f"SSH connection lost for {host_ip}")
+                if channel.closed or channel.eof_received:
+                    raise ConnectionError(f"SSH channel closed while streaming '{remote_log_path}' from {host_ip}")
+                if channel.recv_ready():
+                    try:
+                        raw = channel.recv(4096)
+                    except (TimeoutError, socket.timeout):
+                        raw = b""
+                    if raw == b"":
+                        raise ConnectionError(f"SSH channel returned EOF while streaming '{remote_log_path}' from {host_ip}")
+                    saw_first_log = _emit_decoded_lines(raw.decode("utf-8", errors="replace"), saw_first_log)
+                    last_output_time = time.time()
+                    reconnect_attempt = 0
+                    continue
+                if channel.exit_status_ready():
+                    stderr_text = stderr.read().decode('utf-8', errors='replace').strip() if stderr else ""
+                    if stderr_text:
+                        raise RuntimeError(stderr_text)
+                    return  # Clean exit — remote process ended normally, no retry
                 if not saw_first_log:
                     elapsed_seconds = int(time.time() - waiting_start_time)
                     if elapsed_seconds != waiting_last_second:
@@ -164,42 +196,9 @@ def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_pa
                         waiting_last_text_len = max(waiting_last_text_len, len(waiting_text))
                         LOG(f"{waiting_text}{' ' * (waiting_last_text_len - len(waiting_text))}", same_line=True, show_time=True)
                         waiting_last_second = elapsed_seconds
-                try:
-                    line = stdout.readline()
-                except UnicodeDecodeError:
-                    # Fallback to raw channel bytes so a single bad byte does not force SSH reconnect.
-                    try:
-                        raw = stdout.channel.recv(4096)
-                    except Exception:
-                        raw = b""
-                    if raw:
-                        LOG(f"Received non-UTF8 bytes from '{remote_log_path}'. Decoding with replacement...")
-                        saw_first_log = _emit_decoded_lines(raw.decode("utf-8", errors="replace"), saw_first_log)
-                        last_output_time = time.time()
-                        reconnect_attempt = 0
-                        continue
-                    raise
-                except TimeoutError:
-                    if is_device:
-                        last_output_time = time.time()
-                        continue
-                    if read_timeout > 0 and time.time() - last_output_time >= read_timeout:
-                        raise TimeoutError(f"No data received from '{remote_log_path}' for {read_timeout} seconds")
-                    continue
-                if line:
-                    saw_first_log = _emit_line(line, saw_first_log)
-                    last_output_time = time.time()
-                    reconnect_attempt = 0
-                    continue
-                if stdout.channel.exit_status_ready():
-                    stderr_text = stderr.read().decode('utf-8', errors='replace').strip() if stderr else ""
-                    if stderr_text:
-                        raise RuntimeError(stderr_text)
-                    return  # Clean exit — remote process ended normally, no retry
-                remain_secs = read_timeout - (time.time() - last_output_time)
-                if not is_device and read_timeout > 0 and remain_secs < 0:
+                if not is_device and read_timeout > 0 and (time.time() - last_output_time) >= read_timeout:
                     raise TimeoutError(f"No data received from '{remote_log_path}' for {read_timeout} seconds")
-                time.sleep(max(0.01, poll_interval))
+                _sleep_with_stop(max(0.01, poll_interval))
 
         except Exception as e:
             if stop_event and stop_event.is_set():
@@ -208,7 +207,7 @@ def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_pa
             exp = min(6, reconnect_attempt - 1)
             backoff_secs = min(60.0, float(retry_interval) * (2 ** exp)) + random.uniform(0.0, 1.5)
             LOG(f"[get_live_remote_log] Error ({type(e).__name__}: {e}) — retrying in {backoff_secs:.1f}s (attempt {reconnect_attempt})...", show_time=True)
-            time.sleep(backoff_secs)
+            _sleep_with_stop(backoff_secs)
 
         finally:
             if stdout:

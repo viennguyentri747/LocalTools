@@ -4,6 +4,7 @@ import sys
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from available_tools.inertial_sense_tools.decode_ins_status_utils import (
+    GpsNavFixStatus,
     InsStatus,
     decode_ins_status,
     INS_STATUS_GPS_AIDING_POS,
@@ -14,6 +15,7 @@ from available_tools.inertial_sense_tools.decode_ins_status_utils import (
     INS_STATUS_SOLUTION_NAV,
     INS_STATUS_SOLUTION_OFFSET,
     INS_STATUS_SOLUTION_MASK,
+    SolutionStatus,
 )
 
 
@@ -35,11 +37,12 @@ def test_decode_ins_status_creates_object():
 
     assert isinstance(decoded, InsStatus)
     assert decoded.raw_value == status_val
-    assert decoded.solution_status == "Nav"
-    assert decoded.aiding_status["GPS Aiding Position"]
-    assert decoded.aiding_status["GPS Aiding Velocity"]
-    assert decoded.operational_mode["Navigation Mode"]
-    assert decoded.rtk_status["Raw GPS Data Error"]
+    assert decoded.solution_status == SolutionStatus.NAV
+    assert decoded.gps_fix == GpsNavFixStatus.NONE
+    assert decoded.aiding_status.gps_aiding_position
+    assert decoded.aiding_status.gps_aiding_velocity
+    assert decoded.operational_mode.navigation_mode
+    assert decoded.rtk_status.raw_gps_data_error
     assert decoded.kinematic_calibration_good
     assert "INS Status" in str(decoded)
 

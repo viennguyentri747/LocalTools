@@ -25,9 +25,9 @@ def test_decode_gps_hdw_status_creates_structured_object():
 
     assert isinstance(decoded, GpsHardwareStatus)
     assert decoded.raw_value == status_val
-    assert decoded.receiver_state["GNSS1 satellite signals received"]
-    assert decoded.receiver_state["GNSS2 satellite signals received"]
-    assert decoded.reset_counts["GNSS1 reset count"] == 3
-    assert decoded.pps_and_timing["GPS PPS time-synchronized"]
-    assert decoded.pps_and_timing["No GPS1 PPS signal"]
+    assert decoded.receiver_state.gnss1_satellite_rx
+    assert decoded.receiver_state.gnss2_satellite_rx
+    assert decoded.reset_counts.gnss1_reset_count == 3
+    assert decoded.pps_and_timing.gps_pps_timesync
+    assert decoded.pps_and_timing.no_gps1_pps_signal
     assert "GPS Hardware Status" in str(decoded)

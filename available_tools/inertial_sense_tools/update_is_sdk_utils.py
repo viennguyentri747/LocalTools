@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 import shutil
 import subprocess
 import zipfile
@@ -209,16 +210,28 @@ def modify_sdk_cmake_files(new_sdk_version: str, new_sdk_path: Path) -> None:
     git_stage_and_commit(INSENSE_SDK_REPO_PATH, "Update CMakeLists.txt files", show_diff=True, suppress_output=True)
 
 
-def cleanup_old_sdks(install_dir: Path, new_sdk_dir_name: str) -> None:
+def cleanup_old_sdks(install_dir: Path, new_sdk_dir_name: str, is_manual: bool = False) -> None:
     LOG("🧹 Cleaning up old SDK versions...")
+    manual_cmds: list[str] = []
     for item in install_dir.glob("inertial-sense-sdk-*"):
         if item.is_dir() and item.name != new_sdk_dir_name:
+            rm_cmd = f"rm -rf {shlex.quote(str(item))}"
+            if is_manual:
+                LOG(f"   -> Manual cleanup command for old SDK: {item.name}")
+                manual_cmds.append(rm_cmd)
+                continue
             LOG(f"   -> Removing old SDK: {item.name}")
             try:
                 shutil.rmtree(item)
             except Exception as exc:
                 LOG(f"❌ ERROR: Failed to remove '{item.name}': {exc}")
+                manual_cmds.append(rm_cmd)
+    if manual_cmds:
+        display_content_to_copy("\n".join(manual_cmds), purpose="manually remove old SDK directories")
     LOG("   -> Cleanup complete.")
+    if is_manual:
+        LOG("   -> Manual cleanup mode enabled, skipping git commit.")
+        return
     git_stage_and_commit(INSENSE_SDK_REPO_PATH, "Cleanup old SDKs", suppress_output=True)
 
 
@@ -296,7 +309,7 @@ def _finalize_sdk_update_from_zip(*, sdk_zip_path: Path, version: str,
     git_stage_and_commit(repo_path, f"Unzip new SDK {version}", suppress_output=True)
     integrate_libusb(new_sdk_path)
     modify_sdk_cmake_files(version, new_sdk_path)
-    cleanup_old_sdks(INSENSE_SDK_UNPACK_DIR, new_sdk_dir_name)
+    cleanup_old_sdks(INSENSE_SDK_UNPACK_DIR, new_sdk_dir_name, is_manual=True)
     LOG("\n🎉 SDK update process finished successfully!")
     apply_is_sdk_patch(SDK_REMOVE_DEFINE_DEBUG_PATCH_PATH, new_sdk_path)
     apply_is_sdk_patch(SDK_SIGNAL_HANDLER_PATCH_PATH, new_sdk_path)
@@ -396,6 +409,26 @@ def _extract_patch_paths(patch_text: str) -> list[str]:
     return sorted(paths)
 
 
+def display_patch_to_manual_apply(*, patch_path: Path, file_paths_to_apply_patch: list[str], apply_stderr: str = "") -> None:
+    target_files_text = "\n".join(f"# - {path}" for path in file_paths_to_apply_patch) if file_paths_to_apply_patch else "# - <unknown>"
+    manual_cmd = (
+        f"cd {INSENSE_SDK_REPO_PATH}\n"
+        f"# Original patch file (edit this patch manually for current SDK layout):\n"
+        f"# {patch_path}\n"
+        f"# Target file path(s) to patch:\n"
+        f"{target_files_text}\n"
+        f"git apply --index \"{patch_path}\""
+    )
+    if apply_stderr.strip():
+        LOG(f"git apply stderr: {apply_stderr.strip()}")
+    display_content_to_copy(
+        manual_cmd,
+        purpose="manually patch the SDK for this version",
+        is_copy_to_clipboard=False,
+        extra_prefix_descriptions="⚠️ Automatic patch application failed. Manual patch update is required for this SDK version.",
+    )
+
+
 def apply_is_sdk_patch(patch_path: Path, new_sdk_path: Optional[Path] = None) -> None:
     try:
         patch_path = Path(patch_path).expanduser()
@@ -404,6 +437,8 @@ def apply_is_sdk_patch(patch_path: Path, new_sdk_path: Optional[Path] = None) ->
             return
 
         patch_text = patch_path.read_text()
+        if patch_text and not patch_text.endswith("\n"):
+            patch_text += "\n"
         old_patch_rel_paths = _extract_patch_paths(patch_text)
         new_sdk_rel_path = _sdk_rel_path(new_sdk_path)
         path_map: dict[str, str] = {}
@@ -421,17 +456,32 @@ def apply_is_sdk_patch(patch_path: Path, new_sdk_path: Optional[Path] = None) ->
         else:
             LOG("⚠️ WARNING: No new SDK path provided; applying patch without path rewrite.")
 
-        LOG(f"Applying signal handler patch from '{patch_path}'...")
-        res_apply = subprocess.run([CMD_GIT, "apply", "--index", "-"], input=patch_text,
-                                   text=True, capture_output=True, cwd=INSENSE_SDK_REPO_PATH, )
+        LOG(f"Applying patch from '{patch_path}'...")
+        res_apply = run_shell([CMD_GIT, "apply", "--index", "-"], input=patch_text, text=True, capture_output=True,
+                              cwd=INSENSE_SDK_REPO_PATH, show_cmd=False, check_throw_exception_on_exit_code=False)
+        if res_apply.returncode != 0:
+            LOG("⚠️ WARNING: Strict patch apply failed. Retrying with permissive mode '--unidiff-zero'.")
+            res_apply = run_shell([CMD_GIT, "apply", "--index", "--unidiff-zero", "-"], input=patch_text,
+                                  text=True, capture_output=True, cwd=INSENSE_SDK_REPO_PATH, show_cmd=False,
+                                  check_throw_exception_on_exit_code=False)
+            if res_apply.returncode == 0:
+                LOG("⚠️ WARNING: Patch applied with permissive fallback (--unidiff-zero). Verify result carefully.")
         if res_apply.returncode != 0:
             LOG(f"Patch file: '{patch_path}'")
             rewritten_insense_patch_abs_paths = [str(INSENSE_SDK_REPO_PATH / path)
                                                  for path in rewritten_patch_rel_paths]
-            LOG(
-                f"❌ ERROR: Failed to automatically apply patch to 1 or more file(s): ")
+            LOG( f"❌ ERROR: Failed to automatically apply patch to 1 or more file(s): ")
             LOG(f"Patch is at: {patch_path}")
             LOG(f"File paths to apply patch: {', '.join(rewritten_insense_patch_abs_paths)}")
+            LOG("Patch content (shown because strict and permissive apply both failed):", show_time=False)
+            LOG_LINE_SEPARATOR()
+            LOG(patch_text, show_time=False)
+            LOG_LINE_SEPARATOR()
+            display_patch_to_manual_apply(
+                patch_path=patch_path,
+                file_paths_to_apply_patch=rewritten_insense_patch_abs_paths,
+                apply_stderr=res_apply.stderr,
+            )
             return
 
         if not git_has_staged_changes(INSENSE_SDK_REPO_PATH):
@@ -442,33 +492,12 @@ def apply_is_sdk_patch(patch_path: Path, new_sdk_path: Optional[Path] = None) ->
         LOG(f"Committing with subject: {subject}")
         run_shell([CMD_GIT, "commit", "-m", subject], check_throw_exception_on_exit_code=True,
                   cwd=INSENSE_SDK_REPO_PATH)
-        LOG("✅ Applied signal handler patch and committed successfully.")
+        LOG("✅ Applied patch and committed successfully.")
     except Exception as exc:
         LOG_EXCEPTION(exc, msg=f"Failed while applying patch '{patch_path}'", exit=False)
 
 
 # ─────────────────────────── Public entry point ─────────────────────── #
-
-
-def run_sdk_update_with_zip(sdk_zip_path: Path, *, no_prompt: bool = False, base_branch: Optional[str] = None) -> None:
-    global NO_PROMPT
-    sdk_zip_path = Path(sdk_zip_path).expanduser()
-    NO_PROMPT = no_prompt
-
-    if not sdk_zip_path.exists():
-        LOG(f"❌ FATAL: SDK zip file not found at '{sdk_zip_path}'")
-        return
-
-    version = extract_version_from_zip(sdk_zip_path)
-    if not version:
-        return
-    LOG(f"   -> Extracted version: {version}")
-
-    pre_setup_result = sdk_update_pre_setup(base_branch=base_branch, sdk_dir_suffix=version, target_branch_suffix=version)
-    if not pre_setup_result:
-        return
-    _finalize_sdk_update_from_zip(sdk_zip_path=sdk_zip_path, version=version, pre_setup_result=pre_setup_result)
-
 
 def run_sdk_update_with_ref_or_path(branch_or_tag_name: Optional[str] = None, *, sdk_zip_path: Optional[Path] = None,
                                       no_prompt: bool = False, base_branch: Optional[str] = None) -> None:
@@ -557,7 +586,7 @@ def run_sdk_update_with_branch_checkout(branch_name: str, *, base_branch: str, n
 
     integrate_libusb(new_sdk_path)
     modify_sdk_cmake_files(version, new_sdk_path)
-    cleanup_old_sdks(INSENSE_SDK_UNPACK_DIR, new_sdk_dir_name)
+    cleanup_old_sdks(INSENSE_SDK_UNPACK_DIR, new_sdk_dir_name, is_manual=True)
 
     LOG("\n🎉 SDK update process finished successfully!")
     apply_is_sdk_patch(SDK_REMOVE_DEFINE_DEBUG_PATCH_PATH, new_sdk_path)

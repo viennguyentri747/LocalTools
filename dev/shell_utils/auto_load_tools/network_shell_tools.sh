@@ -485,5 +485,9 @@ search_ip() {
     printf "Reachable IPs:\n%s\n" "${ips[@]}"
 }
 
+test_search_ip(){
+    search_ip
+}
+
 # unset ut_pass
 # unset NOTE_PERMANENT_COMMAND

@@ -17,7 +17,6 @@ from dev.dev_common import *
 from dev.dev_common.gitlab_utils import *
 from dev.dev_iesa import *
 import yaml
-import traceback
 
 from available_tools.iesa_tools.copy_to_ut_runner import MODE_BINARY_SHELL_CMD, MODE_IESA_PYTHON, MODE_IESA_SHELL_CMD, build_binary_post_copy_cmd_for_shell_echo
 from dev.dev_common.custom_structures import LOCAL_REPO_MAPPING
@@ -44,7 +43,7 @@ WIN_CMD_INVOCATION = get_win_python_runner_cmd_invocation("available_tools.iesa_
 IESA_TEST_DIFF_FILE_PREFIX = f"iesa_test_diff_"
 IESA_TEST_DIFF_FILE_SUFFIX = f".txt"
 IESA_METADATA_FILE = f"iesa_ow_build_metadata.json"
-TEMP_OW_BUILD_OUTPUT_PATH = get_temp_path(ETargetPlatform.WSL) / "ow_build_output/"
+TEMP_OW_BUILD_OUTPUT_PATH = get_temp_path(ETargetPlatform.WSL_OR_LINUX) / "ow_build_output/"
 MANIFEST_OUT_ARTIFACT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}manifest.xml"
 IESA_OUT_ARTIFACT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}build.iesa"
 PROG_LOG_OUT_PATH = TEMP_OW_BUILD_OUTPUT_PATH / f"{PREFIX_OW_BUILD_ARTIFACT}program_log.txt"
@@ -95,8 +94,8 @@ def getToolData() -> ToolData:
                 ARG_INTERACTIVE: False,
                 ARG_OW_BUILD_TYPE: BUILD_TYPE_IESA,
                 ARG_MANIFEST_SOURCE: MANIFEST_SOURCE_REMOTE,
-                ARG_BASE_REMOTE_MANIFEST_BRANCH: BRANCH_MANPACK_MASTER,
-                ARG_TISDK_REF: BRANCH_MANPACK_MASTER,
+                ARG_BASE_REMOTE_MANIFEST_BRANCH: BRANCH_AERO_MASTER,
+                ARG_TISDK_REF: BRANCH_AERO_MASTER,
                 ARG_MAKE_CLEAN: True,
                 ARG_IS_DEBUG_BUILD: True,
                 ARG_SHOW_BUILD_OUTPUT_STDOUT: False,
@@ -121,10 +120,10 @@ def main() -> None:
                         help="Build type (binary or iesa). Defaults to binary.")
     parser.add_argument(ARG_MANIFEST_SOURCE, choices=[MANIFEST_SOURCE_LOCAL, MANIFEST_SOURCE_REMOTE], default=MANIFEST_SOURCE_LOCAL,
                         help=F"Source for the manifest repository URL ({MANIFEST_SOURCE_LOCAL} or {MANIFEST_SOURCE_REMOTE}). Defaults to {MANIFEST_SOURCE_LOCAL}. Note that although it is local manifest, the source of sync is still remote so will need to push branch of dependent local repos specified in local manifest (not ow_sw_tools).")
-    parser.add_argument(ARG_BASE_REMOTE_MANIFEST_BRANCH, default=BRANCH_MANPACK_MASTER,
-                        help=f"Base branch to validate current OW branch against on remote '{DEFAULT_OW_GIT_REMOTE}'. Current OW branch must be ahead/descendant of this base branch. Ex: {BRANCH_MANPACK_MASTER}")
+    parser.add_argument(ARG_BASE_REMOTE_MANIFEST_BRANCH, default=BRANCH_AERO_MASTER,
+                        help=f"Base branch to validate current OW branch against on remote '{DEFAULT_OW_GIT_REMOTE}'. Current OW branch must be ahead/descendant of this base branch. Ex: {BRANCH_AERO_MASTER}")
     parser.add_argument(ARG_TISDK_REF, type=str, default=EMPTY_STR_VALUE,
-                        help=f"TISDK Ref for BSP (for creating .iesa). Ex: {BRANCH_MANPACK_MASTER}")
+                        help=f"TISDK Ref for BSP (for creating .iesa). Ex: {BRANCH_AERO_MASTER}")
     parser.add_argument(ARG_OVERWRITE_REPOS, nargs='*', default=[],
                         help="List of repository names to overwrite from local")
     parser.add_argument(ARG_INTERACTIVE_SHORT, ARG_INTERACTIVE, type=lambda x: x.lower() == TRUE_STR_VALUE, default=False,
@@ -196,7 +195,12 @@ def main() -> None:
         build_type, manifest_source, ow_manifest_branch, base_remote_manifest_branch, tisdk_ref, overwrite_repos,
         current_branch, tisdk_ref_from_ci_yml, use_local_git_repo=use_local_git_repo)
 
-    run_build(build_type, get_arg_value(args, ARG_INTERACTIVE), make_clean, is_debug_build, show_build_output_stdout)
+    try:
+        run_build(build_type, get_arg_value(args, ARG_INTERACTIVE), make_clean, is_debug_build, show_build_output_stdout)
+    except subprocess.CalledProcessError as error:
+        log_build_failure(build_type, f"{build_type.capitalize()} build failed (exit code {error.returncode}).")
+        show_noti(title="Build failed", message=f"{build_type.capitalize()} build failed. Check log: {BUILD_LOG_OUT_PATH}")
+        sys.exit(1)
     # Always display binary build finish + command to copy
     LOG(f"{MAIN_STEP_LOG_PREFIX} Binary build finished")
     LOG(f"Find output binary files in '{OW_SW_BUILD_BINARY_OUTPUT_PATH}'")
@@ -616,7 +620,7 @@ def get_tisdk_ref_from_ci_yml(file_path: str) -> Optional[str]:
 
 def init_and_sync_from_remote(manifest_repo_branch: str, manifest_source: str, use_current_ow_branch: bool, skip_repo_update=False, use_local_git_repo: bool = False) -> Path:
     LOG(f"{MAIN_STEP_LOG_PREFIX} Init and Sync repo at {OW_SW_BUILD_FOLDER_PATH}...")
-    repo_root_for_manifest = str(get_normalized_path(OW_SW_PATH, target_platform=ETargetPlatform.WSL))
+    repo_root_for_manifest = str(get_normalized_path(OW_SW_PATH, target_platform=ETargetPlatform.WSL_OR_LINUX))
     manifest_repo_url = get_manifest_repo_url(manifest_source, repo_root_for_manifest)
     
     os.environ['REPO_SKIP_UPDATE'] = '1' # Skip repo update
@@ -946,6 +950,12 @@ def append_iesa_build_log(*values: object) -> None:
         LOG(*values, file=log_file, show_time=True, highlight=False)
 
 
+def log_build_failure(build_type: str, message: str) -> None:
+    LOG(f"ERROR: {(build_type or 'build').capitalize()}: {message}\nPlease check build log ASAP: {BUILD_LOG_OUT_PATH}", file=sys.stderr, highlight=True)
+    append_build_log(f"ERROR: {(build_type or 'build').capitalize()}: {message}\nPlease check build log ASAP: {BUILD_LOG_OUT_PATH}")
+    append_iesa_build_log(f"ERROR: {(build_type or 'build').capitalize()}: {message}\nPlease check build log ASAP: {BUILD_LOG_OUT_PATH}")
+
+
 def run_shell_with_iesa_build_log(cmd: str, show_build_output_stdout: bool = False, spinner_message: Optional[str] = None) -> None:
     ensure_temp_build_output_dir()
     append_iesa_build_log(f"Running shell command: {cmd}")
@@ -953,13 +963,17 @@ def run_shell_with_iesa_build_log(cmd: str, show_build_output_stdout: bool = Fal
         quoted_log_path = shlex.quote(str(BUILD_LOG_OUT_PATH))
         run_shell(f"set -o pipefail; {cmd} 2>&1 | tee -a {quoted_log_path}")
         return
-    spinner_text = spinner_message
+    spinner_text = spinner_message or "Running shell command"
     LOG(f"{spinner_text}. Command logged at: {BUILD_LOG_OUT_PATH}", highlight=True)
     spinner = gui_elapsed_spinner(f"{spinner_text}. Log: {BUILD_LOG_OUT_PATH}")
     try:
         with open(BUILD_LOG_OUT_PATH, "a", encoding="utf-8") as build_log_file:
             run_shell(cmd, show_cmd=False, stdout=build_log_file, stderr=subprocess.STDOUT, text=True)
-    finally:
+    except subprocess.CalledProcessError as error:
+        append_iesa_build_log(f"Command failed with exit code {error.returncode}")
+        spinner.stop(f"{spinner_text} failed. Log: {BUILD_LOG_OUT_PATH}")
+        raise
+    else:
         spinner.stop(f"{spinner_text} done. Log: {BUILD_LOG_OUT_PATH}")
 
 def init_ow_build_log() -> None:
@@ -1102,10 +1116,14 @@ def prepare_iesa_bsp(tisdk_ref: str):
 if __name__ == "__main__":
     try:
         main()
-    except Exception as e:
-        exception_trace = traceback.format_exc()
-        LOG(f"ERROR: {exception_trace}", file=sys.stderr)
-        show_noti(title="Error", message=f"An error occurred: {e}")
     except KeyboardInterrupt:
         LOG("\nAborted by user.", file=sys.stderr)
+        sys.exit(1)
+    except subprocess.CalledProcessError as error:
+        log_build_failure("iesa", f"Build command failed (exit code {error.returncode}).")
+        show_noti(title="Build failed", message=f"Build failed. Check log: {BUILD_LOG_OUT_PATH}")
+        sys.exit(1)
+    except Exception as error:
+        log_build_failure("iesa", f"Unexpected error: {error}")
+        show_noti(title="Error", message=f"An error occurred: {error}")
         sys.exit(1)

@@ -23,7 +23,7 @@ def getToolData() -> ToolData:
                 ARG_REPO_NAME: default_repo,
                 ARG_IS_CREATE_GL_MR: False,
                 ARG_SOURCE_BRANCH: "ESA1W-6583_TEST_FIX_FTM_UPGRADE",  # Branch name without remote prefix. Ex: feat, NOT origin/feat
-                ARG_TARGET_BRANCH: BRANCH_MANPACK_MASTER,
+                ARG_TARGET_BRANCH: BRANCH_AERO_MASTER,
             },
         )
     ]

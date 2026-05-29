@@ -4,13 +4,15 @@ from dataclasses import dataclass
 from enum import Flag, IntEnum
 from typing import Dict, List, Union
 
+from available_tools.inertial_sense_tools.common import IS_DATASET_ENUM_REPLACEMENTS
 from dev.dev_common.core_independent_utils import ELogType, LOG
+from dev.dev_common.math_utils import INT_FORMAT_HEX, parse_integer_value
 from dev.dev_iesa.iesa_repo_utils import get_enum_declaration_from_path, get_path_to_inertial_sense_data_set_header
 
 ENUM_EGPX_HDW_STATUS_FLAGS_NAME = "eGPXHdwStatusFlags"
 
 _HEADER_PATH = get_path_to_inertial_sense_data_set_header()
-_GPX_HDW_VALUES = get_enum_declaration_from_path(ENUM_EGPX_HDW_STATUS_FLAGS_NAME, _HEADER_PATH)
+_GPX_HDW_VALUES = get_enum_declaration_from_path(ENUM_EGPX_HDW_STATUS_FLAGS_NAME, _HEADER_PATH, enum_replacements=IS_DATASET_ENUM_REPLACEMENTS)
 
 
 def _get(name: str) -> int:
@@ -250,10 +252,9 @@ def is_set(status: int, flag: GpsHdwStatusFlags) -> bool:
     return (status & flag.value) != 0
 
 
-def decode_gps_hdw_status(status: Union[int, str]) -> GpsHardwareStatus:
+def decode_gps_hdw_status(status: Union[int, str], status_format: str = INT_FORMAT_HEX) -> GpsHardwareStatus:
     """Decode a 32-bit GPS hardware status value into a structured object."""
-    if isinstance(status, str):
-        status = int(status, 0)
+    status = parse_integer_value(status, parse_format=status_format, value_name="GPS hardware status")
 
     gps_hdw_status = GpsHardwareStatus(
         raw_value=status,
@@ -310,7 +311,7 @@ def _format_section_lines(values: Dict[str, object], indent: int = 4) -> List[st
     return [f"{prefix}{label}: {value}" for label, value in values.items()]
 
 
-def print_decoded_status(decoded_status: Union[GpsHardwareStatus, int, str]) -> None:
+def print_decoded_status(decoded_status: Union[GpsHardwareStatus, int, str], status_format: str = INT_FORMAT_HEX) -> None:
     """Print a human readable summary of the GPS hardware status."""
-    status_obj = decoded_status if isinstance(decoded_status, GpsHardwareStatus) else decode_gps_hdw_status(decoded_status)
+    status_obj = decoded_status if isinstance(decoded_status, GpsHardwareStatus) else decode_gps_hdw_status(decoded_status, status_format=status_format)
     print(str(status_obj))

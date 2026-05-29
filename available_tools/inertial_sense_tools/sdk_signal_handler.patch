@@ -1,7 +1,7 @@
-diff --git a/InsenseSDK/inertial-sense-sdk-2.7.0-rc/cltool/src/cltool_main.cpp b/InsenseSDK/inertial-sense-sdk-2.7.0-rc/cltool/src/cltool_main.cpp
-index 1743188..9fddb8c 100644
---- a/InsenseSDK/inertial-sense-sdk-2.7.0-rc/cltool/src/cltool_main.cpp
-+++ b/InsenseSDK/inertial-sense-sdk-2.7.0-rc/cltool/src/cltool_main.cpp
+diff --git forkSrcPrefix/InsenseSDK/inertial-sense-sdk-3.0.0/cltool/src/cltool_main.cpp forkDstPrefix/InsenseSDK/inertial-sense-sdk-3.0.0/cltool/src/cltool_main.cpp
+index 98885549449121073face273e1591116c7cdc63b..722e9a6c3007553233af8b2359c4a97f8796e051 100644
+--- forkSrcPrefix/InsenseSDK/inertial-sense-sdk-3.0.0/cltool/src/cltool_main.cpp
++++ forkDstPrefix/InsenseSDK/inertial-sense-sdk-3.0.0/cltool/src/cltool_main.cpp
 @@ -33,6 +33,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
  */
  
@@ -10,14 +10,12 @@ index 1743188..9fddb8c 100644
  
  // Contains command line parsing and utility functions.  Include this in your project to use these utility functions.
  #include "cltool.h"
-@@ -60,6 +61,21 @@ InertialSense *g_inertialSenseInterface = NULL;
+@@ -64,6 +65,19 @@ InertialSense *g_inertialSenseInterface = NULL;
  shared_ptr<CorrectionService> g_correctionInput = NULL;
  shared_ptr<Rtcm3CorrectionServer> g_correctionOutput = NULL;
  
 +static serial_port_t port;
-+
 +jmp_buf gBuffer;        // A buffer to hold info on where to jump to
-+
 +void catch_signal(int signalNumber)
 +{
 +    signal(SIGTERM, catch_signal);       // Reactivate this handler.
@@ -31,33 +29,30 @@ index 1743188..9fddb8c 100644
 +
  static void sendNmea(serial_port_t &port, string nmeaMsg);
  
- static void display_server_client_status(bool showMessageSummary=false, bool refreshDisplay=false)
-@@ -963,6 +979,24 @@ static int cltool_dataStreaming()
+ /// Extract the hostname portion of a canonical "http://host:port" URL for hostname-based filtering.
+@@ -1068,6 +1082,21 @@ static int cltool_dataStreaming()
      inertialSenseInterface.setErrorHandler(cltool_errorCallback);
      inertialSenseInterface.EnableDeviceValidation(!g_commandLineOptions.disableDeviceValidation);
  
 +    int sig;
-+	if ((sig = setjmp(gBuffer)) != 0)
-+	{
-+		// This path implies that a signal was thrown, and
-+		// that the setjmp function returned the signal
-+		// which puts use at this point.
++    if ((sig = setjmp(gBuffer)) != 0)
++    {
++        // This path implies that a signal was thrown, and that the setjmp function returned the signal which puts use at this point.
 +
-+		// Now that we are out of the signal handler it is
-+		// normally safe to do anything.
++        // Now that we are out of the signal handler it is normally safe to do anything.
 +        cout << "Signal caught! " << sig << ", closing serial" << endl;
 +
-+		// Closing the serial port (also flushes it) before exiting
-+		serialPortClose(&port);
++        // Closing the serial port (also flushes it) before exiting
++        serialPortClose(&port);
 +
 +        // Allow destructors to be called.
-+		return 0;
-+	}
++        return 0;
++    }
 +
-     // [C++ COMM INSTRUCTION] STEP 2: Open serial port
-     if (!inertialSenseInterface.Open(g_commandLineOptions.comPort.c_str(), g_commandLineOptions.baudRate, g_commandLineOptions.disableBroadcastsOnClose))
-     {
-@@ -1159,6 +1193,7 @@ static void sendNmea(port_handle_t port, string nmeaMsg)
+     // Pre-warm mDNS cache so network devices are discoverable when Open() calls discoverPorts()
+     if (g_commandLineOptions.useMdns) {
+         printf("Discovering mDNS devices...\n");
+@@ -1468,6 +1497,7 @@ static bool cltool_resolveDeviceTarget()
  
  static int inertialSenseMain()
  {

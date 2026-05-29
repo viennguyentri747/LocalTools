@@ -6,6 +6,7 @@ Benefits of using this script vs bash
 - When rerun use latest python code here 
 """
 import argparse
+from contextlib import contextmanager
 from enum import Enum
 import os
 from pathlib import Path
@@ -43,6 +44,43 @@ class EIesaInstallResult(str, Enum):
     INSTALL_SUCCESS = "install_success"
     INSTALL_FAILED = "install_failed"
     USER_SKIPPED = "user_skipped"
+
+
+class _TeeStream:
+    def __init__(self, *streams) -> None:
+        self._streams = [stream for stream in streams if stream]
+    def write(self, data):
+        text = str(data)
+        for stream in self._streams:
+            stream.write(text)
+        return len(text)
+    def flush(self) -> None:
+        for stream in self._streams:
+            stream.flush()
+    def isatty(self) -> bool:
+        return any(getattr(stream, "isatty", lambda: False)() for stream in self._streams)
+
+
+def _build_iesa_upgrade_log_path(jump_host_ip: str) -> Path:
+    log_dir_path = get_temp_path(ETargetPlatform.CURRENT) / "iesa_upgrade_logs" / jump_host_ip.strip()
+    log_dir_path.mkdir(parents=True, exist_ok=True)
+    return log_dir_path / f"upgrade_log_{get_file_timestamp()}.txt"
+
+
+@contextmanager
+def _capture_stdio_to_log_file(log_path: Optional[Path]):
+    if not log_path:
+        yield
+        return
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(log_path, "a", encoding="utf-8") as log_file:
+        original_stdout, original_stderr = sys.stdout, sys.stderr
+        sys.stdout, sys.stderr = _TeeStream(original_stdout, log_file), _TeeStream(original_stderr, log_file)
+        try:
+            yield
+        finally:
+            sys.stdout.flush(); sys.stderr.flush(); log_file.flush()
+            sys.stdout, sys.stderr = original_stdout, original_stderr
 
 
 def _prompt_non_empty(prompt_text: str, default_value: Optional[str] = None) -> str:
@@ -275,72 +313,76 @@ def main() -> None:
     remote_dir = get_arg_value(args, ARG_REMOTE_DIR).rstrip("/")
     acu_host_ip = get_arg_value(args, ARG_REMOTE_HOST_IP)
     target_ip = _get_target_ip(get_arg_value(args, ARG_TARGET_IP))
-    dest_name = get_arg_value(args, ARG_DEST_NAME) or local_file.name
-    remote_abs_path = f"{remote_dir}/{dest_name}"
-    should_prompt = get_arg_value(args, ARG_PROMPT_BEFORE_EACH_EXECUTE)
-    _ensure_local_file_accessible(local_file)
-    is_copied, original_md5, remote_md5_before, remote_md5_after = copy_remote_file_if_needed(local_path=local_file, remote_host_ip=acu_host_ip, remote_dest_path=remote_abs_path, remote_user=ACU_USER,
-                                                                                               password=ACU_PASSWORD, jump_host_ip=target_ip, jump_user=SSM_USER, jump_password=SSM_PASSWORD, checksum_type=CHECKSUM_TYPE_MD5)
-    _log_checksums(local_md5=original_md5, remote_md5=remote_md5_before, remote_abs_path=remote_abs_path, stage="before copy")
-    if not is_copied:
-        LOG(f"{LOG_PREFIX_MSG_INFO} Remote file already matches local file. Skipping copy: {remote_abs_path}")
-    else:
-        _log_checksums(local_md5=original_md5, remote_md5=remote_md5_after, remote_abs_path=remote_abs_path, stage="after copy")
-        is_copied = True
-        LOG_LINE_SEPARATOR()
-        LOG("SCP copy completed successfully")
-
-    ut_command: Optional[str] = None
-    purpose: str = ""
-    if mode == MODE_BINARY_SHELL_CMD:
-        purpose = f"Setup binary on target IP {target_ip}"
-        ut_command = _build_binary_post_copy_cmd(
-            original_md5=original_md5, remote_dir=remote_dir, remote_name=dest_name, binary_name=local_file.name)
-        LOG_LINE_SEPARATOR()
-    elif mode == MODE_IESA_SHELL_CMD:
-        purpose = f"Setup IESA on target IP {target_ip}"
-        ut_command = _build_iesa_post_copy_cmd(
-            original_md5=original_md5, remote_dir=remote_dir, remote_name=dest_name, prompt_before_execute=should_prompt)
-    elif mode == MODE_IESA_PYTHON:
-        INSTALL_COMPLETE_MSG = "Install complete. Please reboot to boot into the other partition"
-
-        def _on_install_iesa_line_recv(line: str) -> bool:
-            LOG(line)
-            if INSTALL_COMPLETE_MSG not in line:
-                return False
-            # Install complete here
-            #show_noti(title="IESA Install Complete", message=f"{INSTALL_COMPLETE_MSG} ({target_ip})", no_log_on_success=True)
-            return True
-
-        install_result, install_reason, _ = _run_iesa_install_via_python(remote_name=dest_name, remote_host_ip=acu_host_ip, remote_user=ACU_USER, jump_host_ip=target_ip, should_prompt=should_prompt, on_install_line_recv=_on_install_iesa_line_recv, remote_password=ACU_PASSWORD, jump_user=SSM_USER, jump_password=SSM_PASSWORD)
-        if install_result == EIesaInstallResult.CANNOT_START:
-            raise RuntimeError(f"IESA install cannot start: {install_reason}")
-        if install_result == EIesaInstallResult.INSTALL_TIMEOUT:
-            raise RuntimeError(f"IESA install timed out: {install_reason}")
-        if install_result == EIesaInstallResult.INSTALL_FAILED:
-            raise RuntimeError(f"IESA install failed: {install_reason}")
-        if install_result == EIesaInstallResult.USER_SKIPPED:
-            LOG(f"{LOG_PREFIX_MSG_INFO} IESA install skipped by user.")
-            return
-        if should_prompt:
-            if prompt_confirmation("Handle post-upgrade steps now (y/n)?"):
-                if not handle_post_upgrade_iesa(ut_ip=target_ip):
-                    raise RuntimeError(f"Post-upgrade handling failed for UT {target_ip}.")
+    upgrade_log_path = _build_iesa_upgrade_log_path(target_ip) if mode == MODE_IESA_PYTHON else None
+    try:
+        with _capture_stdio_to_log_file(upgrade_log_path):
+            if upgrade_log_path:
+                LOG(f"{LOG_PREFIX_MSG_INFO} Upgrade log will be saved to {format_path_for_display(upgrade_log_path)}")
+            dest_name = get_arg_value(args, ARG_DEST_NAME) or local_file.name
+            remote_abs_path = f"{remote_dir}/{dest_name}"
+            should_prompt = get_arg_value(args, ARG_PROMPT_BEFORE_EACH_EXECUTE)
+            _ensure_local_file_accessible(local_file)
+            is_copied, original_md5, remote_md5_before, remote_md5_after = copy_remote_file_if_needed(local_path=local_file, remote_host_ip=acu_host_ip, remote_dest_path=remote_abs_path, remote_user=ACU_USER,
+                                                                                                       password=ACU_PASSWORD, jump_host_ip=target_ip, jump_user=SSM_USER, jump_password=SSM_PASSWORD, checksum_type=CHECKSUM_TYPE_MD5)
+            _log_checksums(local_md5=original_md5, remote_md5=remote_md5_before, remote_abs_path=remote_abs_path, stage="before copy")
+            if not is_copied:
+                LOG(f"{LOG_PREFIX_MSG_INFO} Remote file already matches local file. Skipping copy: {remote_abs_path}")
             else:
-                LOG(f"{LOG_PREFIX_MSG_INFO} Skipped post-upgrade handling by user choice.")
-        else:
-            handle_post_upgrade_iesa(ut_ip=target_ip)
+                _log_checksums(local_md5=original_md5, remote_md5=remote_md5_after, remote_abs_path=remote_abs_path, stage="after copy")
+                is_copied = True
+                LOG_LINE_SEPARATOR()
+                LOG("SCP copy completed successfully")
 
-        show_noti(title="IESA Install Complete", message=f"{INSTALL_COMPLETE_MSG} ({target_ip})", no_log_on_success=True)
+            ut_command: Optional[str] = None
+            purpose: str = ""
+            if mode == MODE_BINARY_SHELL_CMD:
+                purpose = f"Setup binary on target IP {target_ip}"
+                ut_command = _build_binary_post_copy_cmd(original_md5=original_md5, remote_dir=remote_dir, remote_name=dest_name, binary_name=local_file.name)
+                LOG_LINE_SEPARATOR()
+            elif mode == MODE_IESA_SHELL_CMD:
+                purpose = f"Setup IESA on target IP {target_ip}"
+                ut_command = _build_iesa_post_copy_cmd(original_md5=original_md5, remote_dir=remote_dir, remote_name=dest_name, prompt_before_execute=should_prompt)
+            elif mode == MODE_IESA_PYTHON:
+                INSTALL_COMPLETE_MSG = "Install complete. Please reboot to boot into the other partition"
 
-    else:
-        action = "copied" if is_copied else "already up to date (copy skipped)"
-        LOG(f"File {action}. Run on target UT {target_ip}!!")
+                def _on_install_iesa_line_recv(line: str) -> bool:
+                    LOG(line)
+                    if INSTALL_COMPLETE_MSG not in line:
+                        return False
+                    # Install complete here
+                    #show_noti(title="IESA Install Complete", message=f"{INSTALL_COMPLETE_MSG} ({target_ip})", no_log_on_success=True)
+                    return True
 
-    if ut_command:
-        LOG_LINE_SEPARATOR()
-        display_content_to_copy(ut_command, purpose=purpose, is_copy_to_clipboard=True)
-        show_noti(title="Use this command on target UT!!", message=purpose, no_log_on_success=True)
+                install_result, install_reason, _ = _run_iesa_install_via_python(remote_name=dest_name, remote_host_ip=acu_host_ip, remote_user=ACU_USER, jump_host_ip=target_ip, should_prompt=should_prompt, on_install_line_recv=_on_install_iesa_line_recv, remote_password=ACU_PASSWORD, jump_user=SSM_USER, jump_password=SSM_PASSWORD)
+                if install_result == EIesaInstallResult.CANNOT_START:
+                    raise RuntimeError(f"IESA install cannot start: {install_reason}")
+                if install_result == EIesaInstallResult.INSTALL_TIMEOUT:
+                    raise RuntimeError(f"IESA install timed out: {install_reason}")
+                if install_result == EIesaInstallResult.INSTALL_FAILED:
+                    raise RuntimeError(f"IESA install failed: {install_reason}")
+                if install_result == EIesaInstallResult.USER_SKIPPED:
+                    LOG(f"{LOG_PREFIX_MSG_INFO} IESA install skipped by user.")
+                    return
+                if should_prompt:
+                    if prompt_confirmation("Handle post-upgrade steps now (y/n)?"):
+                        if not handle_post_upgrade_iesa(ut_ip=target_ip):
+                            raise RuntimeError(f"Post-upgrade handling failed for UT {target_ip}.")
+                    else:
+                        LOG(f"{LOG_PREFIX_MSG_INFO} Skipped post-upgrade handling by user choice.")
+                else:
+                    handle_post_upgrade_iesa(ut_ip=target_ip)
+                show_noti(title="IESA Install Complete", message=f"{INSTALL_COMPLETE_MSG} ({target_ip})", no_log_on_success=True)
+            else:
+                action = "copied" if is_copied else "already up to date (copy skipped)"
+                LOG(f"File {action}. Run on target UT {target_ip}!!")
+
+            if ut_command:
+                LOG_LINE_SEPARATOR()
+                display_content_to_copy(ut_command, purpose=purpose, is_copy_to_clipboard=True)
+                show_noti(title="Use this command on target UT!!", message=purpose, no_log_on_success=True)
+    finally:
+        if upgrade_log_path:
+            LOG(f"{LOG_PREFIX_MSG_INFO} Upgrade log saved to {format_path_for_display(upgrade_log_path)}")
 
 
 if __name__ == "__main__":

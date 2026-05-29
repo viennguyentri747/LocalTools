@@ -4,7 +4,9 @@ from dataclasses import dataclass, field
 from enum import Flag, IntEnum
 from typing import Dict, List, Union
 
+from available_tools.inertial_sense_tools.common import IS_DATASET_ENUM_REPLACEMENTS
 from dev.dev_common.core_independent_utils import ELogType, LOG
+from dev.dev_common.math_utils import INT_FORMAT_HEX, parse_integer_value
 from dev.dev_iesa.iesa_repo_utils import (
     get_enum_declaration_from_path,
     get_path_to_inertial_sense_data_set_header,
@@ -13,7 +15,7 @@ from dev.dev_iesa.iesa_repo_utils import (
 ENUM_GPS_STATUS_NAME = "eGpsStatus"
 
 _HEADER_PATH = get_path_to_inertial_sense_data_set_header()
-_GPS_STATUS_VALUES = get_enum_declaration_from_path(ENUM_GPS_STATUS_NAME, _HEADER_PATH)
+_GPS_STATUS_VALUES = get_enum_declaration_from_path(ENUM_GPS_STATUS_NAME, _HEADER_PATH, enum_replacements=IS_DATASET_ENUM_REPLACEMENTS)
 
 
 def _get(name: str) -> int:
@@ -125,17 +127,16 @@ def decode_flags(status: int) -> List[GpsStatusFlags]:
     return [flag for flag in GpsStatusFlags if flag.value & flags_value]
 
 
-def decode_gps_status(status: Union[int, str]) -> GpsStatusReport:
+def decode_gps_status(status: Union[int, str], status_format: str = INT_FORMAT_HEX) -> GpsStatusReport:
     """Decode the GPS status integer into a structured mapping. This can be get from DID_GPS1_POS message."""
-    if isinstance(status, str):
-        status = int(status, 0)
+    status = parse_integer_value(status, parse_format=status_format, value_name="GPS status")
 
     gps_status_data = GpsStatusReport(raw_status=status, fix_type=decode_fix_type(status), flags=decode_flags(status))
     LOG(f"Decoded GPS status: {gps_status_data}", highlight=True)
     return gps_status_data
 
 
-def print_gps_status_report(status: Union[int, str, GpsStatusReport]) -> None:
+def print_gps_status_report(status: Union[int, str, GpsStatusReport], status_format: str = INT_FORMAT_HEX) -> None:
     """Print a human readable summary of the GPS status."""
-    report = status if isinstance(status, GpsStatusReport) else decode_gps_status(status)
+    report = status if isinstance(status, GpsStatusReport) else decode_gps_status(status, status_format=status_format)
     print(str(report))

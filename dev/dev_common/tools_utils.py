@@ -491,7 +491,7 @@ def get_win_python_executable_path_for_wsl() -> str:
         candidate = candidate.strip()
         if not candidate:
             continue
-        wsl_path = str(get_normalized_path(candidate, target_platform=ETargetPlatform.WSL))
+        wsl_path = str(get_normalized_path(candidate, target_platform=ETargetPlatform.WSL_OR_LINUX))
         if wsl_path:
             LOG(f"{LOG_PREFIX_MSG_INFO} Windows python candidate selected from 'where python': {candidate} -> {wsl_path}")
             return wsl_path

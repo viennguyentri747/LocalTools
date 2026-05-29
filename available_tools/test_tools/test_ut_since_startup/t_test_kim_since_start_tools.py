@@ -7,13 +7,14 @@ import time
 from typing import List, Optional
 
 from dev.dev_common import *
-from dev.dev_common.custom_structures import ToolData
+from dev.dev_common.custom_structures import EToolPriority, ToolData
 from dev.dev_common.network_utils import ELineType
 from dev.dev_common.tools_utils import ToolTemplate, build_examples_epilog
 from dev.dev_iesa.iesa_ut_install_utils import check_safe_reboot_ut
 from available_tools.test_tools.test_ut_log.t_get_ut_live_log import ELogStreamMode, build_live_log_handlers, close_live_log_handlers, start_stop_timer, stream_live_remote_log_to_file
 from available_tools.test_tools.test_ut_log.t_get_acu_logs import DEFAULT_LOG_OUTPUT_PATH
 from available_tools.test_tools.test_ut_log.t_test_ins_status_ins_monitor_log import (
+    DEFAULT_MAX_SPAN_OF,
     InsStatusData,
     build_decoded_entries,
     compute_ins_message_time_diff_stats,
@@ -32,7 +33,7 @@ ARG_REMOTE_PATH = f"{ARGUMENT_LONG_PREFIX}remote_path"
 ARG_READ_TIMEOUT = f"{ARGUMENT_LONG_PREFIX}read_timeout"
 ARG_TAIL_LINES = f"{ARGUMENT_LONG_PREFIX}tail_lines"
 ARG_FILE = f"{ARGUMENT_LONG_PREFIX}file"
-FIRST_LOG_TIMEOUT_SECS = 300.0
+ARG_MAX_SPAN_OF = f"{ARGUMENT_LONG_PREFIX}max_span_of"
 
 
 def getToolData() -> ToolData:
@@ -40,7 +41,7 @@ def getToolData() -> ToolData:
         ToolTemplate(
             name="Capture + analyze INS monitor log",
             extra_description="Stream INS monitor log for a duration, then analyze insStatus transitions.",
-            args={SSM_IP: f"{SSM_NORMAL_IP_PREFIX}.57", ARG_STREAM_DURATION_SECS: 300},
+            args={SSM_IP: f"{SSM_NORMAL_IP_PREFIX}.57", ARG_STREAM_DURATION_SECS: 200},
         )
     ]
     return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
@@ -58,6 +59,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(ARG_REMOTE_PATH, default="/var/log/ins_monitor_log", help="Remote INS monitor log path.")
     parser.add_argument(ARG_READ_TIMEOUT, type=int, default=600, help="Read timeout while streaming log lines.")
     parser.add_argument(ARG_TAIL_LINES, type=int, default=0, help="Initial historical lines before follow mode.")
+    parser.add_argument(ARG_MAX_SPAN_OF, type=int, default=DEFAULT_MAX_SPAN_OF, help="Maximum span cycle width for INS status grouping.")
     return parser.parse_args()
 
 
@@ -85,7 +87,7 @@ def get_capture_log_paths(log_path: Path) -> List[Path]:
     return sorted(set(candidates), key=lambda path: _capture_log_sort_key(log_path, path), reverse=True)
 
 
-def analyze_ins_status_file(log_path: Path) -> int:
+def analyze_ins_status_file(log_path: Path, max_span_of: int = DEFAULT_MAX_SPAN_OF) -> int:
     log_paths = get_capture_log_paths(log_path)
     if not log_paths:
         LOG("No captured INS monitor log files found for analysis.")
@@ -100,11 +102,10 @@ def analyze_ins_status_file(log_path: Path) -> int:
         return 0
     LOG(f"Parsed {len(status_entries)} INS1Msg lines from {len(lines)} input lines across {len(log_paths)} capture file(s).")
     print()
+    status_spans = group_consecutive_status_spans(status_entries, max_span_of=max_span_of)
+    print_status_span_report(status_spans)
     print_ins_messages_time_diff_stats(compute_ins_message_time_diff_stats(status_entries))
     print_progression_summary(build_decoded_entries(status_entries))
-    status_spans = group_consecutive_status_spans(status_entries)
-    LOG("=== Status Changes Summary ===")
-    print_status_span_report(status_spans)
     LOG("Analysis complete.")
     return 0
 
@@ -114,12 +115,14 @@ def main() -> int:
     test_start_wall = time.time()
     args = parse_args()
     stream_duration_secs: float = get_arg_value(args, ARG_STREAM_DURATION_SECS)
+    first_log_timeout_secs = stream_duration_secs
     #capture_log_path: str | None = get_arg_value(args, ARG_CAPTURE_LOG_PATH)
     ssm_ip: str = get_arg_value(args, SSM_IP)
     host_ip: str = ACU_IP
     remote_path: str = get_arg_value(args, ARG_REMOTE_PATH)
     read_timeout: int = get_arg_value(args, ARG_READ_TIMEOUT)
     tail_lines: int = get_arg_value(args, ARG_TAIL_LINES)
+    max_span_of: int = get_arg_value(args, ARG_MAX_SPAN_OF)
 
     log_path = _build_run_capture_path(ssm_ip, run_started_at=test_start_at)
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -145,7 +148,7 @@ def main() -> int:
         if first_log_at is not None:
             return
         first_log_timeout_hit = True
-        LOG(f"{LOG_PREFIX_MSG_ERROR} No log line received within {int(FIRST_LOG_TIMEOUT_SECS)}s. Stop streaming.")
+        LOG(f"{LOG_PREFIX_MSG_ERROR} No log line received within {int(first_log_timeout_secs)}s. Stop streaming.")
         stop_event.set()
 
     def _on_line_recv(line: str, line_type: ELineType) -> None:
@@ -160,7 +163,7 @@ def main() -> int:
 
     LOG(f"{LOG_PREFIX_MSG_INFO} Capture live INS monitor log to {log_path}")
     try:
-        first_log_timeout_timer = threading.Timer(FIRST_LOG_TIMEOUT_SECS, _on_first_log_timeout)
+        first_log_timeout_timer = threading.Timer(first_log_timeout_secs, _on_first_log_timeout)
         first_log_timeout_timer.daemon = True
         first_log_timeout_timer.start()
         stream_live_remote_log_to_file(host_ip=host_ip, remote_log_path=remote_path, jump_host_ip=ssm_ip, read_timeout=read_timeout, tail_lines=tail_lines, handlers=handlers, stop_event=stop_event, on_line_recv=_on_line_recv)
@@ -178,7 +181,7 @@ def main() -> int:
     
 
     LOG(f"{LOG_PREFIX_MSG_INFO} Analyze INS status")
-    rc = analyze_ins_status_file(log_path)
+    rc = analyze_ins_status_file(log_path, max_span_of=max_span_of)
     if rc != 0: return rc
     LOG(f"{LOG_PREFIX_MSG_SUCCESS} Analyze INS status completed.")
 
@@ -192,7 +195,7 @@ def main() -> int:
     LOG(f"remote path: {remote_path}")
     LOG(f"configured stream duration (after first log): {stream_duration_secs:.1f}s")
     if first_log_timeout_hit:
-        LOG(f"first-log timeout: {int(FIRST_LOG_TIMEOUT_SECS)}s")
+        LOG(f"first-log timeout: {int(first_log_timeout_secs)}s")
         LOG(f"first-log timeout hit: {'YES' if first_log_timeout_hit else 'NO'}")
     LOG(f"capture wall duration (test start -> capture end): {max(0.0, stream_end_wall - test_start_wall):.1f}s")
     LOG(f"actual streaming duration (first log -> capture end): {max(0.0, stream_end_wall - first_log_monotonic):.1f}s" if first_log_monotonic else "actual streaming duration (first log -> capture end): N/A")

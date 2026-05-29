@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -12,7 +13,7 @@ from available_tools.test_tools.test_upgrade_ut.common_utils import run_acu_cmd_
 from dev.dev_common import LOG
 from dev.dev_common.constants import ACU_IP, ACU_PASSWORD, ACU_USER, API_SYSTEM_REBOOT_ENDPOINT, SSM_PASSWORD, SSM_USER
 from dev.dev_common.core_independent_utils import run_shell
-from dev.dev_common.network_utils import ping_remote_host_via_jump_host
+from dev.dev_common.network_utils import ping_remote_host, ping_remote_host_via_jump_host
 
 
 class EUpgradeComponent(str, Enum):
@@ -164,10 +165,26 @@ def check_safe_reboot_ut(ut_ip: str, timeout_before_reboot_secs: int = 240, shou
         LOG(f"ERROR: timeout waiting post-upgrade conditions before reboot ({timeout_before_reboot_secs}s)")
         return False
 
+    reboot_request_timed_out = False
     try:
         reboot_url = f"http://{ut_ip}{API_SYSTEM_REBOOT_ENDPOINT}"
         run_shell(["curl", "-X", "GET", reboot_url], capture_output=True, text=True, check_throw_exception_on_exit_code=True, timeout=10)
         LOG(f"Post-upgrade action: reboot API issued to UT {ut_ip} ({reboot_url})")
+    except subprocess.TimeoutExpired as exc:
+        reboot_request_timed_out = True
+        LOG(f"WARNING: reboot API request timed out for UT {ut_ip} ({exc}). This can happen if UT starts rebooting before HTTP response completes.")
+        was_reachable_before = ping_remote_host(ut_ip, total_pings=1, time_out_per_ping=1, mute=True)
+        time.sleep(2)
+        is_reachable_after = ping_remote_host(ut_ip, total_pings=1, time_out_per_ping=1, mute=True)
+        if was_reachable_before and not is_reachable_after:
+            LOG(f"Post-upgrade validation: UT {ut_ip} became unreachable right after reboot request timeout. Treating reboot as issued.")
+        else:
+            LOG(f"Post-upgrade note: UT {ut_ip} reachability did not clearly change after timeout. Continuing as reboot-likely to avoid false failure.")
+    except Exception as exc:
+        LOG(f"ERROR: failed to issue reboot command on UT {ut_ip}: {exc}")
+        return False
+
+    try:
         if should_ping_after_reboot:
             secs_sleep_before_ping = 5
             LOG(f"Post-upgrade action: waiting for {secs_sleep_before_ping} seconds before checking ACU reachability after reboot")
@@ -180,8 +197,10 @@ def check_safe_reboot_ut(ut_ip: str, timeout_before_reboot_secs: int = 240, shou
             LOG(f"Post-upgrade validation passed: ACU is reachable via UT {ut_ip} after reboot")
         else:
             LOG(f"Post-upgrade action: skipping ACU reachability check after reboot (should_ping_after_reboot={should_ping_after_reboot})")
+            if reboot_request_timed_out:
+                LOG(f"Post-upgrade note: reboot request for UT {ut_ip} timed out but is treated as issued.")
 
         return True
     except Exception as exc:
-        LOG(f"ERROR: failed to issue reboot command on UT {ut_ip}: {exc}")
+        LOG(f"ERROR: post-reboot validation failed for UT {ut_ip}: {exc}")
         return False

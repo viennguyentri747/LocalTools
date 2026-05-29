@@ -5,6 +5,7 @@ from enum import IntFlag
 from typing import Dict, Iterable, List, Optional, Union
 
 from dev.dev_common.core_independent_utils import ELogType, LOG
+from dev.dev_common.math_utils import INT_FORMAT_HEX, parse_integer_value
 from dev.dev_iesa.iesa_repo_utils import (
     get_enum_declaration_from_path,
     get_path_to_inertial_sense_data_set_header,
@@ -163,10 +164,9 @@ class GeneralFaultStatus:
         return "\n".join(lines)
 
 
-def decode_gen_fault_status(status: Union[int, str]) -> GeneralFaultStatus:
+def decode_gen_fault_status(status: Union[int, str], status_format: str = INT_FORMAT_HEX) -> GeneralFaultStatus:
     """Decode a general fault status integer into a structured object."""
-    if isinstance(status, str):
-        status = int(status, 0)
+    status = parse_integer_value(status, parse_format=status_format, value_name="general fault status")
 
     active_flags = list(_iter_active_flags(status))
     unknown_bits = status & ~ALL_KNOWN_FLAGS_MASK
@@ -188,7 +188,7 @@ def _iter_active_flags(status: int) -> Iterable[GeneralFaultFlagInfo]:
             )
 
 
-def print_decoded_status(decoded_status: Union[GeneralFaultStatus, int, str]) -> None:
+def print_decoded_status(decoded_status: Union[GeneralFaultStatus, int, str], status_format: str = INT_FORMAT_HEX) -> None:
     """Print a human readable summary of the general fault status."""
-    status_obj = decoded_status if isinstance(decoded_status, GeneralFaultStatus) else decode_gen_fault_status(decoded_status)
+    status_obj = decoded_status if isinstance(decoded_status, GeneralFaultStatus) else decode_gen_fault_status(decoded_status, status_format=status_format)
     print(str(status_obj))

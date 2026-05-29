@@ -17,11 +17,11 @@ def getToolData() -> ToolData:
                 ARG_NO_PROMPT: TRUE_STR_VALUE,
                 ARG_UPDATE_FW: TRUE_STR_VALUE,
                 ARG_UPDATE_SDK: TRUE_STR_VALUE,
-                ARG_UPDATE_IMX_FW: TRUE_STR_VALUE,
+                ARG_UPDATE_IMX_FW: FALSE_STR_VALUE,
                 ARG_UPDATE_GPX_FW: TRUE_STR_VALUE,
-                ARG_SDK_PATH: "~/downloads/inertial-sense-sdk-2.6.0.zip",
-                ARG_OW_SW_BASE_BRANCH: BRANCH_MANPACK_MASTER,
-                ARG_INSENSE_CL_BASE_BRANCH: BRANCH_MANPACK_MASTER,
+                #ARG_SDK_PATH: "~/downloads/inertial-sense-sdk-2.6.0.zip",
+                ARG_OW_SW_BASE_BRANCH: BRANCH_AERO_MASTER,
+                ARG_INSENSE_CL_BASE_BRANCH: BRANCH_AERO_MASTER,
                 ARG_VERSION_OR_FPKG_FW_PATH: f"{DOWNLOADS_PATH}/IS-firmware_r2.6.0+2025-09-19-185429{GPX_EXTENSION}",
                 ARG_SDK_BRANCH_OR_TAG: "2.7.0",
             },
@@ -31,9 +31,9 @@ def getToolData() -> ToolData:
             args={
                 ARG_NO_PROMPT: TRUE_STR_VALUE,
                 ARG_UPDATE_FW: TRUE_STR_VALUE,
-                ARG_UPDATE_IMX_FW: TRUE_STR_VALUE,
+                ARG_UPDATE_IMX_FW: FALSE_STR_VALUE,
                 ARG_UPDATE_GPX_FW: TRUE_STR_VALUE,
-                ARG_OW_SW_BASE_BRANCH: BRANCH_MANPACK_MASTER,
+                ARG_OW_SW_BASE_BRANCH: BRANCH_AERO_MASTER,
                 ARG_VERSION_OR_FPKG_FW_PATH: f"{DOWNLOADS_PATH}/IS-firmware_r2.6.0+2025-09-19-185429{GPX_EXTENSION}",
             },
             extra_description="For FW: Get FW (IMX + GPX or just GPX on newer version) from either:\n   1. Engineering build -> Check FW in IS gg chat.\n   2. Release build -> Check in `Assets` section in releases Github. Ex: https://github.com/inertialsense/inertial-sense-sdk/releases/tag/2.5.1.",
@@ -44,7 +44,7 @@ def getToolData() -> ToolData:
             args={
                 ARG_NO_PROMPT: TRUE_STR_VALUE,
                 ARG_UPDATE_SDK: TRUE_STR_VALUE,
-                ARG_INSENSE_CL_BASE_BRANCH: BRANCH_MANPACK_MASTER,
+                ARG_INSENSE_CL_BASE_BRANCH: BRANCH_AERO_MASTER,
                 ARG_SDK_BRANCH_OR_TAG: "2.7.0",
                 #ARG_SDK_PATH: "~/downloads/inertial-sense-sdk-2.6.0.zip",
                 #ARG_SDK_BRANCH: "2.7.0-rc",
@@ -56,7 +56,7 @@ def getToolData() -> ToolData:
         #    args={
         #        ARG_NO_PROMPT: TRUE_STR_VALUE,
         #        ARG_UPDATE_SDK: TRUE_STR_VALUE,
-        #        ARG_INSENSE_CL_BASE_BRANCH: BRANCH_MANPACK_MASTER,
+        #        ARG_INSENSE_CL_BASE_BRANCH: BRANCH_AERO_MASTER,
         #        ARG_SDK_BRANCH: "2.7.0-rc",
         #    },
         #    extra_description="SDK branch-based update. Use --sdk_path if you prefer a zip. For SDK zip: Go to branch on https://github.com/inertialsense/inertial-sense-sdk/branches -> Download inertial-sense-sdk-2.7.0-rc.zip via `< > Code` button -> Local Tab -> Download ZIP.",
@@ -77,7 +77,7 @@ def main() -> None:
                         help="Run firmware update workflow (true or false).", )
     parser.add_argument(ARG_UPDATE_SDK, type=lambda x: x.lower() == TRUE_STR_VALUE,
                         default=False, help="Run SDK update workflow (true or false).", )
-    parser.add_argument(ARG_UPDATE_IMX_FW, type=lambda x: x.lower() == TRUE_STR_VALUE, default=True,
+    parser.add_argument(ARG_UPDATE_IMX_FW, type=lambda x: x.lower() == TRUE_STR_VALUE, default=False,
                         help="When --update_fw is true, update IMX firmware seed/symlink (true or false).", )
     parser.add_argument(ARG_UPDATE_GPX_FW, type=lambda x: x.lower() == TRUE_STR_VALUE, default=True,
                         help="When --update_fw is true, update GPX firmware seed/symlink (true or false).", )
@@ -122,6 +122,7 @@ def main() -> None:
         insense_cl_base_branch = get_arg_value(args, ARG_INSENSE_CL_BASE_BRANCH)
         sdk_path = get_arg_value(args, ARG_SDK_PATH)
         sdk_branch_or_tag = get_arg_value(args, ARG_SDK_BRANCH_OR_TAG)
+
         if sdk_path or sdk_branch_or_tag:
             run_sdk_update_with_ref_or_path(
                 sdk_branch_or_tag,

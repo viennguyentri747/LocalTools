@@ -22,6 +22,12 @@ import time
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 import zipfile
 
+def normalize_name_for_path_component(name: str, fallback: str = "root") -> str:
+    normalized: str = re.sub(r"\s+", "_", (name or "").strip())
+    normalized = re.sub(r"[^A-Za-z0-9._-]", "_", normalized)
+    normalized = re.sub(r"_+", "_", normalized).strip("._-")
+    return normalized or fallback
+
 ARCHIVE_SUFFIXES: tuple[str, ...] = (
     ".tar.gz", ".tar.bz2", ".tar.xz", ".tar.zst",
     ".tgz", ".tbz2", ".txz",
@@ -49,7 +55,7 @@ def parse_bool(value: str) -> bool:
     )
 
 
-def stripped_name(filename: str) -> str:
+def strip_archive_suffixes(filename: str) -> str:
     current: str = filename
     while True:
         match_suffix: str | None = detect_archive_suffix(current)
@@ -64,7 +70,7 @@ def stripped_name(filename: str) -> str:
 def is_archive_name_matched(filename: str, archive_name_regex: re.Pattern[str] | None) -> bool:
     if archive_name_regex is None:
         return True
-    normalized_name: str = stripped_name(filename)
+    normalized_name: str = strip_archive_suffixes(filename)
     return bool(archive_name_regex.search(normalized_name))
 
 
@@ -134,14 +140,17 @@ def extract_archive(archive_path: Path, suffix: str, extract_dir: Path) -> None:
     raise ValueError(f"Unsupported archive suffix: {suffix}")
 
 
-def build_output_root(root_dir: Path) -> Path:
-    base_name: str = root_dir.name or "root"
-    return root_dir.parent / f"UNTAR_{base_name}"
+def build_prefixed_output_root(parent_dir: Path, raw_name: str, prefix: str = "UNTAR_") -> Path:
+    base_name: str = normalize_name_for_path_component(raw_name)
+    return parent_dir / f"{prefix}{base_name}"
+
+
+def build_output_root_for_dir(root_dir: Path) -> Path:
+    return build_prefixed_output_root(root_dir.parent, root_dir.name)
 
 
 def build_output_root_for_archive(archive_path: Path) -> Path:
-    base_name: str = stripped_name(archive_path.name) or archive_path.stem or "root"
-    return archive_path.parent / f"UNTAR_{base_name}"
+    return build_prefixed_output_root(archive_path.parent, strip_archive_suffixes(archive_path.name) or archive_path.stem)
 
 
 def copy_non_archive_file(src_file: Path, dst_file: Path) -> None:
@@ -187,7 +196,7 @@ def prepare_output_root(output_root: Path, source_root: Path) -> None:
 
 
 def resolve_extract_dir(archive_path: Path, source_root: Path, output_root: Path) -> Path:
-    stripped: str = stripped_name(archive_path.name)
+    stripped: str = strip_archive_suffixes(archive_path.name)
     try:
         relative_parent: Path = archive_path.parent.relative_to(source_root)
         return output_root / relative_parent / stripped
@@ -340,14 +349,14 @@ def main(argv: list[str] | None = None) -> int:
     with ExitStack() as stack:
         if input_path.is_dir():
             root_dir: Path = input_path
-            output_root: Path = build_output_root(input_path)
+            output_root: Path = build_output_root_for_dir(input_path)
         elif input_path.is_file():
             suffix: str | None = detect_archive_suffix(input_path.name)
             if suffix is None:
                 print(f"Error: '{input_path}' is a file but not a supported archive.", file=sys.stderr)
                 return 1
             temp_root: Path = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="deep_extract_")))
-            root_dir = temp_root / (stripped_name(input_path.name) or "root")
+            root_dir = temp_root / (strip_archive_suffixes(input_path.name) or "root")
             root_dir.mkdir(parents=True, exist_ok=True)
             print(f"Pre-extracting input archive: {input_path} -> {root_dir}", flush=True)
             try:

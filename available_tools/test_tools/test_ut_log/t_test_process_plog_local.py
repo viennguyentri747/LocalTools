@@ -18,7 +18,7 @@ use_posix_paths()
 
 WIN_CMD_INVOCATION = get_win_python_runner_cmd_invocation("available_tools.test_tools.test_ut_log.t_test_process_plog_local")
 DEFAULT_TIME_WINDOW_HOURS: Optional[float] = None
-DEFAULT_COLUMNS: List[str] = [TIME_COLUMN, LAST_TIME_SYNC_COLUMN, LAST_GPS1_CNO_COLUMN, LAST_GPS2_CNO_COLUMN, LAST_KIM_HW_STATUS_COLUMN, LAST_VELOCITY_COLUMN, LAST_RTK_COMPASS_STATUS_COLUMN, LAST_ROLL_P_COLUMN, LAST_PITCH_P_COLUMN, LAST_YAW_P_COLUMN]
+DEFAULT_COLUMNS: List[str] = [TIME_COLUMN, LAST_TIME_SYNC_COLUMN, LAST_GPS1_CNO_COLUMN, LAST_GPS2_CNO_COLUMN, LAST_INS_STATUS_COLUMN, LAST_KIM_HW_STATUS_COLUMN, LAST_VELOCITY_COLUMN, LAST_RTK_COMPASS_STATUS_COLUMN, LAST_ROLL_P_COLUMN, LAST_PITCH_P_COLUMN, LAST_YAW_P_COLUMN]
 DEFAULT_OUTPUT_PATH = get_temp_path(ETargetPlatform.WINDOWS) / "compact_plog.tsv"
 ARG_PLOG_PATHS = f"{ARGUMENT_LONG_PREFIX}plog_paths"
 ARG_COLUMNS = f"{ARGUMENT_LONG_PREFIX}columns"
@@ -31,19 +31,17 @@ def getToolData() -> ToolData:
     Provide a single template pointing to sample local ACU log files.
     """
     sample_log_path_1 = ACU_LOG_PATH / "192.168.100.57" / "P_20260216_000000.txt"
-    sample_log_path_2 = ACU_LOG_PATH / "192.168.100.59" / "P_20260217_000000.txt"
     args = {
-        ARG_PLOG_PATHS: [str(sample_log_path_1), str(sample_log_path_2)],
+        ARG_PLOG_PATHS: [str(sample_log_path_1)],
         ARG_OUTPUT_PATH: str(DEFAULT_OUTPUT_PATH),
         ARG_COLUMNS: DEFAULT_COLUMNS,
         # ARG_TIME_WINDOW: 1.5,
     }
    
-    
     tool_templates = [
         ToolTemplate(
             name="Compact P-log (Time/Velocity/RTK)",
-            extra_description="Keeps Time/Velocity/RTK Compass columns and saves TSV under temp/.",
+            extra_description="Keeps Time/Velocity/RTK Compass columns and saves tsv file.",
             args=args,
             search_root=ACU_LOG_PATH,
             usage_note="Update --plog_paths with one or more P-log file paths you want to shrink.",

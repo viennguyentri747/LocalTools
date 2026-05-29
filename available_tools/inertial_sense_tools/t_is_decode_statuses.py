@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import List, Tuple
 
 from dev.dev_common import *
+from dev.dev_common.math_utils import INT_FORMAT_DEC, INT_FORMAT_HEX, SUPPORTED_INT_FORMATS, format_integer_value, parse_integer_value
 from dev.dev_common.tools_utils import ToolTemplate, build_examples_epilog
 from available_tools.inertial_sense_tools.decode_gen_fault_status_utils import (
     decode_gen_fault_status,
@@ -31,6 +32,10 @@ from available_tools.inertial_sense_tools.decode_ins_status_utils import (
 SUPPORTED_TYPES: Tuple[str, ...] = ("gen_fault", "gps", "gps_hdw", "gpx", "system_hdw", "ins")
 
 
+def _format_status_pair(status_value: int) -> str:
+    return f"{format_integer_value(status_value, output_format=INT_FORMAT_HEX, width=8)} ({format_integer_value(status_value, output_format=INT_FORMAT_DEC)})"
+
+
 def getToolData() -> ToolData:
     tool_templates = [
         ToolTemplate(
@@ -38,7 +43,17 @@ def getToolData() -> ToolData:
             extra_description="Check it in `insStatus` in ``tail -F /var/log/ins_monitor_log | grep -i INS1Msg`",
             args={
                 "--type": "ins",
+                "--status-format": "hex",
                 "--status": "0x50351f7",
+            },
+        ),
+        ToolTemplate(
+            name="Decode INS Status from P-log decimal value",
+            extra_description="Use this when P-log prints status as decimal (example: `92492279`).",
+            args={
+                "--type": "ins",
+                "--status-format": "dec",
+                "--status": "92492279",
             },
         ),
         ToolTemplate(
@@ -46,6 +61,7 @@ def getToolData() -> ToolData:
             extra_description="Check it in `status` in `tail -F /var/log/ins_monitor_log | grep -i DID_GPS1_POS`",
             args={
                 "--type": "gps",
+                "--status-format": "hex",
                 "--status": "0x312",
             },
         ),
@@ -54,6 +70,7 @@ def getToolData() -> ToolData:
             extra_description="Check it in `status` in `tail -F /var/log/ins_monitor_log | grep -i DID_GPX_STATUS`",
             args={
                 "--type": "gpx",
+                "--status-format": "hex",
                 "--status": "0x60",
             },
         ),
@@ -62,6 +79,7 @@ def getToolData() -> ToolData:
             extra_description="Check it in `status` in DID_GPX_HDW_STATUS.",
             args={
                 "--type": "gps_hdw",
+                "--status-format": "hex",
                 "--status": "0x80010001",
             },
         ),
@@ -70,6 +88,7 @@ def getToolData() -> ToolData:
             extra_description="Decode SYSTEM hardware status integer, `hdwStatus` in `tail -F /var/log/ins_monitor_log | grep -i INS1Msg` or via DID_SYS_PARAMS.hdwStatus",
             args={
                 "--type": "system_hdw",
+                "--status-format": "hex",
                 "--status": "0x2088010",
             },
         ),
@@ -78,6 +97,7 @@ def getToolData() -> ToolData:
             extra_description="Use enum eGenFaultCodes, check it with `tail -F /var/log/ins_monitor_log | grep -i DID_SYS_PARAMS`",
             args={
                 "--type": "gen_fault",
+                "--status-format": "hex",
                 "--status": "0x800",
             },
         ),
@@ -103,52 +123,59 @@ def main() -> None:
         "-s",
         "--status",
         required=True,
-        help="Status value to decode (accepts decimal or hex such as 0x1234).",
+        help="Status value to decode.",
+    )
+    parser.add_argument(
+        "--status-format",
+        default=INT_FORMAT_HEX,
+        choices=SUPPORTED_INT_FORMATS,
+        help="Input format for --status. Use 'hex' (default), 'dec' for P-log decimal values, or 'bin'.",
     )
     args = parser.parse_args()
 
-    status_value = int(args.status, 0)
-    decode_message(args.type, status_value)
+    status_value = parse_integer_value(args.status, parse_format=args.status_format, value_name="status")
+    decode_message(args.type, status_value, input_status_format=args.status_format)
 
 
-def decode_message(message_type: str, status_value: str) -> None:
+def decode_message(message_type: str, status_value: int, input_status_format: str = INT_FORMAT_HEX) -> None:
     """Route decoding to the appropriate helper for the given message type."""
+    formatted_status = _format_status_pair(status_value)
     if message_type == "gps":
-        print(f"Decoding GPS Status: {status_value}")
-        print_gps_status_report(status_value)
+        print(f"Decoding GPS Status: {formatted_status}")
+        print_gps_status_report(status_value, status_format=input_status_format)
         return
 
     if message_type == "ins":
-        print(f"Decoding INS Status: {status_value}...")
-        decoded = decode_ins_status(status_value)
+        print(f"Decoding INS Status: {formatted_status}...")
+        decoded = decode_ins_status(status_value, status_format=input_status_format)
         print_ins_status(decoded)
         print("\n" + "=" * 40 + "\n")
         return
 
     if message_type == "gps_hdw":
-        print(f"\nDecoding GPS HDW Status: 0x{status_value:08X} ({status_value})")
-        decoded = decode_gps_hdw_status(status_value)
+        print(f"\nDecoding GPS HDW Status: {formatted_status}")
+        decoded = decode_gps_hdw_status(status_value, status_format=input_status_format)
         print_gps_hdw_status(decoded)
         print("\n" + "=" * 60 + "\n")
         return
 
     if message_type == "gpx":
-        print(f"\nDecoding GPX Status: 0x{status_value:08X} ({status_value})")
-        decoded = decode_gpx_status(status_value)
+        print(f"\nDecoding GPX Status: {formatted_status}")
+        decoded = decode_gpx_status(status_value, status_format=input_status_format)
         print_gpx_status(decoded)
         print("\n" + "=" * 60 + "\n")
         return
 
     if message_type == "system_hdw":
-        print(f"\nDecoding HDW Status: 0x{status_value:08X} ({status_value})")
-        decoded = decode_system_hdw_status(status_value)
+        print(f"\nDecoding HDW Status: {formatted_status}")
+        decoded = decode_system_hdw_status(status_value, status_format=input_status_format)
         print_hdw_status(decoded)
         print("\n" + "=" * 60 + "\n")
         return
 
     if message_type == "gen_fault":
-        print(f"\nDecoding General Fault Status: 0x{status_value:08X} ({status_value})")
-        decoded = decode_gen_fault_status(status_value)
+        print(f"\nDecoding General Fault Status: {formatted_status}")
+        decoded = decode_gen_fault_status(status_value, status_format=input_status_format)
         print_gen_fault_status(decoded)
         print("\n" + "=" * 60 + "\n")
         return

@@ -133,7 +133,7 @@ def get_win_home_path() -> Path:
         # Running on WSL, need to query Windows environment via cmd.exe
         result = run_shell(["cmd.exe", "/c", "echo %USERPROFILE%"], capture_output=True, timeout=3)
         win_home = result.stdout.strip()
-        return get_normalized_path(win_home, target_platform=ETargetPlatform.WSL)
+        return get_normalized_path(win_home, target_platform=ETargetPlatform.WSL_OR_LINUX)
 
 
 @lru_cache(maxsize=1)
@@ -144,7 +144,16 @@ def get_win_persistent_temp_path() -> Path:
 class ETargetPlatform(str, Enum):
     CURRENT = "current"
     WINDOWS = "windows"
-    WSL = "wsl"
+    WSL_OR_LINUX = "linux"
+
+
+def _coerce_target_platform(target_platform: ETargetPlatform | str) -> ETargetPlatform:
+    if isinstance(target_platform, ETargetPlatform):
+        return target_platform
+    normalized = str(target_platform).strip().lower()
+    if normalized in {"wsl", "linux", "wsl_or_linux"}:
+        return ETargetPlatform.WSL_OR_LINUX
+    return ETargetPlatform(normalized)
 
 
 def _is_running_in_wsl() -> bool:
@@ -164,16 +173,22 @@ def _get_local_repo_temp_path() -> Path:
     return Path(__file__).resolve().parents[2] / "temp"
 
 
+def _resolve_current_platform_target() -> ETargetPlatform:
+    if is_platform_windows():
+        return ETargetPlatform.WINDOWS
+    return ETargetPlatform.WSL_OR_LINUX
+
+
 def get_temp_path(prefer_platform: ETargetPlatform | str = ETargetPlatform.WINDOWS) -> Path:
-    if isinstance(prefer_platform, str):
-        prefer_platform = ETargetPlatform(prefer_platform)
-    if prefer_platform == ETargetPlatform.CURRENT:
-        prefer_platform = ETargetPlatform.WINDOWS if is_platform_windows() else ETargetPlatform.WSL
+    prefer_platform = _coerce_target_platform(prefer_platform)
 
     local_temp_path = _get_local_repo_temp_path()
+    if prefer_platform == ETargetPlatform.CURRENT:
+        prefer_platform = _resolve_current_platform_target()
+
     if is_platform_windows():
-        if prefer_platform == ETargetPlatform.WSL:
-            return get_normalized_path(get_win_persistent_temp_path(), target_platform=ETargetPlatform.WSL)
+        if prefer_platform == ETargetPlatform.WSL_OR_LINUX:
+            return get_normalized_path(get_win_persistent_temp_path(), target_platform=ETargetPlatform.WSL_OR_LINUX)
         return get_win_persistent_temp_path()
 
     if _is_running_in_wsl():
@@ -182,7 +197,7 @@ def get_temp_path(prefer_platform: ETargetPlatform | str = ETargetPlatform.WINDO
         return local_temp_path
 
     if prefer_platform == ETargetPlatform.WINDOWS:
-        LOG(f"[WARNING] Windows temp path is not supported on pure Linux. Falling back to WSL/local temp path: {local_temp_path}")
+        LOG(f"[WARNING] Windows temp path is not supported on pure Linux. Falling back to Linux/local temp path: {local_temp_path}")
     return local_temp_path
 
 
@@ -216,7 +231,7 @@ def format_paths_for_display(paths: Sequence[str | Path]) -> List[str]:
 
 def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[Path | str] = None,
               check_throw_exception_on_exit_code: bool = True, stdout=None, stderr=None,
-              text: Optional[bool] = True, capture_output: bool = False, encoding: str = 'utf-8',
+              text: Optional[bool] = True, input: Optional[str] = None, capture_output: bool = False, encoding: str = 'utf-8',
               want_shell: bool = True, executable: Optional[str] = None, timeout: Optional[int] = None, is_run_wsl_if_window: bool = True) -> subprocess.CompletedProcess:
     """Echo + run a shell command. Note: capture_output will catpure stdout/stderr and return within CompletedProcess object -> Also Suppress stdout/stderr"""
 
@@ -231,7 +246,7 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
         for arg in args:
             arg_str = str(arg)
             if _looks_like_windows_path(arg_str):
-                normalized.append(str(get_normalized_path(arg_str, target_platform=ETargetPlatform.WSL)))
+                normalized.append(str(get_normalized_path(arg_str, target_platform=ETargetPlatform.WSL_OR_LINUX)))
             else:
                 normalized.append(arg_str)
         return normalized
@@ -282,7 +297,7 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
         if run_in_wsl:
             exec_path = None
             if cwd:
-                wsl_cwd = str(get_normalized_path(cwd, target_platform=ETargetPlatform.WSL))
+                wsl_cwd = str(get_normalized_path(cwd, target_platform=ETargetPlatform.WSL_OR_LINUX))
                 LOG(f"Converting cwd '{cwd}' to WSL path '{wsl_cwd}'", log_type=ELogType.DEBUG)
                 exec_cwd = wsl_cwd
         else:
@@ -311,9 +326,9 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
 
     if show_cmd:
         display_cwd = format_path_for_display(exec_cwd or Path.cwd())
-        LOG(f"{format_cmd_for_log(cmd)} (cwd={display_cwd})", log_type=ELogType.NORMAL)
+        LOG(f"{format_cmd_for_log(cmd)} (cwd={display_cwd})" + f"{input}" if input else "", log_type=ELogType.NORMAL)
 
-    return subprocess.run(cmd, shell=want_shell, cwd=exec_cwd, check=check_throw_exception_on_exit_code, stdout=stdout, stderr=stderr, text=text, capture_output=capture_output, encoding=encoding, executable=exec_path, timeout=timeout)
+    return subprocess.run(cmd, shell=want_shell, cwd=exec_cwd, check=check_throw_exception_on_exit_code, stdout=stdout, stderr=stderr, text=text, input = input, capture_output=capture_output, encoding=encoding, executable=exec_path, timeout=timeout)
 
 
 def get_shell_exec_cmd_as_list() -> List[str]:
@@ -522,15 +537,14 @@ def get_normalized_path(path_like: str | Path, target_platform: ETargetPlatform 
     """Normalize a path for the target runtime platform.
 
     Use ETargetPlatform.WINDOWS for paths passed to Windows tools,
-    ETargetPlatform.WSL for paths passed to WSL/Linux tools, and
+    ETargetPlatform.WSL_OR_LINUX for paths passed to WSL/Linux tools, and
     ETargetPlatform.CURRENT for local file access.
     """
-    if isinstance(target_platform, str):
-        target_platform = ETargetPlatform(target_platform)
+    target_platform = _coerce_target_platform(target_platform)
     path_text = str(path_like).strip().strip('"').strip("'")
     if target_platform == ETargetPlatform.CURRENT:
-        target_platform = ETargetPlatform.WINDOWS if is_platform_windows() else ETargetPlatform.WSL
-    if target_platform == ETargetPlatform.WSL:
+        target_platform = _resolve_current_platform_target()
+    if target_platform == ETargetPlatform.WSL_OR_LINUX:
         normalized_text = convert_win_to_wsl_path(path_text) if _is_windows_path_text(path_text) else path_text
         normalized_path = Path(normalized_text).expanduser()
         if not is_platform_windows() and normalized_path.exists():
@@ -701,6 +715,9 @@ def LOG_EXCEPTION(exception: Exception, msg=None, exit: bool = True):
     if exit:
         sys.exit(1)
 
+
+def LOG_EMPTY_LINE():
+    LOG("\n", show_time=False)
 
 def LOG_LINE_SEPARATOR():
     separator = f"\n{'=' * 70}\n"

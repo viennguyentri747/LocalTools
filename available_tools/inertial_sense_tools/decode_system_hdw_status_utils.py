@@ -4,7 +4,9 @@ from dataclasses import dataclass, field
 from enum import Flag
 from typing import Dict, List, Union
 
+from available_tools.inertial_sense_tools.common import IS_DATASET_ENUM_REPLACEMENTS
 from dev.dev_common.core_independent_utils import ELogType, LOG
+from dev.dev_common.math_utils import INT_FORMAT_HEX, parse_integer_value
 from dev.dev_iesa.iesa_repo_utils import (
     get_enum_declaration_from_path,
     get_path_to_inertial_sense_data_set_header,
@@ -13,7 +15,7 @@ from dev.dev_iesa.iesa_repo_utils import (
 ENUM_HDW_STATUS_FLAGS_NAME = "eHdwStatusFlags"
 
 _HEADER_PATH = get_path_to_inertial_sense_data_set_header()
-_HDW_STATUS_VALUES = get_enum_declaration_from_path(ENUM_HDW_STATUS_FLAGS_NAME, _HEADER_PATH)
+_HDW_STATUS_VALUES = get_enum_declaration_from_path(ENUM_HDW_STATUS_FLAGS_NAME, _HEADER_PATH, enum_replacements=IS_DATASET_ENUM_REPLACEMENTS)
 
 
 def _get(name: str) -> int:
@@ -147,10 +149,9 @@ def is_set(hdw_status: int, flag: HdwStatusFlags) -> bool:
     return (hdw_status & flag.value) != 0
 
 
-def decode_system_hdw_status(hdw_status: Union[int, str]) -> SystemHardwareStatus:
+def decode_system_hdw_status(hdw_status: Union[int, str], status_format: str = INT_FORMAT_HEX) -> SystemHardwareStatus:
     """Decode a 32-bit hardware status value into a structured object."""
-    if isinstance(hdw_status, str):
-        hdw_status = int(hdw_status, 0)
+    hdw_status = parse_integer_value(hdw_status, parse_format=status_format, value_name="system hardware status")
 
     motion_and_imu = {
         "Gyro motion detected": is_set(hdw_status, HdwStatusFlags.MOTION_GYR),
@@ -210,7 +211,7 @@ def _format_section_lines(values: Dict[str, object], indent: int = 4) -> List[st
     return [f"{prefix}{label}: {value}" for label, value in values.items()]
 
 
-def print_decoded_status(decoded_status: Union[SystemHardwareStatus, int, str]) -> None:
+def print_decoded_status(decoded_status: Union[SystemHardwareStatus, int, str], status_format: str = INT_FORMAT_HEX) -> None:
     """Print a human readable summary of the hardware status."""
-    status_obj = decoded_status if isinstance(decoded_status, SystemHardwareStatus) else decode_system_hdw_status(decoded_status)
+    status_obj = decoded_status if isinstance(decoded_status, SystemHardwareStatus) else decode_system_hdw_status(decoded_status, status_format=status_format)
     LOG(str(status_obj), highlight=True)

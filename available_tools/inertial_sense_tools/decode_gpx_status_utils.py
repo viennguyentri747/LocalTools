@@ -5,10 +5,11 @@ from enum import IntEnum
 from typing import Dict, List, Union
 
 from dev.dev_common.core_independent_utils import ELogType, LOG
-from dev.dev_iesa.iesa_repo_utils import get_enum_declaration_from_path
+from dev.dev_common.math_utils import INT_FORMAT_HEX, parse_integer_value
+from dev.dev_iesa.iesa_repo_utils import get_enum_declaration_from_path, get_path_to_inertial_sense_data_set_header
 
 ENUM_GPX_STATUS_NAME = "eGpxStatus"
-_HEADER_PATH = "/home/vien/workspace/intellian_core_repos/insensesdk/InsenseSDK/inertial-sense-sdk-2.7.0/src/data_sets.h"
+_HEADER_PATH = get_path_to_inertial_sense_data_set_header()
 _GPX_STATUS_VALUES = get_enum_declaration_from_path(ENUM_GPX_STATUS_NAME, _HEADER_PATH)
 
 
@@ -119,9 +120,8 @@ def _fatal_description(fatal_code: int) -> str:
     return _FATAL_DESCRIPTIONS.get(fatal_code, "N/A")
 
 
-def decode_gpx_status(status: Union[int, str]) -> GpxStatus:
-    if isinstance(status, str):
-        status = int(status, 0)
+def decode_gpx_status(status: Union[int, str], status_format: str = INT_FORMAT_HEX) -> GpxStatus:
+    status = parse_integer_value(status, parse_format=status_format, value_name="GPX status")
 
     parse_err_count = (status & GPX_STATUS_COM_PARSE_ERR_COUNT_MASK) >> GPX_STATUS_COM_PARSE_ERR_COUNT_OFFSET
     fatal_code = (status & GPX_STATUS_FATAL_MASK) >> GPX_STATUS_FATAL_OFFSET
@@ -156,6 +156,6 @@ def decode_gpx_status(status: Union[int, str]) -> GpxStatus:
     return gpx_status
 
 
-def print_decoded_status(decoded_status: Union[GpxStatus, int, str]) -> None:
-    status_obj = decoded_status if isinstance(decoded_status, GpxStatus) else decode_gpx_status(decoded_status)
+def print_decoded_status(decoded_status: Union[GpxStatus, int, str], status_format: str = INT_FORMAT_HEX) -> None:
+    status_obj = decoded_status if isinstance(decoded_status, GpxStatus) else decode_gpx_status(decoded_status, status_format=status_format)
     print(str(status_obj))

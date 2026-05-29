@@ -1,18 +1,20 @@
 """Utility helpers for decoding INS status messages from Inertial Sense devices."""
 
 from dataclasses import dataclass
-from enum import IntEnum
-from typing import Dict, Optional, Union
+from enum import Enum, IntEnum
+from typing import Callable, Dict, Optional, Tuple, Union
 
+from available_tools.inertial_sense_tools.common import IS_DATASET_ENUM_REPLACEMENTS
 from dev.dev_common.core_independent_utils import ELogType, LOG
+from dev.dev_common.math_utils import INT_FORMAT_HEX, parse_integer_value
 from dev.dev_iesa.iesa_repo_utils import get_enum_declaration_from_path, get_path_to_inertial_sense_data_set_header
 
 ENUM_INS_STATUS_FLAGS = "eInsStatusFlags"
 ENUM_GPS_NAV_FIX_STATUS = "eGpsNavFixStatus"
 
 _HEADER_PATH = get_path_to_inertial_sense_data_set_header()
-_INS_STATUS_VALUES = get_enum_declaration_from_path(ENUM_INS_STATUS_FLAGS, _HEADER_PATH)
-_GPS_NAV_FIX_VALUES = get_enum_declaration_from_path(ENUM_GPS_NAV_FIX_STATUS, _HEADER_PATH)
+_INS_STATUS_VALUES = get_enum_declaration_from_path(ENUM_INS_STATUS_FLAGS, _HEADER_PATH, enum_replacements=IS_DATASET_ENUM_REPLACEMENTS)
+_GPS_NAV_FIX_VALUES = get_enum_declaration_from_path(ENUM_GPS_NAV_FIX_STATUS, _HEADER_PATH, enum_replacements=IS_DATASET_ENUM_REPLACEMENTS)
 
 
 def _require(enum_dict: Dict[str, int], name: str, enum_name: str) -> int:
@@ -313,12 +315,70 @@ class InsStatusProgressSnapshot:
     gps_fix_rank: int
     rtk_compassing_status: RtkCompassingStatus
     rtk_compassing_rank: int
+    fine_heading: bool
+    fine_velocity: bool
+    fine_position: bool
     fine_alignment_score: int
     gps_update: bool
     general_fault: bool
     rtos_overrun: bool
     mag_bad_cal: bool
     kinematic_calibration_good: bool
+
+
+class InsStatusCategory(Enum):
+    SOLUTION = "solution"
+    GPS_FIX = "gps_fix"
+    RTK_COMPASSING = "rtk_compassing"
+    FINE_ALIGNMENT = "fine_alignment"
+    GPS_UPDATE = "gps_update"
+    GENERAL_FAULT = "general_fault"
+    RTOS_OVERRUN = "rtos_overrun"
+    MAG_BAD_CAL = "mag_bad_cal"
+    KINEMATIC_CALIBRATION_GOOD = "kinematic_calibration_good"
+
+
+@dataclass(frozen=True)
+class InsStatusCategorySpec:
+    category: InsStatusCategory
+    label: str
+    value_getter: Callable[[InsStatusProgressSnapshot], object]
+    rank_getter: Optional[Callable[[InsStatusProgressSnapshot], int]] = None
+    label_getter: Optional[Callable[[InsStatusProgressSnapshot], str]] = None
+
+
+INS_PROGRESSION_CATEGORY_SPECS: Tuple[InsStatusCategorySpec, ...] = (
+    InsStatusCategorySpec(
+        InsStatusCategory.SOLUTION, "Solution",
+        value_getter=lambda s: s.solution_status,
+        rank_getter=lambda s: s.solution_rank,
+        label_getter=lambda s: get_solution_status_label(s.solution_status),
+    ),
+    InsStatusCategorySpec(
+        InsStatusCategory.GPS_FIX, "GPS Fix",
+        value_getter=lambda s: s.gps_fix,
+        rank_getter=lambda s: s.gps_fix_rank,
+        label_getter=lambda s: get_gps_nav_fix_status_label(s.gps_fix),
+    ),
+    InsStatusCategorySpec(
+        InsStatusCategory.RTK_COMPASSING, "RTK Compassing",
+        value_getter=lambda s: s.rtk_compassing_status,
+        rank_getter=lambda s: s.rtk_compassing_rank,
+        label_getter=lambda s: get_rtk_compassing_status_label(s.rtk_compassing_status),
+    ),
+    InsStatusCategorySpec(
+        InsStatusCategory.FINE_ALIGNMENT, "Fine Alignment",
+        value_getter=lambda s: (s.fine_heading, s.fine_velocity, s.fine_position),
+        rank_getter=lambda s: s.fine_alignment_score,
+        label_getter=lambda s: f"(Head:{int(s.fine_heading)} Vel:{int(s.fine_velocity)} Pos:{int(s.fine_position)})",
+    ),
+)
+
+INS_FAULT_BOOL_CATEGORY_SPECS: Tuple[InsStatusCategorySpec, ...] = (
+    InsStatusCategorySpec(InsStatusCategory.GENERAL_FAULT, "General Fault", value_getter=lambda s: s.general_fault),
+    InsStatusCategorySpec(InsStatusCategory.RTOS_OVERRUN, "RTOS Task Period Overrun", value_getter=lambda s: s.rtos_overrun),
+    InsStatusCategorySpec(InsStatusCategory.MAG_BAD_CAL, "Magnetometer Bad Cal", value_getter=lambda s: s.mag_bad_cal),
+)
 
 
 _SOLUTION_RANKS = {
@@ -366,7 +426,10 @@ def get_rtk_compassing_rank(rtk_compassing_status: RtkCompassingStatus) -> int:
 
 def build_ins_status_progress_snapshot(decoded_status: Union[InsStatus, int, str]) -> InsStatusProgressSnapshot:
     decoded = decoded_status if isinstance(decoded_status, InsStatus) else decode_ins_status(decoded_status)
-    fine_alignment_score = int(decoded.alignment_status.fine_heading) + int(decoded.alignment_status.fine_velocity) + int(decoded.alignment_status.fine_position)
+    fine_heading = decoded.alignment_status.fine_heading
+    fine_velocity = decoded.alignment_status.fine_velocity
+    fine_position = decoded.alignment_status.fine_position
+    fine_alignment_score = int(fine_heading) + int(fine_velocity) + int(fine_position)
     return InsStatusProgressSnapshot(
         solution_status=decoded.solution_status,
         solution_rank=get_solution_rank(decoded.solution_status),
@@ -374,6 +437,9 @@ def build_ins_status_progress_snapshot(decoded_status: Union[InsStatus, int, str
         gps_fix_rank=get_gps_fix_rank(decoded.gps_fix),
         rtk_compassing_status=decoded.rtk_status.compassing_status,
         rtk_compassing_rank=get_rtk_compassing_rank(decoded.rtk_status.compassing_status),
+        fine_heading=fine_heading,
+        fine_velocity=fine_velocity,
+        fine_position=fine_position,
         fine_alignment_score=fine_alignment_score,
         gps_update=decoded.aiding_status.gps_update_in_solution,
         general_fault=decoded.faults_and_warnings.general_fault,
@@ -383,50 +449,25 @@ def build_ins_status_progress_snapshot(decoded_status: Union[InsStatus, int, str
     )
 
 
-def get_category_label_from_snapshot(snapshot: InsStatusProgressSnapshot, category: str) -> Optional[str]:
-    mapping = {
-        "solution": get_solution_status_label(snapshot.solution_status),
-        "gps_fix": get_gps_nav_fix_status_label(snapshot.gps_fix),
-        "rtk_compassing": get_rtk_compassing_status_label(snapshot.rtk_compassing_status),
-        "fine_alignment": f"{snapshot.fine_alignment_score}/3",
-        "gps_update": str(snapshot.gps_update),
-        "general_fault": str(snapshot.general_fault),
-        "rtos_overrun": str(snapshot.rtos_overrun),
-        "mag_bad_cal": str(snapshot.mag_bad_cal),
-        "kinematic_calibration_good": str(snapshot.kinematic_calibration_good),
-    }
-    return mapping.get(category)
+def get_category_value_from_snapshot(snapshot: InsStatusProgressSnapshot, category_spec: InsStatusCategorySpec) -> object:
+    return category_spec.value_getter(snapshot)
 
 
-def get_category_rank_from_snapshot(snapshot: InsStatusProgressSnapshot, category: str) -> Optional[int]:
-    mapping = {
-        "solution": snapshot.solution_rank,
-        "gps_fix": snapshot.gps_fix_rank,
-        "rtk_compassing": snapshot.rtk_compassing_rank,
-        "fine_alignment": snapshot.fine_alignment_score,
-    }
-    return mapping.get(category)
+def get_category_rank_from_snapshot(snapshot: InsStatusProgressSnapshot, category_spec: InsStatusCategorySpec) -> Optional[int]:
+    if category_spec.rank_getter is None:
+        return None
+    return int(category_spec.rank_getter(snapshot))
 
 
-def get_category_value_from_snapshot(snapshot: InsStatusProgressSnapshot, category: str) -> Optional[object]:
-    mapping: Dict[str, object] = {
-        "solution": snapshot.solution_status,
-        "gps_fix": snapshot.gps_fix,
-        "rtk_compassing": snapshot.rtk_compassing_status,
-        "fine_alignment": snapshot.fine_alignment_score,
-        "gps_update": snapshot.gps_update,
-        "general_fault": snapshot.general_fault,
-        "rtos_overrun": snapshot.rtos_overrun,
-        "mag_bad_cal": snapshot.mag_bad_cal,
-        "kinematic_calibration_good": snapshot.kinematic_calibration_good,
-    }
-    return mapping.get(category)
+def get_category_label_from_snapshot(snapshot: InsStatusProgressSnapshot, category_spec: InsStatusCategorySpec) -> str:
+    if category_spec.label_getter is not None:
+        return category_spec.label_getter(snapshot)
+    return str(get_category_value_from_snapshot(snapshot, category_spec))
 
 
-def decode_ins_status(ins_status: Union[int, str]) -> InsStatus:
+def decode_ins_status(ins_status: Union[int, str], status_format: str = INT_FORMAT_HEX) -> InsStatus:
     """Decode a 32-bit INS status value into a structured object."""
-    if isinstance(ins_status, str):
-        ins_status = int(ins_status, 0)
+    ins_status = parse_integer_value(ins_status, parse_format=status_format, value_name="INS status")
 
     alignment_status = InsAlignmentStatus(
         coarse_heading=is_set(ins_status, INS_STATUS_HDG_ALIGN_COARSE),
@@ -523,7 +564,7 @@ def _format_section_lines(values: Dict[str, object], indent: int = 4) -> list:
     return [f"{prefix}{label}: {value}" for label, value in values.items()]
 
 
-def print_decoded_status(decoded_status: Union[InsStatus, int, str], is_compact: bool = False) -> None:
+def print_decoded_status(decoded_status: Union[InsStatus, int, str], is_compact: bool = False, status_format: str = INT_FORMAT_HEX) -> None:
     """Print a human readable summary of the INS status."""
-    status_obj = decoded_status if isinstance(decoded_status, InsStatus) else decode_ins_status(decoded_status)
+    status_obj = decoded_status if isinstance(decoded_status, InsStatus) else decode_ins_status(decoded_status, status_format=status_format)
     LOG(status_obj.to_compact_str() if is_compact else str(status_obj), highlight=True)

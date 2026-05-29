@@ -97,8 +97,30 @@ class JiraTicket:
         # Labels and components
         self.labels = self.fields.get("labels", [])
         self.components = [comp.get("name", "") for comp in self.fields.get("components", [])]
+        self.linked_issues = self.parse_linked_issues(self.fields.get("issuelinks", []))
 
         # self.development = self.fields.get("development", {})
+
+    def parse_linked_issues(self, issue_links: Optional[List[Dict[str, Any]]]) -> List[Dict[str, str]]:
+        """Parse Jira issue links into normalized linked issue entries."""
+        results: List[Dict[str, str]] = []
+        for link in issue_links or []:
+            if not isinstance(link, dict):
+                continue
+            link_type = link.get("type", {}) if isinstance(link.get("type"), dict) else {}
+            outward_issue = link.get("outwardIssue")
+            inward_issue = link.get("inwardIssue")
+            issue_data = outward_issue if isinstance(outward_issue, dict) else inward_issue if isinstance(inward_issue, dict) else None
+            if not issue_data:
+                continue
+            relation = (link_type.get("outward") if issue_data is outward_issue else link_type.get("inward")) or link_type.get("name") or "relates to"
+            issue_key = str(issue_data.get("key", "")).upper()
+            if not issue_key:
+                continue
+            issue_fields = issue_data.get("fields", {}) if isinstance(issue_data.get("fields"), dict) else {}
+            issue_title = str(issue_fields.get("summary", "")).strip()
+            results.append({"relation": str(relation).strip(), "key": issue_key, "title": issue_title, "url": f"{self.base_jira_url}/browse/{issue_key}"})
+        return results
 
     def parse_jira_description(self, description: dict) -> str:
         """
@@ -493,7 +515,7 @@ class JiraClient:
             fields = [
                 "key", "summary", "project", "priority", "status", "resolution",
                 "issuetype", "assignee", "reporter", "created", "updated",
-                "duedate", "description", "labels", "components"
+                "duedate", "description", "labels", "components", "issuelinks"
             ]
 
         url = f"{self.base_jira_url}/rest/api/3/search/jql"

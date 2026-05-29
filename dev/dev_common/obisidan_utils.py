@@ -213,7 +213,7 @@ def insert_content_after_regex(
         text = target_path.read_text(encoding="utf-8")
 
         if prevent_duplicate and content_to_insert in text:
-            LOG("ℹ️ Content already present; skipping insert.")
+            LOG(f"ℹ️ Content {content_to_insert} is already present within the note; skipping insert.")
             return True
 
         pattern = re.compile(prefix_regex, flags)

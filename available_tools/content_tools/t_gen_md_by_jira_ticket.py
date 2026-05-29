@@ -46,15 +46,39 @@ class CodingTaskInfo:
         self.main_ow_branch = main_ow_branch
 
 
+def gen_linked_work_items_section(ticket: JiraTicket, spacing_between_lines: str) -> str:
+    relation_to_links = {}
+    for linked_issue in getattr(ticket, "linked_issues", []) or []:
+        relation = str(linked_issue.get("relation", "")).strip().title() or "Related To"
+        key = str(linked_issue.get("key", "")).strip()
+        url = str(linked_issue.get("url", "")).strip()
+        if not key:
+            continue
+        relation_to_links.setdefault(relation, []).append(f"[{key}]({url})" if url else key)
+
+    if not relation_to_links:
+        return (
+            f"- Linked Work Item(s):{spacing_between_lines}"
+            f"  - No Linked Work Item(s)."
+        )
+
+    section = f"- Linked Work Item(s):{spacing_between_lines}"
+    for relation in sorted(relation_to_links.keys()):
+        section += f"  - {relation}: {', '.join(relation_to_links[relation])}{spacing_between_lines}"
+    return section.rstrip()
+
+
 def gen_content_markdown(ticket: JiraTicket, coding_task_info: Optional[CodingTaskInfo], has_ticket_context: bool) -> str:
     """Generate the code task markdown content from Jira ticket data."""
     spacing_between_line_around_headers = "\n\n"
     spacing_between_lines = "\n"
-    md_content_to_gen: str = (
+    ticket_overview_section: str = (
         f"# Ticket Overview{spacing_between_line_around_headers}"
         f"- Title: {ticket.title}{spacing_between_lines}"
-        f"- Link: {ticket.url}{spacing_between_line_around_headers}"
+        f"- Link: {ticket.url}{spacing_between_lines}"
+        f"{gen_linked_work_items_section(ticket, spacing_between_lines)}"
     )
+    md_content_to_gen: str = f"{ticket_overview_section}{spacing_between_line_around_headers}"
 
     # has_body = False
     if has_ticket_context:

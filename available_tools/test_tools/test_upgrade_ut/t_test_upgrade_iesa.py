@@ -249,10 +249,7 @@ def run_once_upgrade(runtime: IesaRuntime, iesa_path: str, timeout_secs: int, lo
                 return EIesaInstallResult.INSTALL_TIMEOUT
             return EIesaInstallResult.INSTALL_FAILED
 
-        install_result, install_reason, _ = _run_iesa_install_via_python(remote_name=package_name, remote_host_ip=runtime.acu_ip, remote_user=runtime.acu_user, jump_host_ip=runtime.ut_ip,
-                                                                          should_prompt=False, on_install_line_recv=_combined_install_line_recv, on_request_next_command=_on_request_next_command,
-                                                                          on_request_return_result=_on_request_return_result, on_precheck_ready=_on_precheck_ready, precheck_timeout_secs=start_timeout_secs,
-                                                                          remote_password=runtime.acu_password, jump_user=runtime.ut_user, jump_password=runtime.ut_password)
+        install_result, install_reason, _ = _run_iesa_install_via_python(remote_name=package_name, remote_host_ip=runtime.acu_ip, remote_user=runtime.acu_user, jump_host_ip=runtime.ut_ip, should_prompt=False, on_install_line_recv=_combined_install_line_recv, on_request_next_command=_on_request_next_command, on_request_return_result=_on_request_return_result, on_precheck_ready=_on_precheck_ready, precheck_timeout_secs=start_timeout_secs, remote_password=runtime.acu_password, jump_user=runtime.ut_user, jump_password=runtime.ut_password)
         if install_result == EIesaInstallResult.CANNOT_START:
             LOG(f"ERROR: IESA install cannot start: {install_reason}")
             return EUpgradeResult.ABORT if "bootpart mismatch" in install_reason.lower() else EUpgradeResult.FAIL

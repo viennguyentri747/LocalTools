@@ -18,7 +18,7 @@ from dev.dev_common.gitlab_utils import *
 from dev.dev_iesa import *
 import yaml
 
-from available_tools.iesa_tools.copy_to_ut_runner import MODE_BINARY_SHELL_CMD, MODE_IESA_PYTHON, MODE_IESA_SHELL_CMD, build_binary_post_copy_cmd_for_shell_echo
+from available_tools.iesa_tools.copy_to_ut_runner import ARG_LOCAL_PATH, ARG_PROMPT_BEFORE_EACH_EXECUTE, MODE_BINARY_SHELL_CMD, MODE_IESA_PYTHON, MODE_IESA_SHELL_CMD, build_binary_post_copy_cmd_for_shell_echo
 from dev.dev_common.custom_structures import LOCAL_REPO_MAPPING
 
 GITLAB_CI_YML_PATH = OW_SW_PATH / ".gitlab-ci.yml"
@@ -231,7 +231,8 @@ def main() -> None:
     if run_via_python:
         command_to_display = (
             f'sudo chmod -R 755 {OW_SW_BUILD_BINARY_OUTPUT_PATH} && {shlex.quote(str(COPY_TO_UT_RUNNER_PATH))} '
-            f'--mode {MODE_BINARY_SHELL_CMD} --local_path {shlex.quote(str(OW_SW_BUILD_BINARY_OUTPUT_PATH))}'
+            f'{ARG_PROMPT_BEFORE_EACH_EXECUTE} {FALSE_STR_VALUE}'
+            f'{ARG_MODE} {MODE_BINARY_SHELL_CMD} {ARG_LOCAL_PATH} {shlex.quote(str(OW_SW_BUILD_BINARY_OUTPUT_PATH))}'
         )
 
     #command_to_display = wrap_cmd_for_bash(command_to_display)
@@ -272,9 +273,9 @@ def main() -> None:
             if run_via_python:
                 command_to_display = (
                     f'sudo chmod -R 755 {shlex.quote(str(new_iesa_output_abs_path))} && {shlex.quote(str(COPY_TO_UT_RUNNER_PATH))} '
-                    f'--mode {MODE_IESA_PYTHON} '
-                    f'--local_path {shlex.quote(str(new_iesa_output_abs_path))} '
-                    f'--prompt_before_execute false'
+                    f'{ARG_PROMPT_BEFORE_EACH_EXECUTE} {FALSE_STR_VALUE}'
+                    f'{ARG_MODE} {MODE_IESA_PYTHON} '
+                    f'{ARG_LOCAL_PATH} {shlex.quote(str(new_iesa_output_abs_path))} '
                 )
             display_content_to_copy(command_to_display, purpose="Copy IESA to target IP", is_copy_to_clipboard=True)
             append_build_log("Copy IESA command:")

@@ -73,6 +73,14 @@ def _read_current_root_partition(cmd_runner: Callable[[str], str]) -> str:
     return parsed
 
 
+def _build_process_query_cmd(ps_pattern: str) -> str:
+    # BusyBox-friendly process lookup:
+    # - Prefer "ps w" to reduce command truncation (helps detect ".iesa" in long command lines).
+    # - Fallback to plain "ps" when "-w"/"w" support differs across BusyBox builds.
+    # - Use regex trick ([.], [iI], etc.) so grep does not match its own command line.
+    return f"(ps w 2>/dev/null || ps) | grep -E '{ps_pattern}' || true"
+
+
 def run_iesa_upgrade_precheck(base_url: str, cmd_runner: Callable[[str], str], timeout_secs: int, bootpart_file_path: str = "/run/media/boot/bootpart.txt",
                               components: Optional[List[EUpgradeComponent]] = None) -> Tuple[EIesaPrecheckResult, str, Optional[IesaPrecheckState]]:
     if timeout_secs <= 0:
@@ -115,14 +123,14 @@ def run_iesa_upgrade_precheck(base_url: str, cmd_runner: Callable[[str], str], t
         LOG(f"Pre-upgrade wait: iesa_upgrade service state={iesa_upgrade_state or 'N/A'}, retrying in {sleep_secs:.1f}s")
         time.sleep(sleep_secs)
 
-    running_iesa = cmd_runner("ps | grep -E \"\\.iesa\" | grep -v grep")
+    running_iesa = cmd_runner(_build_process_query_cmd(ps_pattern=r"[.]iesa"))
     if running_iesa.strip():
         return EIesaPrecheckResult.FAIL, f"iesa process is still running on ACU: {running_iesa.strip()}", None
     LOG("Pre-upgrade condition passed: iesa process is not running on ACU")
 
     running_cltool = ""
     while True:
-        running_cltool = cmd_runner("ps | grep -i insense_cltool | grep -v grep")
+        running_cltool = cmd_runner(_build_process_query_cmd(ps_pattern=r"[iI]nsense_[cC]ltool"))
         if not running_cltool.strip():
             LOG("Pre-upgrade condition passed: insense_cltool process is not running on ACU")
             break
@@ -138,9 +146,10 @@ def run_iesa_upgrade_precheck(base_url: str, cmd_runner: Callable[[str], str], t
 
 def check_safe_reboot_ut(ut_ip: str, timeout_before_reboot_secs: int = 240, should_ping_after_reboot: bool = False, ping_timeout_after_reboot_secs: int = 300, acu_ip: str = ACU_IP, acu_user: str = ACU_USER, acu_password: str = ACU_PASSWORD, ut_user: str = SSM_USER, ut_password: str = SSM_PASSWORD) -> bool:
     deadline_ts = time.time() + max(1, timeout_before_reboot_secs)
+    running_procs_cmd = _build_process_query_cmd(ps_pattern=r"[.]iesa|[iI]nsense_[cC]ltool")
     while time.time() < deadline_ts:
         try:
-            running_procs = run_acu_cmd_via_ut(ut_ip=ut_ip, command="ps | grep -E \"\\.iesa|insense_cltool\" | grep -v grep",
+            running_procs = run_acu_cmd_via_ut(ut_ip=ut_ip, command=running_procs_cmd,
                                                timeout_secs=10, acu_ip=acu_ip, acu_user=acu_user, acu_password=acu_password, ut_user=ut_user, ut_password=ut_password)
             if running_procs.strip():
                 LOG(f"Safe reboot wait: iesa/cltool process is still running on ACU: {running_procs.strip()}")

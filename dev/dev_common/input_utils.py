@@ -20,6 +20,7 @@ from dev.dev_common.constants import ARG_PATH_LONG, ARG_PATH_SHORT, ARG_PATHS_LO
 from dev.dev_common.core_utils import LOG
 from dev.dev_common.file_utils import expand_and_check_path
 from dev.dev_common.gui_utils import _get_terminal_size
+from dev.dev_common.noti_utils import show_noti
 
 MENTION_SYMBOL = '@'
 
@@ -93,6 +94,7 @@ def prompt_input(prompt_message: str, default_input: str = "") -> Optional[str]:
     try:
         # Keep UI consistent with other prompts
         LOG(LINE_SEPARATOR, show_time=False)
+        show_noti(title="Input Required", message=prompt_message, no_log_on_success=True)
         return prompt(message=f"{prompt_message} ", default=default_input).strip()
     except KeyboardInterrupt:
         print("\n❌ Cancelled")

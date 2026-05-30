@@ -43,6 +43,11 @@ class ELineType(str, Enum):
     LiveLog = "LiveLog"
 
 
+class ERequestCommand(str, Enum):
+    CONTINUE = "continue"
+    RETURN = "return"
+
+
 def get_remote_file_checksum(remote_host_ip: str, remote_path: str, remote_user: str = ACU_USER, password: Optional[str] = None,
                              checksum_type: str = CHECKSUM_TYPE_MD5, timeout: int = 10, jump_host_ip: Optional[str] = None,
                              jump_user: Optional[str] = None, jump_password: Optional[str] = None) -> Optional[str]:
@@ -106,11 +111,15 @@ def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_pa
                         jump_host_ip: Optional[str] = None, jump_user: Optional[str] = None,
                         jump_password: Optional[str] = None, tail_lines: int = 0, read_timeout: int = 900,
                         poll_interval: float = 0.1, stop_event=None, on_line: Optional[Callable[[str, ELineType], None]] = None,
-                        retry_interval: float = 5.0) -> None:
+                        retry_interval: float = 5.0, on_get_log_fail: Optional[Callable[[Exception], ERequestCommand]] = None) -> None:
     """Continuously tail a remote log file or read from a serial device until interrupted or stop_event is set.
-    Automatically retries on connection loss or timeout."""
+    Automatically retries on connection loss or timeout unless on_get_log_fail asks to stop."""
     LOG(f"Getting live log at {remote_log_path} from {host_ip}" + f"via jump host {jump_host_ip}" if jump_host_ip else EMPTY_STR_VALUE)
     on_line = on_line or (lambda line, _line_type: print(line, flush=True))
+    on_get_log_fail = on_get_log_fail or (lambda _exc: ERequestCommand.CONTINUE)
+    def _should_return(command) -> bool:
+        cmd_value = getattr(command, "value", command)
+        return str(cmd_value).strip().lower() == ERequestCommand.RETURN.value
     is_device = remote_log_path.startswith("/dev/")
     if is_device:
         remote_cmd = f"cat {shlex.quote(remote_log_path)}"
@@ -202,6 +211,14 @@ def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_pa
 
         except Exception as e:
             if stop_event and stop_event.is_set():
+                return
+            next_command = ERequestCommand.CONTINUE
+            try:
+                next_command = on_get_log_fail(e)
+            except Exception as cb_exc:
+                LOG(f"{LOG_PREFIX_MSG_WARNING} on_get_log_fail callback failed ({type(cb_exc).__name__}: {cb_exc}); defaulting to retry.", show_time=True)
+            if _should_return(next_command):
+                LOG(f"[get_live_remote_log] Error ({type(e).__name__}: {e}) — callback requested stop retrying.", show_time=True)
                 return
             reconnect_attempt += 1
             exp = min(6, reconnect_attempt - 1)

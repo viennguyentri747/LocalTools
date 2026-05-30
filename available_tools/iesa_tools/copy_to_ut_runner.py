@@ -33,11 +33,6 @@ DEFAULT_REMOTE_DIR = "/home/root/download"
 DEFAULT_TARGET_IP_PREFIX = "192.168.100."
 
 
-class ERequestCommand(str, Enum):
-    CONTINUE = "continue"
-    RETURN = "return"
-
-
 class EIesaInstallResult(str, Enum):
     CANNOT_START = "cannot_start"
     INSTALL_TIMEOUT = "install_timeout"
@@ -278,8 +273,20 @@ def _run_iesa_install_via_python(remote_name: str, remote_host_ip: str, remote_u
                 install_result = EIesaInstallResult.INSTALL_SUCCESS
                 install_reason = "install completion marker detected"
                 stop_event.set()
+        def _on_get_log_fail(exc: Exception) -> ERequestCommand:
+            nonlocal install_result, install_reason
+            is_pingable = ping_remote_host_via_jump_host(remote_host_ip=remote_host_ip, jump_host_ip=jump_host_ip, jump_user=precheck_jump_user, jump_password=precheck_jump_password,
+                                                         max_wait_sec=5, retry_interval_sec=1.0, ping_count=1, ping_timeout_sec=2, ssh_timeout_sec=10, check_jump_host_reachable=True, mute=True)
+            if is_pingable:
+                LOG(f"{LOG_PREFIX_MSG_INFO} Live log fetch failed ({type(exc).__name__}: {exc}) but ACU {remote_host_ip} is reachable via UT {jump_host_ip}; continue retrying.")
+                return ERequestCommand.CONTINUE
+            LOG(f"{LOG_PREFIX_MSG_WARNING} Live log fetch failed ({type(exc).__name__}: {exc}) and ACU {remote_host_ip} is not reachable via UT {jump_host_ip}; stop retrying.")
+            install_result = EIesaInstallResult.INSTALL_FAILED
+            install_reason = f"install log streaming stopped because {remote_host_ip} is unreachable via jump host {jump_host_ip}"
+            stop_event.set()
+            return ERequestCommand.RETURN
         stream_live_remote_log(host_ip=remote_host_ip, user=remote_user, password=precheck_remote_password, remote_log_path=cache_upgrade_log_path, jump_host_ip=jump_host_ip, jump_user=precheck_jump_user,
-                               jump_password=precheck_jump_password, tail_lines=0, read_timeout=0, stop_event=stop_event, on_line=_on_line)
+                               jump_password=precheck_jump_password, tail_lines=0, read_timeout=0, stop_event=stop_event, on_line=_on_line, on_get_log_fail=_on_get_log_fail)
     except Exception as exc:
         install_result = EIesaInstallResult.INSTALL_FAILED
         install_reason = f"install log streaming failed: {exc}"

@@ -326,7 +326,7 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
 
     if show_cmd:
         display_cwd = format_path_for_display(exec_cwd or Path.cwd())
-        LOG(f"{format_cmd_for_log(cmd)} (cwd={display_cwd})" + f"{input}" if input else "", log_type=ELogType.NORMAL)
+        LOG(f"{format_cmd_for_log(cmd)} (cwd={display_cwd})" + (f"{input}" if input else ""), log_type=ELogType.NORMAL)
 
     return subprocess.run(cmd, shell=want_shell, cwd=exec_cwd, check=check_throw_exception_on_exit_code, stdout=stdout, stderr=stderr, text=text, input = input, capture_output=capture_output, encoding=encoding, executable=exec_path, timeout=timeout)
 
@@ -551,8 +551,10 @@ def get_normalized_path(path_like: str | Path, target_platform: ETargetPlatform 
             normalized_path = normalized_path.resolve()
     elif target_platform == ETargetPlatform.WINDOWS:
         if _is_windows_path_text(path_text) and not _is_wsl_unc_path_text(path_text):
+            LOG(f"Normalizing Windows path: {format_path_for_display(path_text)}", log_type=ELogType.DEBUG)
             normalized_path = Path(path_text.replace("/", "\\") if re.match(r'^[a-zA-Z]:/', path_text) else path_text)
         else:
+            LOG(f"Normalizing WSL path: {format_path_for_display(path_text)}", log_type=ELogType.DEBUG)
             wsl_text = convert_win_to_wsl_path(path_text) if _is_wsl_unc_path_text(path_text) else path_text
             normalized_path = Path(convert_wsl_to_win_path(Path(wsl_text)))
     else:

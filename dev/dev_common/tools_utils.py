@@ -301,13 +301,17 @@ def open_path_in_explorer(file_path: Path) -> None:
         # Launch Explorer with selected file
         command_result = run_shell(
             [CMD_EXPLORER, f"{WSL_SELECT_FLAG}{windows_path}"],
-            show_cmd=False,
+            show_cmd=True,
             check_throw_exception_on_exit_code=False,
             # When this code runs under native Windows Python, do not wrap Explorer with `wsl`.
             is_run_wsl_if_window=False
         )
 
         if command_result.returncode != 0:
+            # explorer.exe can return 1 under WSL even when Explorer opens successfully.
+            if command_result.returncode == 1 and not is_platform_windows():
+                LOG(f"{LOG_PREFIX_MSG_INFO} Explorer returned code 1 under WSL for '{display_path}', treated as success.")
+                return
             LOG(f"{LOG_PREFIX_MSG_WARNING} Explorer returned code {command_result.returncode} for '{display_path}'")
             return
         LOG(f"Opened Explorer to highlight '{display_path}'")

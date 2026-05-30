@@ -329,8 +329,7 @@ def main() -> None:
             remote_abs_path = f"{remote_dir}/{dest_name}"
             should_prompt = get_arg_value(args, ARG_PROMPT_BEFORE_EACH_EXECUTE)
             _ensure_local_file_accessible(local_file)
-            is_copied, original_md5, remote_md5_before, remote_md5_after = copy_remote_file_if_needed(local_path=local_file, remote_host_ip=acu_host_ip, remote_dest_path=remote_abs_path, remote_user=ACU_USER,
-                                                                                                       password=ACU_PASSWORD, jump_host_ip=target_ip, jump_user=SSM_USER, jump_password=SSM_PASSWORD, checksum_type=CHECKSUM_TYPE_MD5)
+            is_copied, original_md5, remote_md5_before, remote_md5_after = copy_remote_file_if_needed(local_path=local_file, remote_host_ip=acu_host_ip, remote_dest_path=remote_abs_path, remote_user=ACU_USER, password=ACU_PASSWORD, jump_host_ip=target_ip, jump_user=SSM_USER, jump_password=SSM_PASSWORD, checksum_type=CHECKSUM_TYPE_MD5)
             _log_checksums(local_md5=original_md5, remote_md5=remote_md5_before, remote_abs_path=remote_abs_path, stage="before copy")
             if not is_copied:
                 LOG(f"{LOG_PREFIX_MSG_INFO} Remote file already matches local file. Skipping copy: {remote_abs_path}")

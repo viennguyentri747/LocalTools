@@ -65,14 +65,15 @@ def batch_fetch_acu_logs_for_days(list_ips: List[str], extra_days_before_today: 
 
 def fetch_acu_logs(ut_ip: str, log_types: List[str], dest_folder_path: str | Path, ssh_key_type: str = SSH_KEY_TYPE_RSA,
                    date_filters: List[str] = None, clear_dest_folder: bool = True, should_has_var_log: bool = False, run_via_shell_cmd: bool = False,
-                   copy_type: ECopyType = ECopyType.SCP) -> AcuLogInfo:
+                   copy_type: ECopyType = ECopyType.SFTP) -> AcuLogInfo:
     """Fetch ACU logs via Paramiko by default, or shell scp when run_via_shell_cmd is enabled."""
     display_dest_path = format_path_for_display(dest_folder_path)
     if not ping_remote_host(ut_ip, total_pings=2, time_out_per_ping=5):
         LOG(f"{LOG_PREFIX_MSG_ERROR} Jump host {ut_ip} is not reachable. Aborting.", file=sys.stderr)
         return AcuLogInfo(is_valid=False, ip=ut_ip)
 
-    if not setup_passwordless_ssh(ACU_USER, ut_ip, remote_password=SSM_PASSWORD, key_type=ssh_key_type):
+    needs_passwordless_setup = run_via_shell_cmd or copy_type == ECopyType.SCP
+    if needs_passwordless_setup and not setup_passwordless_ssh(ACU_USER, ut_ip, remote_password=SSM_PASSWORD, key_type=ssh_key_type):
         LOG(f"{LOG_PREFIX_MSG_ERROR} SSH key setup failed for {ut_ip}. Continuing with password authentication...")
 
     try:

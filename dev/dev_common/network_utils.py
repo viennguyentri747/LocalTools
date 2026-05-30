@@ -794,7 +794,10 @@ def copy_to_local_via_jump_host(remote_src_paths: str | List[str], remote_host_i
 
 
 def setup_passwordless_ssh(user: str, remote_ip: str, remote_password: Optional[str] = None, key_type: str = SSH_KEY_TYPE_RSA) -> bool:
-    """Set up passwordless SSH authentication."""
+    """Set up passwordless SSH authentication.
+
+    Prefer this for OpenSSH/SCP style workflows. Paramiko SFTP paths can use password auth directly.
+    """
     LOG(f"{LOG_PREFIX_MSG_INFO} Setting up passwordless SSH authentication...")
 
     # Generate SSH key if needed

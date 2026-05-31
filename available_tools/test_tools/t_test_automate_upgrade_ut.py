@@ -150,13 +150,13 @@ def handle_post_upgrade_bundle(ut_ip: str) -> bool:
     # Do nothing!!
     return True
 
-def run_automate(config: UpgradeTestConfig, ssm_ip: str, *, config_path: str) -> int:
+def run_automate(config: UpgradeTestConfig, ssm_ip: str, *, config_path: str) -> tuple[int, Optional[Path]]:
     if not config.upgrade_sequence:
         LOG("ERROR: empty upgrade_sequence in config")
-        return 1
+        return 1, None
     if not ssm_ip.strip():
         LOG("ERROR: missing SSM/UT IP. Set --ip.")
-        return 1
+        return 1, None
 
     total_cycles = max(1, int(config.cycles))
     retry_count = max(0, int(config.max_retries_per_upgrade))
@@ -191,11 +191,11 @@ def run_automate(config: UpgradeTestConfig, ssm_ip: str, *, config_path: str) ->
                     break
                 if attempt > retry_count:
                     _log_msg(f"ERROR: item failed after retries: type={item.type}, path={item.path}", upgrade_log_handler)
-                    return 1
+                    return 1, global_log_path
                 _log_msg("Item failed; retrying...", upgrade_log_handler)
 
     _log_msg("All upgrade cycles completed successfully", upgrade_log_handler)
-    return 0
+    return 0, global_log_path
 
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
@@ -220,7 +220,9 @@ def main(argv: Optional[List[str]] = None) -> None:
     except UpgradeConfigError as exc:
         LOG(f"ERROR: {exc}")
         raise SystemExit(1)
-    exit_code = run_automate(config, ssm_ip=get_arg_value(args, ARG_IP), config_path=get_arg_value(args, ARG_CONFIG))
+    exit_code, output_log_path = run_automate(config, ssm_ip=get_arg_value(args, ARG_IP), config_path=get_arg_value(args, ARG_CONFIG))
+    if output_log_path and output_log_path.exists():
+        open_path_in_explorer(output_log_path)
     raise SystemExit(exit_code)
 
 

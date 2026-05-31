@@ -184,6 +184,8 @@ def main() -> int:
     rc = analyze_ins_status_file(log_path, max_span_of=max_span_of)
     if rc != 0: return rc
     LOG(f"{LOG_PREFIX_MSG_SUCCESS} Analyze INS status completed.")
+    if log_path.exists():
+        open_path_in_explorer(log_path)
 
     LOG("=== Capture Summary ===")
     LOG(f"test start at: {_fmt_dt(test_start_at)}")

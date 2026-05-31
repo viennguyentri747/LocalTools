@@ -306,9 +306,11 @@ def start_ut_live_log_batch_stream(target_ip: str, acu_ip: str, log_types: Seque
 def main() -> int:
     args = parse_args()
     target_ip = get_arg_value(args, ARG_TARGET_IP)
+    normalized_target_ip = _normalize_target_ip(target_ip)
     acu_ip = get_arg_value(args, ARG_ACU_IP)
     log_types: List[str] = get_arg_value(args, ARG_LOG_TYPES)
     log_dir_name = get_arg_value(args, ARG_LOG_DIR_NAME)
+    output_dir = Path(DEFAULT_LOG_OUTPUT_PATH) / normalized_target_ip / ((log_dir_name or DEFAULT_LOG_DIR_NAME).strip() or DEFAULT_LOG_DIR_NAME)
     tail_lines = get_arg_value(args, ARG_TAIL_LINES)
     read_timeout = get_arg_value(args, ARG_READ_TIMEOUT)
     stream_duration_secs = get_arg_value(args, ARG_STREAM_DURATION_SECS)
@@ -320,7 +322,7 @@ def main() -> int:
     try:
         handlers_by_type: Dict[EUtLiveLogType, Sequence[logging.Handler]] = {}
         for log_type in normalize_live_log_types(log_types):
-            output_path = build_live_log_output_path(target_ip=_normalize_target_ip(target_ip), log_type=log_type, log_dir_name=log_dir_name)
+            output_path = build_live_log_output_path(target_ip=normalized_target_ip, log_type=log_type, log_dir_name=log_dir_name)
             handlers_by_type[log_type] = build_live_log_handlers(output_log_path=str(output_path), log_stream_mode=log_stream_mode)
         session = start_ut_live_log_batch_stream(target_ip=target_ip, acu_ip=acu_ip, log_types=log_types, log_dir_name=log_dir_name, tail_lines=tail_lines,
                                                  read_timeout=read_timeout, stream_duration_secs=stream_duration_secs,
@@ -340,6 +342,8 @@ def main() -> int:
     except Exception as exc:
         LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to stream UT live logs: {exc}")
         return 1
+    if output_dir.exists():
+        open_directory_in_explorer(output_dir)
     return 0
 
 

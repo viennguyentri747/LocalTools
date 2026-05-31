@@ -230,6 +230,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         rows_written=rows_written,
     )
     LOG(f"{LOG_PREFIX_MSG_INFO} Metadata saved: {format_path_for_display(metadata_path)}")
+    open_path_in_explorer(output_path)
 
 
 if __name__ == "__main__":

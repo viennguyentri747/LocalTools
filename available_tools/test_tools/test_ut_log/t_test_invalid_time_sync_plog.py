@@ -537,6 +537,7 @@ def run_time_sync_test(input_paths: Sequence[Path], output_path: Path, time_wind
         ignored_issues=list_ignore_issues,
     )
     LOG(f"{LOG_PREFIX_MSG_INFO} Metadata saved: {format_path_for_display(metadata_path)}")
+    open_path_in_explorer(output_path)
 
     if issues:
         issue_counts_msg = ", ".join(f"{issue_name}={issue_counts_by_name[issue_name]}" for issue_name in target_issues)

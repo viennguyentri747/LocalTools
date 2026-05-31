@@ -296,6 +296,9 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
 
 def main(argv: Optional[List[str]] = None) -> None:
     args = parse_args(argv)
+    iesa_path = get_arg_value(args, ARG_IESA_PATH)
+    log_path = get_arg_value(args, ARG_LOG_PATH)
+    resolved_log_path = _resolve_log_path(log_path, iesa_path, base_path=None)
     runtime = IesaRuntime(
         ut_ip=get_arg_value(args, ARG_UT_IP),
         ut_user=get_arg_value(args, ARG_UT_USER),
@@ -305,7 +308,9 @@ def main(argv: Optional[List[str]] = None) -> None:
         acu_password=get_arg_value(args, ARG_ACU_PASSWORD),
         remote_dir=get_arg_value(args, ARG_REMOTE_DIR),
     )
-    result = run_once_upgrade(runtime, get_arg_value(args, ARG_IESA_PATH), int(get_arg_value(args, ARG_TIMEOUT_SECS)), get_arg_value(args, ARG_LOG_PATH))
+    result = run_once_upgrade(runtime, iesa_path, int(get_arg_value(args, ARG_TIMEOUT_SECS)), log_path)
+    if resolved_log_path and Path(resolved_log_path).exists():
+        open_path_in_explorer(Path(resolved_log_path))
     raise SystemExit(0 if result == EUpgradeResult.SUCCESS else 1)
 
 

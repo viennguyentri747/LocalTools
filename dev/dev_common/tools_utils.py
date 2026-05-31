@@ -15,7 +15,7 @@ import pyperclip
 from dev.dev_common.constants import LINE_SEPARATOR, CMD_EXPLORER, WSL_SELECT_FLAG, LOCAL_TOOL_REPO_PATH
 from dev.dev_common import *
 from dev.dev_common.format_utils import quote_arg_value_if_need
-from dev.dev_common.core_independent_utils import ETargetPlatform
+from dev.dev_common.core_independent_utils import ETargetPlatform, get_normalized_path
 # from dev.dev_common.core_utils import LOG, convert_win_to_wsl_path, run_shell, convert_wsl_to_win_path
 
 LOCAL_PYTHON_BIN_PATH = "/usr/local/bin/local_python"
@@ -293,16 +293,18 @@ def display_content_to_copy(
 #         LOG(f"! An unexpected error occurred during shell paste: {e}", show_time=False)
 
 
-def open_path_in_explorer(file_path: Path) -> None:
+def open_path_in_explorer(file_path: Path, select_in_parent: bool = True) -> None:
     """
-    Open Windows Explorer from WSL and highlight the specified file.
+    Open Windows Explorer from WSL.
+    - select_in_parent=True: highlight the target entry in its parent folder.
+    - select_in_parent=False: open the target path directly.
     """
     try:
         windows_path = str(get_normalized_path(file_path, target_platform=ETargetPlatform.WINDOWS)).replace("/", "\\")
         display_path = format_path_for_display(file_path)
-        # Launch Explorer with selected file
+        explorer_target = f"{WSL_SELECT_FLAG}{windows_path}" if select_in_parent else windows_path
         command_result = run_shell(
-            [CMD_EXPLORER, f"{WSL_SELECT_FLAG}{windows_path}"],
+            [CMD_EXPLORER, explorer_target],
             show_cmd=True,
             check_throw_exception_on_exit_code=False,
             # When this code runs under native Windows Python, do not wrap Explorer with `wsl`.
@@ -316,12 +318,18 @@ def open_path_in_explorer(file_path: Path) -> None:
                 return
             LOG(f"{LOG_PREFIX_MSG_WARNING} Explorer returned code {command_result.returncode} for '{display_path}'")
             return
-        LOG(f"Opened Explorer to highlight '{display_path}'")
+        action_text = "highlight" if select_in_parent else "open"
+        LOG(f"Opened Explorer to {action_text} '{display_path}'")
 
     except SystemExit as e:
         LOG(f"{LOG_PREFIX_MSG_WARNING} Failed to open Explorer (non-fatal): {e}")
     except Exception as e:
         LOG(f"Failed to open Explorer: {e}")
+
+
+def open_directory_in_explorer(dir_path: Path) -> None:
+    """Open a directory in Windows Explorer."""
+    open_path_in_explorer(Path(dir_path), select_in_parent=False)
 
 
 def run_win_cmd(command: str) -> Tuple[str, str, int]:

@@ -219,6 +219,7 @@ def stream_live_remote_log_to_file(host_ip: str, remote_log_path: str, user: str
 def main() -> int:
     args = parse_args()
     resolved_log_path = args.log_path or str(_build_default_capture_path(host_ip=args.host_ip, jump_host_ip=args.jump_host_ip, remote_log_path=args.remote_path))
+    resolved_log_path_obj = Path(resolved_log_path)
     LOG(f"{LOG_PREFIX_MSG_INFO} Capture live log to {resolved_log_path}")
     handlers = build_live_log_handlers(output_log_path=resolved_log_path, log_stream_mode=_get_log_stream_mode(args.stream_same_file))
     stop_event = threading.Event()
@@ -238,6 +239,8 @@ def main() -> int:
         if stop_timer:
             stop_timer.cancel()
         close_live_log_handlers(handlers)
+        if resolved_log_path_obj.exists():
+            open_path_in_explorer(resolved_log_path_obj)
     return 0
 
 

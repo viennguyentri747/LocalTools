@@ -131,6 +131,7 @@ def main() -> None:
 
     markdown_path = write_markdown_file(description, repo_name, ticket_key, source_branch)
     LOG(f"{LOG_PREFIX_MSG_INFO} Markdown written to {markdown_path}")
+    open_path_in_explorer(markdown_path)
 
     is_create_gl_mr = get_arg_value(args, ARG_IS_CREATE_GL_MR)
     if not is_create_gl_mr:

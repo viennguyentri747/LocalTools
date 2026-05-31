@@ -316,6 +316,15 @@ def _format_missing_text(summary: IpFetchSummary, has_date_filters: bool) -> str
     return "None"
 
 
+def _open_result_path_in_explorer(ips: List[str], log_output_dir: Path) -> None:
+    if len(ips) == 1:
+        ip_dir = log_output_dir / ips[0]
+        ip_dir.mkdir(parents=True, exist_ok=True)
+        open_directory_in_explorer(ip_dir)
+        return
+    open_directory_in_explorer(log_output_dir)
+
+
 
 def main() -> None:
     args = parse_args()
@@ -337,6 +346,7 @@ def main() -> None:
 
     summaries: Dict[str, IpFetchSummary] = _build_result_summaries(results, log_types, date_filters, log_output_dir)
     _summarize_fetch_results(ips, summaries, bool(date_filters), log_output_dir)
+    _open_result_path_in_explorer(ips=ips, log_output_dir=log_output_dir)
 
     show_noti(title="ACU Log Fetch Summary", message="See log for details")
 

@@ -313,7 +313,12 @@ def main() -> None:
         },
     }
 
-    write_build_metadata(metadata_payload)
+    metadata_path = write_build_metadata(metadata_payload)
+    open_path_in_explorer(metadata_path)
+    if iesa_artifact_path and iesa_artifact_path.exists():
+        open_path_in_explorer(iesa_artifact_path)
+    elif OW_SW_BUILD_BINARY_OUTPUT_PATH.exists():
+        open_directory_in_explorer(OW_SW_BUILD_BINARY_OUTPUT_PATH)
 
 # ───────────────────────────  helpers / actions  ─────────────────────── #
 

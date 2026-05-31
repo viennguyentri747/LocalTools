@@ -20,7 +20,7 @@ ARG_DATE_FILTERS = f"{ARGUMENT_LONG_PREFIX}date"
 ARG_LOG_OUTPUT_DIR_PATH = f"{ARGUMENT_LONG_PREFIX}log_output_path"
 ARG_MAX_THREAD_COUNT = f"{ARGUMENT_LONG_PREFIX}max_threads"
 DEFAULT_MAX_THREAD_COUNT = 20
-DEFAULT_EXTRA_DAYS = 2
+DEFAULT_EXTRA_DAYS = 1
 
 DEFAULT_DATE_VALUES = [
     get_acu_log_datename_from_date(get_datetime_now() - timedelta(days=days_to_cut))

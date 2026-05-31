@@ -170,7 +170,7 @@ def _run_selected_tests(test_names: Sequence[str], log_paths_by_type: Dict[EUtLo
 def main(argv: Optional[Sequence[str]] = None) -> None:
     args = parse_args(argv)
     selected_tests: List[str] = get_arg_value(args, ARG_TESTS) or list(DEFAULT_TESTS)
-    log_output_dir = get_normalized_path(Path(get_arg_value(args, ARG_LOG_OUTPUT_DIR_PATH)), target_platform=ETargetPlatform.CURRENT, log_label="log output path")
+    log_output_dir = Path(get_normalized_path(Path(get_arg_value(args, ARG_LOG_OUTPUT_DIR_PATH)), target_platform=ETargetPlatform.CURRENT, log_label="log output path"))
     ips: List[str] = get_arg_value(args, ARG_LIST_IPS) or []
     date_filters: Optional[List[str]] = get_arg_value(args, ARG_DATE_FILTERS)
     should_get_log: bool = bool(get_arg_value(args, ARG_SHOULD_GET_LOG))

@@ -133,7 +133,7 @@ def get_win_home_path() -> Path:
         # Running on WSL, need to query Windows environment via cmd.exe
         result = run_shell(["cmd.exe", "/c", "echo %USERPROFILE%"], capture_output=True, timeout=3)
         win_home = result.stdout.strip()
-        return get_normalized_path(win_home, target_platform=ETargetPlatform.WSL_OR_LINUX)
+        return Path(get_normalized_path(win_home, target_platform=ETargetPlatform.WSL_OR_LINUX))
 
 
 @lru_cache(maxsize=1)
@@ -188,7 +188,7 @@ def get_temp_path(prefer_platform: ETargetPlatform | str = ETargetPlatform.WINDO
 
     if is_platform_windows():
         if prefer_platform == ETargetPlatform.WSL_OR_LINUX:
-            return get_normalized_path(get_win_persistent_temp_path(), target_platform=ETargetPlatform.WSL_OR_LINUX)
+            return Path(get_normalized_path(get_win_persistent_temp_path(), target_platform=ETargetPlatform.WSL_OR_LINUX))
         return get_win_persistent_temp_path()
 
     if _is_running_in_wsl():
@@ -209,6 +209,16 @@ def _is_windows_path_text(path_text: str) -> bool:
 def _is_wsl_unc_path_text(path_text: str) -> bool:
     stripped = path_text.strip().strip('"').strip("'").replace("\\", "/")
     return bool(re.match(r'^//wsl(?:\.localhost|\$)/[^/]+(/.*)?$', stripped, flags=re.IGNORECASE))
+
+def _normalize_windows_path_separators(path_text: str) -> str:
+    clean = str(path_text).strip().strip('"').strip("'")
+    if not clean:
+        return clean
+    if re.match(r'^[a-zA-Z]:/', clean):
+        return clean.replace("/", "\\")
+    if clean.startswith("//"):
+        return clean.replace("/", "\\")
+    return clean
 
 
 def format_path_for_display(path_like: str | Path) -> str:
@@ -289,7 +299,6 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
 
     is_windows = is_platform_windows()
     run_in_wsl = is_windows and is_run_wsl_if_window
-    use_shell = want_shell and not is_windows
     exec_path = executable
     exec_cwd = cwd
     wsl_cwd: Optional[str] = None
@@ -298,7 +307,7 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
             exec_path = None
             if cwd:
                 wsl_cwd = str(get_normalized_path(cwd, target_platform=ETargetPlatform.WSL_OR_LINUX))
-                LOG(f"Converting cwd '{cwd}' to WSL path '{wsl_cwd}'", log_type=ELogType.DEBUG)
+                LOG(f"Converting cwd '{cwd}' to WSL path '{wsl_cwd}'", log_type=ELogType.NORMAL)
                 exec_cwd = wsl_cwd
         else:
             if cwd:
@@ -309,7 +318,7 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
 
             exec_path = None  # Let Windows resolve binaries (e.g., git.exe)
             if want_shell:
-                LOG("Windows: Forcing shell=False for UNC path support.", log_type=ELogType.DEBUG)
+                LOG("Windows: Forcing shell=False for UNC path support.", log_type=ELogType.NORMAL)
                 want_shell = False
 
     if run_in_wsl:
@@ -423,14 +432,9 @@ def convert_wsl_to_win_path(file_path: Path) -> str:
         cmd = ["wslpath", "-w", resolved_wsl_path]
 
     try:
-        result = run_shell(
-            cmd,
-            capture_output=True,
-            text=True,
-            check_throw_exception_on_exit_code=True
-        )
+        result = run_shell(cmd, capture_output=True, text=True, check_throw_exception_on_exit_code=True )
         win_path = result.stdout.strip()
-        LOG(f"Converted WSL path {format_path_for_display(file_path)} to Windows path (display): {format_path_for_display(win_path)}")
+        LOG(f"Converted WSL path {format_path_for_display(file_path)} to Windows path: {win_path}")
         return win_path
     except Exception as e:
         alias_path = _apply_custom_wsl_to_win_aliases(resolved_wsl_path)
@@ -533,7 +537,7 @@ def convert_win_to_wsl_path(win_path: str) -> str:
     return wsl_path
 
 
-def get_normalized_path(path_like: str | Path, target_platform: ETargetPlatform | str = ETargetPlatform.CURRENT, *, log_label: Optional[str] = None) -> Path:
+def get_normalized_path(path_like: str | Path, target_platform: ETargetPlatform | str = ETargetPlatform.CURRENT, *, log_label: str = "Path") -> str:
     """Normalize a path for the target runtime platform.
 
     Use ETargetPlatform.WINDOWS for paths passed to Windows tools,
@@ -546,22 +550,22 @@ def get_normalized_path(path_like: str | Path, target_platform: ETargetPlatform 
         target_platform = _resolve_current_platform_target()
     if target_platform == ETargetPlatform.WSL_OR_LINUX:
         normalized_text = convert_win_to_wsl_path(path_text) if _is_windows_path_text(path_text) else path_text
-        normalized_path = Path(normalized_text).expanduser()
-        if not is_platform_windows() and normalized_path.exists():
-            normalized_path = normalized_path.resolve()
+        normalized_obj = Path(normalized_text).expanduser()
+        if not is_platform_windows() and normalized_obj.exists():
+            normalized_obj = normalized_obj.resolve()
+        normalized_path = str(normalized_obj)
     elif target_platform == ETargetPlatform.WINDOWS:
         if _is_windows_path_text(path_text) and not _is_wsl_unc_path_text(path_text):
-            LOG(f"Normalizing Windows path: {format_path_for_display(path_text)}", log_type=ELogType.DEBUG)
-            normalized_path = Path(path_text.replace("/", "\\") if re.match(r'^[a-zA-Z]:/', path_text) else path_text)
+            LOG(f"Normalizing Windows path: {path_text}", log_type=ELogType.DEBUG)
+            normalized_path = _normalize_windows_path_separators(path_text)
         else:
-            LOG(f"Normalizing WSL path: {format_path_for_display(path_text)}", log_type=ELogType.DEBUG)
-            wsl_text = convert_win_to_wsl_path(path_text) if _is_wsl_unc_path_text(path_text) else path_text
-            normalized_path = Path(convert_wsl_to_win_path(Path(wsl_text)))
+            LOG(f"Normalizing WSL path for Windows target: {path_text}", log_type=ELogType.DEBUG)
+            wsl_path = convert_win_to_wsl_path(path_text) if _is_wsl_unc_path_text(path_text) else path_text
+            normalized_path = _normalize_windows_path_separators(convert_wsl_to_win_path(Path(wsl_path)))
     else:
         raise ValueError(
             f"Unsupported target_platform='{target_platform}'. Expected one of {[item.value for item in ETargetPlatform]}.")
-    if log_label and str(normalized_path) != path_text:
-        LOG(f"[INFO] Normalized {log_label}: {format_path_for_display(path_text)} -> {format_path_for_display(normalized_path)}")
+    LOG(f"[INFO] Normalized {log_label}: {path_text} -> {normalized_path}, Target Platform: {target_platform}", log_type=ELogType.NORMAL)
     return normalized_path
 
 
@@ -642,7 +646,7 @@ def read_value_from_credential_file(credentials_file_path: str, key_to_read: str
     Reads a specific key's value from a credentials file.
     Returns the value if found, otherwise None.
     """
-    credentials_file_path = str(get_normalized_path(credentials_file_path, target_platform=ETargetPlatform.CURRENT))
+    credentials_file_path = get_normalized_path(credentials_file_path, target_platform=ETargetPlatform.CURRENT)
     if os.path.exists(credentials_file_path):
         try:
             with open(credentials_file_path, 'r') as f:

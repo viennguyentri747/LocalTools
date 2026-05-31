@@ -492,8 +492,8 @@ def _write_metadata_file(output_plog_path: Path, input_paths: Sequence[Path], ti
 
 def run_time_sync_test(input_paths: Sequence[Path], output_path: Path, time_window: Optional[float], drift_tolerance_secs: float) -> None:
     LOG(f"{LOG_PREFIX_MSG_INFO} Time-sync runtime python: sys.executable={format_path_for_display(sys.executable)}, argv0={format_path_for_display(sys.argv[0])}")
-    input_paths = [get_normalized_path(Path(path), target_platform=ETargetPlatform.CURRENT, log_label="P-log input path") for path in input_paths]
-    output_path = get_normalized_path(Path(output_path), target_platform=ETargetPlatform.CURRENT, log_label="output path")
+    input_paths = [Path(get_normalized_path(Path(path), target_platform=ETargetPlatform.CURRENT, log_label="P-log input path")) for path in input_paths]
+    output_path = Path(get_normalized_path(Path(output_path), target_platform=ETargetPlatform.CURRENT, log_label="output path"))
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plog_files = sorted({_validate_plog_file(input_path) for input_path in input_paths})
     list_ignore_issues = [SYNC_ZERO_ISSUE_NAME]
@@ -577,8 +577,8 @@ class TimeSyncPlogTest(TestLogInterface):
 def main(argv: Optional[Sequence[str]] = None) -> None:
     args = parse_args(argv)
     input_paths_raw = get_arg_value(args, ARG_PLOG_PATHS) or []
-    input_paths = [get_normalized_path(Path(path), target_platform=ETargetPlatform.CURRENT, log_label="P-log input path") for path in input_paths_raw]
-    output_path = get_normalized_path(Path(get_arg_value(args, ARG_OUTPUT_PATH)), target_platform=ETargetPlatform.CURRENT, log_label="output path")
+    input_paths = [Path(get_normalized_path(Path(path), target_platform=ETargetPlatform.CURRENT, log_label="P-log input path")) for path in input_paths_raw]
+    output_path = Path(get_normalized_path(Path(get_arg_value(args, ARG_OUTPUT_PATH)), target_platform=ETargetPlatform.CURRENT, log_label="output path"))
     time_window_raw = get_arg_value(args, ARG_TIME_WINDOW)
     time_window = float(time_window_raw) if time_window_raw is not None else None
     drift_tolerance_secs = float(get_arg_value(args, ARG_MAX_DRIFT_TOLERANCE_SECS))

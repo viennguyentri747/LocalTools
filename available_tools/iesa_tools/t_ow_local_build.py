@@ -20,6 +20,7 @@ import yaml
 
 from available_tools.iesa_tools.copy_to_ut_runner import ARG_LOCAL_PATH, ARG_PROMPT_BEFORE_EACH_EXECUTE, MODE_BINARY_SHELL_CMD, MODE_IESA_PYTHON, MODE_IESA_SHELL_CMD, build_binary_post_copy_cmd_for_shell_echo
 from dev.dev_common.custom_structures import LOCAL_REPO_MAPPING
+from dev.dev_common.tools_utils import get_win_python_runner_cmd_invocation
 
 GITLAB_CI_YML_PATH = OW_SW_PATH / ".gitlab-ci.yml"
 # Need to put this here because we will go into docker environment from OW_SW_PATH

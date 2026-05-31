@@ -197,8 +197,8 @@ def _write_metadata_file(output_plog_path: Path, input_paths: Sequence[Path], ti
 def main(argv: Optional[Sequence[str]] = None) -> None:
     args = parse_args(argv)
     input_paths_raw = get_arg_value(args, ARG_PLOG_PATHS) or []
-    input_paths = [get_normalized_path(Path(path), target_platform=ETargetPlatform.CURRENT, log_label="P-log input path") for path in input_paths_raw]
-    output_path = get_normalized_path(Path(get_arg_value(args, ARG_OUTPUT_PATH)), target_platform=ETargetPlatform.CURRENT, log_label="output path")
+    input_paths = [Path(get_normalized_path(Path(path), target_platform=ETargetPlatform.CURRENT, log_label="P-log input path")) for path in input_paths_raw]
+    output_path = Path(get_normalized_path(Path(get_arg_value(args, ARG_OUTPUT_PATH)), target_platform=ETargetPlatform.CURRENT, log_label="output path"))
     time_window = get_arg_value(args, ARG_TIME_WINDOW)
     if time_window is not None:
         time_window = float(time_window)

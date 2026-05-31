@@ -705,7 +705,7 @@ def _copy_to_local_scp_impl(remote_src_paths: str | List[str], remote_host_ip: s
     # We need two forms of the same destination:
     # - CURRENT for local Python file ops (mkdir/rglob in the current runtime)
     # - WSL_OR_LINUX for the scp command string executed via Linux shell (`wsl bash -lc ...` on Windows host)
-    local_dest = get_normalized_path(local_dest_path, target_platform=ETargetPlatform.CURRENT, log_label="scp local destination").expanduser().resolve()
+    local_dest = Path(get_normalized_path(local_dest_path, target_platform=ETargetPlatform.CURRENT, log_label="scp local destination")).expanduser().resolve()
     local_dest_for_scp = get_normalized_path(local_dest_path, target_platform=ETargetPlatform.WSL_OR_LINUX)
     local_dest.mkdir(parents=True, exist_ok=True)
     before_files = set(str(p.resolve()) for p in local_dest.rglob("*") if p.is_file())

@@ -8,6 +8,7 @@ import re
 from typing import List, Optional, Sequence, Tuple
 
 from dev.dev_common import ETargetPlatform, LOCAL_TOOL_REPO_PATH, get_normalized_path, run_module_via_win_python
+from dev.dev_common.core_independent_utils import LOG
 
 
 ARG_MODULE = "--module"
@@ -44,9 +45,11 @@ def _normalize_path_arg_value(value: str) -> str:
     raw_value = str(value)
     stripped = raw_value.strip()
     if not _looks_like_wsl_or_unc_path(stripped):
+        LOG(f"Skipping path normalization for value: {raw_value}")
         return raw_value
     try:
-        return str(get_normalized_path(stripped, target_platform=ETargetPlatform.WINDOWS))
+        win_path = str(get_normalized_path(stripped, target_platform=ETargetPlatform.WINDOWS))
+        return win_path
     except Exception:
         pass
     return raw_value

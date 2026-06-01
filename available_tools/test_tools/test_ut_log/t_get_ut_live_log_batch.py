@@ -342,8 +342,11 @@ def main() -> int:
     except Exception as exc:
         LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to stream UT live logs: {exc}")
         return 1
-    if output_dir.exists():
+    has_non_empty_artifact = output_dir.exists() and any(path.is_file() and path.stat().st_size > 0 for path in output_dir.rglob("*.live.log"))
+    if has_non_empty_artifact:
         open_directory_in_explorer(output_dir)
+    else:
+        LOG_ISSUE(f"No live-log artifacts generated under {format_path_for_display(output_dir)}; skipping Explorer open.")
     return 0
 
 

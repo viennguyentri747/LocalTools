@@ -1,6 +1,5 @@
 #!/usr/local/bin/local_python
 import argparse
-import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -81,6 +80,7 @@ def parse_args() -> argparse.Namespace:
         ARG_MAX_THREAD_COUNT,
         type=int,
         default=DEFAULT_MAX_THREAD_COUNT,
+        #default=1,
         help='Maximum concurrent fetch operations (must be >= 1).',
     )
     return parser.parse_args()
@@ -97,7 +97,7 @@ class IpFetchSummary:
 
 
 class FetchProgressTracker:
-    """Compact console status tracker that rewrites a single line for all IPs."""
+    """Per-IP ACU fetch tracker built on top of generic ParallelSpinner."""
 
     STATUS_LABELS = {
         "pending": "waiting",
@@ -108,16 +108,16 @@ class FetchProgressTracker:
     }
     STATUS_ORDER = ("pending", "copying", "done", "failed", "skipped")
 
-    def __init__(self, ips: List[str], min_render_interval: float = 0.2) -> None:
+    def __init__(self, ips: List[str]) -> None:
         self._status_by_ip: Dict[str, str] = {ip: "pending" for ip in ips}
-        self._lock = threading.Lock()
-        self._min_render_interval = min_render_interval
-        self._start_time = time.time()
-        self._last_render_ts = 0.0
-        self._last_line_len = 0
+        self._lock = threading.RLock()
         self._active = bool(ips)
+        self._spinner = ParallelSpinner(title="ACU Log Fetch Progress")
         if self._active:
-            self._render(force=True)
+            LOG(f"{LOG_PREFIX_MSG_INFO} Progress UI backend: {self._spinner.backend_name}")
+            self._spinner.start()
+            for ip in ips:
+                self._spinner.add_task(task_id=ip, label=ip, status=self.STATUS_LABELS["pending"], detail="Waiting")
 
     def set_status(self, ip: str, status: str) -> None:
         if not self._active:
@@ -126,46 +126,40 @@ class FetchProgressTracker:
             if ip not in self._status_by_ip:
                 return
             self._status_by_ip[ip] = status
-            self._render()
+            status_label = self.STATUS_LABELS.get(status, status)
+            percent = 100.0 if status in ("done", "failed", "skipped") else None
+            self._spinner.update_task(task_id=ip, status=status_label, detail=f"State: {status_label}", percent=percent)
+
+    def set_transfer_progress(self, ip: str, label: str, transferred_bytes: int, total_bytes: int) -> None:
+        if not self._active:
+            return
+        with self._lock:
+            if ip not in self._status_by_ip:
+                return
+            percent = 100.0 if total_bytes <= 0 else (max(0, min(transferred_bytes, total_bytes)) * 100.0 / float(total_bytes))
+            transferred_h = format_bytes_human(max(0, transferred_bytes))
+            total_h = format_bytes_human(max(0, total_bytes))
+            detail = f"{label}: {transferred_h}/{total_h}"
+            self._spinner.update_task(task_id=ip, status=self.STATUS_LABELS["copying"], detail=detail, percent=percent)
 
     def finish(self) -> None:
         if not self._active:
             return
-        with self._lock:
-            self._render(force=True)
-            sys.stdout.write("\n")
-            sys.stdout.flush()
-            self._active = False
+        final_text = self._build_status_text()
+        for ip, status in self._status_by_ip.items():
+            self._spinner.update_task(task_id=ip, status=self.STATUS_LABELS.get(status, status), detail="Completed")
+        self._spinner.stop(final_message=final_text, emit_final=True)
+        self._active = False
 
-    def _render(self, force: bool = False) -> None:
-        now = time.time()
-        if not force and (now - self._last_render_ts) < self._min_render_interval:
-            return
-        self._last_render_ts = now
-        elapsed = self._format_elapsed(now - self._start_time)
-
+    def _build_status_text(self) -> str:
         parts: List[str] = []
-        for status in self.STATUS_ORDER:
-            ips = [ip for ip, stat in self._status_by_ip.items() if stat == status]
-            if not ips:
-                continue
-            parts.append(self._format_group(self.STATUS_LABELS.get(status, status), ips))
-
-        parts_str = " | ".join(parts) if parts else "no hosts to track"
-        line = f"[Elapsed {elapsed}] {parts_str}"
-        padding = ""
-        if len(line) < self._last_line_len:
-            padding = " " * (self._last_line_len - len(line))
-        sys.stdout.write(f"\r{line}{padding}")
-        sys.stdout.flush()
-        self._last_line_len = len(line)
-
-    @staticmethod
-    def _format_elapsed(total_seconds: float) -> str:
-        seconds = max(0, int(total_seconds))
-        hours, remainder = divmod(seconds, 3600)
-        minutes, secs = divmod(remainder, 60)
-        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+        with self._lock:
+            for status in self.STATUS_ORDER:
+                ips = [ip for ip, stat in self._status_by_ip.items() if stat == status]
+                if not ips:
+                    continue
+                parts.append(self._format_group(self.STATUS_LABELS.get(status, status), ips))
+        return " | ".join(parts) if parts else "no hosts to track"
 
     @staticmethod
     def _format_group(label: str, ips: List[str]) -> str:
@@ -224,7 +218,11 @@ def batch_fetch_acu_logs(ut_ips: List[str], log_types: List[str], date_filters: 
             dest_path = log_output_dir / ip
             progress_tracker.set_status(ip, "copying")
             try:
-                fetch_info = fetch_acu_logs(log_types=log_types, ut_ip=ip, date_filters=date_filters, dest_folder_path=dest_path, should_has_var_log=should_has_var_logs)
+                fetch_info = fetch_acu_logs(
+                    log_types=log_types, ut_ip=ip, date_filters=date_filters, dest_folder_path=dest_path, should_has_var_log=should_has_var_logs,
+                    open_in_explorer=False, on_progress=lambda label, transferred, total: progress_tracker.set_transfer_progress(ip, label, transferred, total),
+                    emit_progress_log=False,
+                )
             except Exception:
                 progress_tracker.set_status(ip, "failed")
                 raise
@@ -298,7 +296,7 @@ def _summarize_fetch_results(ips: List[str], summaries: Dict[str, IpFetchSummary
             LOG("- ✓ Found: None")
             LOG(f"- ✗ Missing: {_format_missing_text(summary, has_date_filters)}")
             if not summary.fetch_success:
-                LOG("Fetch status: No log files were downloaded for this IP")
+                LOG_ISSUE("Fetch status: No log files were downloaded for this IP")
 
         if index < len(ips) - 1:
             LOG("", show_time=False)
@@ -316,10 +314,14 @@ def _format_missing_text(summary: IpFetchSummary, has_date_filters: bool) -> str
     return "None"
 
 
-def _open_result_path_in_explorer(ips: List[str], log_output_dir: Path) -> None:
+def _open_result_path_in_explorer(ips: List[str], log_output_dir: Path, summaries: Dict[str, IpFetchSummary]) -> None:
+    has_any_downloaded_logs = any(bool(summary.log_files) for summary in summaries.values())
+    if not has_any_downloaded_logs:
+        LOG_ISSUE("No logs were downloaded; skipping Explorer open.")
+        return
+
     if len(ips) == 1:
         ip_dir = log_output_dir / ips[0]
-        ip_dir.mkdir(parents=True, exist_ok=True)
         open_directory_in_explorer(ip_dir)
         return
     open_directory_in_explorer(log_output_dir)
@@ -346,7 +348,7 @@ def main() -> None:
 
     summaries: Dict[str, IpFetchSummary] = _build_result_summaries(results, log_types, date_filters, log_output_dir)
     _summarize_fetch_results(ips, summaries, bool(date_filters), log_output_dir)
-    _open_result_path_in_explorer(ips=ips, log_output_dir=log_output_dir)
+    _open_result_path_in_explorer(ips=ips, log_output_dir=log_output_dir, summaries=summaries)
 
     show_noti(title="ACU Log Fetch Summary", message="See log for details")
 

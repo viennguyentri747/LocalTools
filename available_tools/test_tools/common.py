@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Iterable, List
+from typing import Callable, Iterable, List, Optional
 from dev.dev_common import *
 
 
@@ -65,7 +65,8 @@ def batch_fetch_acu_logs_for_days(list_ips: List[str], extra_days_before_today: 
 
 def fetch_acu_logs(ut_ip: str, log_types: List[str], dest_folder_path: str | Path, ssh_key_type: str = SSH_KEY_TYPE_RSA,
                    date_filters: List[str] = None, clear_dest_folder: bool = True, should_has_var_log: bool = False, run_via_shell_cmd: bool = False,
-                   copy_type: ECopyType = ECopyType.SFTP) -> AcuLogInfo:
+                   copy_type: ECopyType = ECopyType.SFTP, open_in_explorer: bool = True,
+                   on_progress: Optional[Callable[[str, int, int], None]] = None, emit_progress_log: bool = True) -> AcuLogInfo:
     """Fetch ACU logs via Paramiko by default, or shell scp when run_via_shell_cmd is enabled."""
     display_dest_path = format_path_for_display(dest_folder_path)
     if not ping_remote_host(ut_ip, total_pings=2, time_out_per_ping=5):
@@ -99,7 +100,11 @@ def fetch_acu_logs(ut_ip: str, log_types: List[str], dest_folder_path: str | Pat
         remote_sources = build_remote_log_sources(log_types=log_types, date_filters=date_filters, should_has_var_log=should_has_var_log)
         LOG(f"{LOG_PREFIX_MSG_INFO} Fetching all logs for {ut_ip} into '{display_dest_path}' via {copy_type.value.upper()}...")
         try:
-            copied_paths = copy_to_local_via_jump_host(remote_src_paths=remote_sources, remote_host_ip=ACU_IP, local_dest_path=dest_folder_path, jump_host_ip=ut_ip, remote_user=ACU_USER, remote_password=ACU_PASSWORD, jump_user=SSM_USER, jump_password=SSM_PASSWORD, recursive=False, copy_type=copy_type)
+            copied_paths = copy_to_local_via_jump_host(
+                remote_src_paths=remote_sources, remote_host_ip=ACU_IP, local_dest_path=dest_folder_path, jump_host_ip=ut_ip,
+                remote_user=ACU_USER, remote_password=ACU_PASSWORD, jump_user=SSM_USER, jump_password=SSM_PASSWORD, recursive=False,
+                copy_type=copy_type, on_progress=on_progress, emit_progress_log=emit_progress_log,
+            )
         except Exception as exc:
             transfer_failed = True
             LOG(f"{LOG_PREFIX_MSG_WARNING} {copy_type.value.upper()} fetch failed for {ut_ip}: {exc}")
@@ -118,9 +123,10 @@ def fetch_acu_logs(ut_ip: str, log_types: List[str], dest_folder_path: str | Pat
             LOG(f"{LOG_PREFIX_MSG_WARNING} Partial fetch for {ut_ip}: copied {len(new_log_paths)} file(s) despite transfer errors.")
         else:
             LOG(f"{LOG_PREFIX_MSG_INFO} Log fetch completed for {ut_ip}, logs saved in '{display_dest_path}'")
-            open_path_in_explorer(dest_folder_path)
+            if open_in_explorer:
+                open_path_in_explorer(dest_folder_path)
     else:
-        LOG(f"{LOG_PREFIX_MSG_WARNING} No log files copied for {ut_ip}{' (transfer failed)' if transfer_failed else ' despite transfer completion'}.")
+        LOG_ISSUE(f"No log files copied for {ut_ip}{' (transfer failed)' if transfer_failed else ' despite transfer completion'}.")
 
     return AcuLogInfo(is_valid=bool(new_log_paths), ip=ut_ip, log_paths=new_log_paths)
 

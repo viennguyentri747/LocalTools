@@ -30,7 +30,7 @@ DEFAULT_INS_MONITOR_LOG_PATH = "/var/log/ins_monitor_log"
 DEFAULT_LIVE_LOG_FILENAME = "live.log"
 LIVE_LOG_FILE_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 LIVE_LOG_FILE_BACKUP_COUNT = 5
-DEFAULT_REACHABLE_WAIT_SECS = 300
+DEFAULT_REACHABLE_WAIT_SECS = 400
 
 
 class ELogStreamMode(str, Enum):
@@ -239,8 +239,10 @@ def main() -> int:
         if stop_timer:
             stop_timer.cancel()
         close_live_log_handlers(handlers)
-        if resolved_log_path_obj.exists():
+        if resolved_log_path_obj.exists() and resolved_log_path_obj.is_file() and resolved_log_path_obj.stat().st_size > 0:
             open_path_in_explorer(resolved_log_path_obj)
+        else:
+            LOG_ISSUE(f"No live-log artifact generated at {format_path_for_display(resolved_log_path_obj)}; skipping Explorer open.")
     return 0
 
 

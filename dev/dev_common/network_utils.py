@@ -13,10 +13,12 @@ import socket
 import subprocess
 import sys
 import select
+import threading
 from typing import Callable, List, Optional, Tuple
 from dev.dev_common.constants import *
 from dev.dev_common.core_utils import *
 from dev.dev_common.format_utils import format_bytes_human
+from dev.dev_common.gui_utils import ElapsedStatusSpinner
 from dev.dev_common.independent_network_utils import *
 
 SSH_KEY_TYPE_RSA = 'rsa'
@@ -165,7 +167,7 @@ def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_pa
             last_output_time = time.time()
             waiting_start_time = last_output_time
             waiting_last_second = -1
-            waiting_last_text_len = 0
+            waiting_spinner: Optional[ElapsedStatusSpinner] = None
             saw_first_log = False
 
             target_client, jump_client, jump_channel = open_ssh_client(
@@ -189,6 +191,9 @@ def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_pa
                     if raw == b"":
                         raise ConnectionError(f"SSH channel returned EOF while streaming '{remote_log_path}' from {host_ip}")
                     saw_first_log = _emit_decoded_lines(raw.decode("utf-8", errors="replace"), saw_first_log)
+                    if saw_first_log and waiting_spinner:
+                        waiting_spinner.stop(final_message=f"Receiving log output from '{remote_log_path}'")
+                        waiting_spinner = None
                     last_output_time = time.time()
                     reconnect_attempt = 0
                     continue
@@ -201,9 +206,15 @@ def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_pa
                     elapsed_seconds = int(time.time() - waiting_start_time)
                     if elapsed_seconds != waiting_last_second:
                         timeout_text = f"{read_timeout}s" if read_timeout > 0 else "infinite"
-                        waiting_text = f"Waiting for log output from '{remote_log_path}'... Elapsed: {elapsed_seconds}/{timeout_text}"
-                        waiting_last_text_len = max(waiting_last_text_len, len(waiting_text))
-                        LOG(f"{waiting_text}{' ' * (waiting_last_text_len - len(waiting_text))}", same_line=True, show_time=True)
+                        if waiting_spinner is None:
+                            waiting_spinner = ElapsedStatusSpinner(
+                                message="Waiting for log output",
+                                interval_sec=0.2,
+                                show_spinner=True,
+                                show_elapsed=True,
+                            )
+                            waiting_spinner.start()
+                        waiting_spinner.set_status(f"path='{remote_log_path}', elapsed={elapsed_seconds}/{timeout_text}")
                         waiting_last_second = elapsed_seconds
                 if not is_device and read_timeout > 0 and (time.time() - last_output_time) >= read_timeout:
                     raise TimeoutError(f"No data received from '{remote_log_path}' for {read_timeout} seconds")
@@ -227,6 +238,8 @@ def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_pa
             _sleep_with_stop(backoff_secs)
 
         finally:
+            if 'waiting_spinner' in locals() and waiting_spinner is not None:
+                waiting_spinner.stop(final_message=f"Stopped waiting for log output from '{remote_log_path}'")
             if stdout:
                 stdout.close()
             if stderr:
@@ -448,15 +461,40 @@ def _sftp_put_file(sftp: paramiko.SFTPClient, local_file: Path, remote_file_path
 
 
 class _TransferProgressReporter:
-    def __init__(self, label: str, total_bytes: int, log_interval_sec: float = 1.0):
-        self.label = label
+    _active_reporters_lock = threading.RLock()
+    _active_reporters_count = 0
+
+    def __init__(self, label: str, total_bytes: int, log_interval_sec: float = 1.0, use_same_line: Optional[bool] = None,
+                 progress_callback: Optional[Callable[[str, int, int], None]] = None, emit_log: bool = True):
+        self.label = (label or "Transfer Progress").rstrip(":")
         self.total_bytes = max(0, int(total_bytes))
         self.log_interval_sec = log_interval_sec
         self.start_time = time.time()
         self.last_log_time = 0.0
         self.last_logged_percent = -1
-        self.use_same_line = bool(getattr(sys.stdout, "isatty", lambda: False)())
+        self.progress_callback = progress_callback
+        self.emit_log = bool(emit_log)
+        # Default to same-line updates on TTY for readable progress behavior.
+        # Callers can force disable with use_same_line=False.
+        self._requested_same_line = bool((getattr(sys.stdout, "isatty", lambda: False)() if use_same_line is None else use_same_line) and getattr(sys.stdout, "isatty", lambda: False)())
+        self.use_same_line = self._requested_same_line
         self.has_rendered = False
+        self.last_render_text_len = 0
+        self._is_closed = False
+        with _TransferProgressReporter._active_reporters_lock:
+            _TransferProgressReporter._active_reporters_count += 1
+
+    @classmethod
+    def _has_multiple_active_reporters(cls) -> bool:
+        with cls._active_reporters_lock:
+            return cls._active_reporters_count > 1
+
+    def _close_reporter(self) -> None:
+        if self._is_closed:
+            return
+        self._is_closed = True
+        with _TransferProgressReporter._active_reporters_lock:
+            _TransferProgressReporter._active_reporters_count = max(0, _TransferProgressReporter._active_reporters_count - 1)
 
     def report(self, transferred_bytes: int, force: bool = False) -> None:
         transferred_bytes = max(0, min(int(transferred_bytes), self.total_bytes))
@@ -467,15 +505,40 @@ class _TransferProgressReporter:
         rate_mib_s = (transferred_bytes / elapsed) / (1024 * 1024)
         transferred_h = format_bytes_human(transferred_bytes)
         total_h = format_bytes_human(self.total_bytes)
-        LOG(f"{LOG_PREFIX_MSG_INFO} {self.label}: {percent}% ({transferred_h}/{total_h}), elapsed {elapsed:.1f}s, rate {rate_mib_s:.2f} MiB/s", same_line=self.use_same_line)
+        progress_text = f"{LOG_PREFIX_MSG_INFO} {self.label}: {percent}% ({transferred_h}/{total_h}), elapsed {elapsed:.1f}s, rate {rate_mib_s:.2f} MiB/s"
+        if self.progress_callback:
+            try:
+                self.progress_callback(self.label, transferred_bytes, self.total_bytes)
+            except Exception as exc:
+                LOG(f"{LOG_PREFIX_MSG_WARNING} Transfer progress callback failed ({type(exc).__name__}: {exc}); disabling callback.")
+                self.progress_callback = None
+        if not self.emit_log:
+            self.last_logged_percent = percent
+            self.last_log_time = time.time()
+            return
+        if self._requested_same_line and self._has_multiple_active_reporters():
+            # Multiple parallel transfers writing to the same terminal cannot share a
+            # single-line renderer without corruption. Fallback to line mode.
+            self.use_same_line = False
+        if self.use_same_line:
+            if len(progress_text) < self.last_render_text_len:
+                progress_text = f"{progress_text}{' ' * (self.last_render_text_len - len(progress_text))}"
+            self.last_render_text_len = max(self.last_render_text_len, len(progress_text))
+            LOG(progress_text, same_line=True)
+        else:
+            LOG(progress_text)
         self.last_logged_percent = percent
         self.last_log_time = time.time()
         self.has_rendered = True
 
     def finish_line(self) -> None:
-        if self.use_same_line and self.has_rendered:
-            LOG("", show_time=False)
-            self.has_rendered = False
+        try:
+            if self.use_same_line and self.has_rendered:
+                LOG("", show_time=False)
+                self.has_rendered = False
+                self.last_render_text_len = 0
+        finally:
+            self._close_reporter()
 
 
 def _sftp_put_file_with_progress(sftp: paramiko.SFTPClient, local_file: Path, remote_file_path: str, base_offset: int = 0, total_bytes: Optional[int] = None, label: Optional[str] = None) -> str:
@@ -483,7 +546,7 @@ def _sftp_put_file_with_progress(sftp: paramiko.SFTPClient, local_file: Path, re
     file_uploaded = 0
     overall_total = file_size if total_bytes is None else max(file_size, int(total_bytes))
     LOG(f"{LOG_PREFIX_MSG_INFO} Uploading {local_file} to {remote_file_path} ({format_bytes_human(file_size)})")
-    reporter = _TransferProgressReporter(label=label or f"Upload Progress", total_bytes=overall_total)
+    reporter = _TransferProgressReporter(label=label or f"Upload Progress", total_bytes=overall_total, use_same_line=True)
 
     def _on_progress(transferred: int, total: int) -> None:
         nonlocal file_uploaded
@@ -557,12 +620,15 @@ def _sftp_is_dir(sftp: paramiko.SFTPClient, remote_path: str) -> bool:
     return stat.S_ISDIR(sftp.stat(remote_path).st_mode)
 
 
-def _sftp_get_file_with_progress(sftp: paramiko.SFTPClient, remote_file_path: str, local_file: Path, base_offset: int = 0, total_bytes: Optional[int] = None, label: Optional[str] = None) -> str:
+def _sftp_get_file_with_progress(sftp: paramiko.SFTPClient, remote_file_path: str, local_file: Path, base_offset: int = 0, total_bytes: Optional[int] = None,
+                                 label: Optional[str] = None, on_progress: Optional[Callable[[str, int, int], None]] = None,
+                                 emit_progress_log: bool = True) -> str:
     remote_stat = sftp.stat(remote_file_path)
     file_size = int(remote_stat.st_size)
     local_file.parent.mkdir(parents=True, exist_ok=True)
     reporter = _TransferProgressReporter(label=label or "Download Progress:",
-                                         total_bytes=file_size if total_bytes is None else max(file_size, int(total_bytes)))
+                                         total_bytes=file_size if total_bytes is None else max(file_size, int(total_bytes)),
+                                         use_same_line=True, progress_callback=on_progress, emit_log=emit_progress_log)
     LOG(f"{LOG_PREFIX_MSG_INFO} Downloading {remote_file_path} to {local_file} ({format_bytes_human(file_size)})")
 
     def _on_progress(transferred: int, total: int) -> None:
@@ -596,7 +662,8 @@ def _sftp_collect_dir_files(sftp: paramiko.SFTPClient, remote_dir_path: str) -> 
 
 def _copy_to_local_sftp_impl(remote_src_paths: str | List[str], remote_host_ip: str, local_dest_path: str | Path, remote_user: str = ACU_USER,
                         password: Optional[str] = None, jump_host_ip: Optional[str] = None, jump_user: Optional[str] = None,
-                        jump_password: Optional[str] = None, recursive: Optional[bool] = None, timeout: Optional[int] = None) -> List[str]:
+                        jump_password: Optional[str] = None, recursive: Optional[bool] = None, timeout: Optional[int] = None,
+                        on_progress: Optional[Callable[[str, int, int], None]] = None, emit_progress_log: bool = True) -> List[str]:
     remote_sources = [remote_src_paths] if isinstance(remote_src_paths, str) else list(remote_src_paths or [])
     if not remote_sources:
         raise ValueError("remote_src_paths cannot be empty.")
@@ -645,8 +712,9 @@ def _copy_to_local_sftp_impl(remote_src_paths: str | List[str], remote_host_ip: 
                     relative = PurePosixPath(remote_file).relative_to(PurePosixPath(remote_src)).as_posix()
                     local_file = local_base_dir / relative
                     try:
-                        _sftp_get_file_with_progress(sftp=sftp, remote_file_path=remote_file, local_file=local_file,
-                                                     base_offset=downloaded_bytes, total_bytes=total_bytes, label=f"Download {PurePosixPath(remote_src).name}:")
+                        _sftp_get_file_with_progress(sftp=sftp, remote_file_path=remote_file, local_file=local_file, base_offset=downloaded_bytes,
+                                                     total_bytes=total_bytes, label=f"Download {PurePosixPath(remote_src).name}:",
+                                                     on_progress=on_progress, emit_progress_log=emit_progress_log)
                         copied_local_paths.append(str(local_file))
                         downloaded_bytes += file_size
                     except Exception as exc:
@@ -655,7 +723,8 @@ def _copy_to_local_sftp_impl(remote_src_paths: str | List[str], remote_host_ip: 
             else:
                 local_file = (local_dest / PurePosixPath(remote_src).name) if should_treat_dest_as_dir else local_dest
                 try:
-                    _sftp_get_file_with_progress(sftp=sftp, remote_file_path=remote_src, local_file=local_file)
+                    _sftp_get_file_with_progress(sftp=sftp, remote_file_path=remote_src, local_file=local_file,
+                                                 on_progress=on_progress, emit_progress_log=emit_progress_log)
                     copied_local_paths.append(str(local_file))
                 except Exception as exc:
                     transfer_errors += 1
@@ -759,7 +828,8 @@ def copy_to_remote_via_jump_host(local_path: str | Path, remote_host_ip: str, re
 
 def copy_to_local(remote_src_paths: str | List[str], remote_host_ip: str, local_dest_path: str | Path, remote_user: str = ACU_USER,
                   password: Optional[str] = None, recursive: Optional[bool] = None, strict_host_key_checking: bool = False,
-                  timeout: Optional[int] = None, copy_type: ECopyType = ECopyType.SFTP) -> List[str]:
+                  timeout: Optional[int] = None, copy_type: ECopyType = ECopyType.SFTP,
+                  on_progress: Optional[Callable[[str, int, int], None]] = None, emit_progress_log: bool = True) -> List[str]:
     """Copy remote files/directories to local path via SFTP (Paramiko) or SCP."""
     remote_desc = remote_src_paths if isinstance(remote_src_paths, str) else f"{len(remote_src_paths)} source(s)"
     display_dest = format_path_for_display(Path(local_dest_path).expanduser())
@@ -770,10 +840,12 @@ def copy_to_local(remote_src_paths: str | List[str], remote_host_ip: str, local_
         return _copy_to_local_scp_impl(remote_src_paths=remote_src_paths, remote_host_ip=remote_host_ip, local_dest_path=local_dest_path, remote_user=remote_user, recursive=recursive, timeout=timeout, strict_host_key_checking=strict_host_key_checking)
     if strict_host_key_checking:
         LOG(f"{LOG_PREFIX_MSG_WARNING} strict_host_key_checking is ignored for Paramiko-based copy_to_local().")
-    return _copy_to_local_sftp_impl(remote_src_paths=remote_src_paths, remote_host_ip=remote_host_ip, local_dest_path=local_dest_path, remote_user=remote_user, password=password, recursive=recursive, timeout=timeout)
+    return _copy_to_local_sftp_impl(remote_src_paths=remote_src_paths, remote_host_ip=remote_host_ip, local_dest_path=local_dest_path, remote_user=remote_user,
+                                    password=password, recursive=recursive, timeout=timeout, on_progress=on_progress, emit_progress_log=emit_progress_log)
 
 
-def copy_to_local_via_jump_host(remote_src_paths: str | List[str], remote_host_ip: str, local_dest_path: str | Path, jump_host_ip: str, remote_user: str = ACU_USER, remote_password: Optional[str] = None, jump_user: Optional[str] = None, jump_password: Optional[str] = None, recursive: Optional[bool] = None, strict_host_key_checking: bool = False, timeout: Optional[int] = None, copy_type: ECopyType = ECopyType.SFTP) -> List[str]:
+def copy_to_local_via_jump_host(remote_src_paths: str | List[str], remote_host_ip: str, local_dest_path: str | Path, jump_host_ip: str, remote_user: str = ACU_USER, remote_password: Optional[str] = None, jump_user: Optional[str] = None, jump_password: Optional[str] = None, recursive: Optional[bool] = None, strict_host_key_checking: bool = False, timeout: Optional[int] = None, copy_type: ECopyType = ECopyType.SFTP,
+                                on_progress: Optional[Callable[[str, int, int], None]] = None, emit_progress_log: bool = True) -> List[str]:
     """Copy remote files/directories through a jump host to local path via SFTP (Paramiko) or SCP."""
     remote_desc = remote_src_paths if isinstance(remote_src_paths, str) else f"{len(remote_src_paths)} source(s)"
     display_dest = format_path_for_display(Path(local_dest_path).expanduser())
@@ -790,7 +862,9 @@ def copy_to_local_via_jump_host(remote_src_paths: str | List[str], remote_host_i
         return _copy_to_local_scp_impl(remote_src_paths=remote_src_paths, remote_host_ip=remote_host_ip, local_dest_path=local_dest_path, remote_user=remote_user, jump_host_ip=jump_host_ip, recursive=recursive, timeout=timeout, strict_host_key_checking=strict_host_key_checking)
     if strict_host_key_checking:
         LOG(f"{LOG_PREFIX_MSG_WARNING} strict_host_key_checking is ignored for Paramiko-based copy_to_local_via_jump_host().")
-    return _copy_to_local_sftp_impl(remote_src_paths=remote_src_paths, remote_host_ip=remote_host_ip, local_dest_path=local_dest_path, remote_user=remote_user, password=remote_password, jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=jump_password, recursive=recursive, timeout=timeout)
+    return _copy_to_local_sftp_impl(remote_src_paths=remote_src_paths, remote_host_ip=remote_host_ip, local_dest_path=local_dest_path, remote_user=remote_user,
+                                    password=remote_password, jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=jump_password,
+                                    recursive=recursive, timeout=timeout, on_progress=on_progress, emit_progress_log=emit_progress_log)
 
 
 def setup_passwordless_ssh(user: str, remote_ip: str, remote_password: Optional[str] = None, key_type: str = SSH_KEY_TYPE_RSA) -> bool:

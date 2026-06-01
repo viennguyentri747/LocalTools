@@ -5,26 +5,66 @@ import shutil
 import sys
 import threading
 import time
-from typing import List, Optional
+from typing import Callable, Dict, List, Optional
 from dataclasses import dataclass, field
 from typing import Any
 
-from dev.dev_common.core_utils import LOG
+from dev.dev_common.core_independent_utils import LOG, register_log_pre_emit_hook, unregister_log_pre_emit_hook
+from rich.console import Console
+from rich.live import Live
+from rich.table import Table
 
 
-class ElapsedSpinner:
-    def __init__(self, message: str = "Working", interval_sec: float = 0.1, stream=None):
-        self.message = message.strip() or "Working"
+class ElapsedStatusSpinner:
+    def __init__(self, message: str = "Working", interval_sec: float = 0.1, stream=None, status_supplier: Optional[Callable[[], str]] = None,
+                 show_spinner: bool = True, show_elapsed: bool = True):
+        self.message = message.strip()
         self.interval_sec = max(0.05, interval_sec)
         self.stream = stream or sys.stdout
+        self.status_supplier = status_supplier
+        self.show_spinner = show_spinner
+        self.show_elapsed = show_elapsed
         self._frames = ("|", "/", "-", "\\")
+        self._frame_index = 0
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._start_ts: float = 0.0
+        self._status_text: str = ""
         self._last_render_len = 0
+        self._lock = threading.RLock()
+        self._line_is_active = False
+        self._hook_registered = False
         self._enabled = bool(getattr(self.stream, "isatty", lambda: False)())
 
-    def _render(self, text: str) -> None:
+    @staticmethod
+    def _format_elapsed_hms(total_seconds: int) -> str:
+        seconds = max(0, int(total_seconds))
+        hours, remainder = divmod(seconds, 3600)
+        minutes, secs = divmod(remainder, 60)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+    def _compose_line(self, elapsed_seconds: int) -> str:
+        with self._lock:
+            status_text = self._status_text
+        if self.status_supplier:
+            try:
+                supplied = self.status_supplier()
+                if supplied is not None:
+                    status_text = str(supplied).strip()
+            except Exception:
+                pass
+        parts: List[str] = []
+        if self.show_elapsed:
+            parts.append(f"[Elapsed {self._format_elapsed_hms(elapsed_seconds)}]")
+        if self.message:
+            parts.append(self.message)
+        if self.show_spinner:
+            parts.append(self._frames[self._frame_index % len(self._frames)])
+        if status_text:
+            parts.append(status_text)
+        return " ".join(parts).strip() or "Working"
+
+    def _render_inline(self, text: str) -> None:
         if not self._enabled:
             return
         output = f"\r{text}"
@@ -32,41 +72,284 @@ class ElapsedSpinner:
         self.stream.write(output + pad)
         self.stream.flush()
         self._last_render_len = len(text)
+        self._line_is_active = True
 
     def _loop(self) -> None:
-        idx = 0
         while not self._stop_event.is_set():
             elapsed = int(time.time() - self._start_ts)
-            self._render(f"{self.message} {self._frames[idx % len(self._frames)]} [{elapsed}s]")
-            idx += 1
+            line = self._compose_line(elapsed)
+            with self._lock:
+                self._render_inline(line)
+                self._frame_index += 1
             self._stop_event.wait(self.interval_sec)
+
+    def _on_log_pre_emit(self, is_same_line: bool) -> None:
+        if is_same_line:
+            return
+        if not self._enabled or not self._line_is_active:
+            return
+        with self._lock:
+            if not self._line_is_active:
+                return
+            self.stream.write("\n")
+            self.stream.flush()
+            self._line_is_active = False
+            self._last_render_len = 0
+
+    def set_status(self, status_text: str) -> None:
+        with self._lock:
+            self._status_text = str(status_text).strip()
+
+    def break_line(self) -> None:
+        """Force current inline spinner row to end, if currently active."""
+        if not self._enabled:
+            return
+        with self._lock:
+            if not self._line_is_active:
+                return
+            self.stream.write("\n")
+            self.stream.flush()
+            self._line_is_active = False
+            self._last_render_len = 0
 
     def start(self) -> None:
         if self._thread is not None:
             return
-        self._start_ts = time.time()
-        self._stop_event.clear()
-        self._thread = threading.Thread(target=self._loop, daemon=True)
-        self._thread.start()
+        with self._lock:
+            self._start_ts = time.time()
+            self._frame_index = 0
+            self._stop_event.clear()
+            if not self._hook_registered:
+                register_log_pre_emit_hook(self._on_log_pre_emit)
+                self._hook_registered = True
+            self._thread = threading.Thread(target=self._loop, daemon=True)
+            self._thread.start()
 
-    def stop(self, final_message: Optional[str] = None) -> None:
+    def stop(self, final_message: Optional[str] = None, emit_final: bool = True) -> None:
         if self._thread is None:
             return
-        self._stop_event.set()
+        with self._lock:
+            self._stop_event.set()
         self._thread.join()
         elapsed = int(time.time() - self._start_ts)
-        done_text = final_message or f"{self.message} done [{elapsed}s]"
-        self._render(done_text)
-        if self._enabled:
-            self.stream.write("\n")
-            self.stream.flush()
-        self._thread = None
+        with self._lock:
+            if self._enabled:
+                if emit_final:
+                    done_text = (final_message or f"{self.message} done").strip() if self.message else (final_message or "done")
+                    line = f"{done_text} [{self._format_elapsed_hms(elapsed)}]"
+                    self._render_inline(line)
+                    self.stream.write("\n")
+                    self.stream.flush()
+                elif self._line_is_active:
+                    self.stream.write("\n")
+                    self.stream.flush()
+            self._thread = None
+            self._line_is_active = False
+            self._last_render_len = 0
+            if self._hook_registered:
+                unregister_log_pre_emit_hook(self._on_log_pre_emit)
+                self._hook_registered = False
+
+    def finish(self, final_message: Optional[str] = None, emit_final: bool = True) -> None:
+        self.stop(final_message=final_message, emit_final=emit_final)
+
+
+class ElapsedSpinner(ElapsedStatusSpinner):
+    def __init__(self, message: str = "Working", interval_sec: float = 0.1, stream=None):
+        super().__init__(message=message, interval_sec=interval_sec, stream=stream, status_supplier=None, show_spinner=True, show_elapsed=True)
 
 
 def gui_elapsed_spinner(message: str = "Working", interval_sec: float = 0.1, stream=None) -> ElapsedSpinner:
     spinner = ElapsedSpinner(message=message, interval_sec=interval_sec, stream=stream)
     spinner.start()
     return spinner
+
+
+@dataclass
+class ParallelSpinnerTask:
+    task_id: str
+    label: str
+    status: str = "pending"
+    detail: str = ""
+    percent: Optional[float] = None
+
+    def normalized_percent(self) -> Optional[float]:
+        if self.percent is None:
+            return None
+        return max(0.0, min(100.0, float(self.percent)))
+
+
+class ParallelSpinner:
+    """Generic rich-based multi-task progress renderer (no fallback)."""
+
+    def __init__(self, title: str = "Progress", stream=None, refresh_per_second: int = 8, transient: bool = False, full_screen: bool = False):
+        self.title = title
+        self.stream = stream or sys.stdout
+        self.refresh_per_second = max(1, int(refresh_per_second))
+        self.transient = transient
+        self.full_screen = bool(full_screen)
+        self._lock = threading.RLock()
+        self._tasks: Dict[str, ParallelSpinnerTask] = {}
+        self._task_order: List[str] = []
+        self._is_started = False
+        self._is_paused = False
+        self._dirty = False
+        self._stop_event = threading.Event()
+        self._render_thread: Optional[threading.Thread] = None
+        self._console: Optional[Console] = None
+        self._live: Optional[Live] = None
+
+    @property
+    def backend_name(self) -> str:
+        return "rich"
+
+    @staticmethod
+    def _render_progress(task: ParallelSpinnerTask) -> str:
+        percent = task.normalized_percent()
+        if percent is None:
+            return "-"
+        width = 20
+        filled = int(round((percent / 100.0) * width))
+        filled = max(0, min(width, filled))
+        return f"{'#' * filled}{'.' * (width - filled)} {percent:5.1f}%"
+
+    def _build_table(self) -> Table:
+        table = Table(title=self.title, expand=True)
+        table.add_column("ID", style="cyan", no_wrap=True)
+        table.add_column("Status", style="magenta", no_wrap=True)
+        table.add_column("Progress", style="green", no_wrap=True)
+        table.add_column("Detail", overflow="fold")
+        with self._lock:
+            ordered_tasks = [self._tasks[item_id] for item_id in self._task_order if item_id in self._tasks]
+        for task in ordered_tasks:
+            table.add_row(task.label, task.status, self._render_progress(task), task.detail)
+        if not ordered_tasks:
+            table.add_row("-", "idle", "-", "No tasks")
+        return table
+
+    def _refresh(self, force: bool = False) -> None:
+        if self._is_paused:
+            return
+        if not force and not self._dirty:
+            return
+        if self._live is not None:
+            self._live.update(self._build_table(), refresh=True)
+        self._dirty = False
+
+    def _render_loop(self) -> None:
+        interval = 1.0 / float(self.refresh_per_second)
+        while not self._stop_event.is_set():
+            with self._lock:
+                self._refresh(force=False)
+            self._stop_event.wait(interval)
+        with self._lock:
+            self._refresh(force=True)
+
+    def start(self) -> None:
+        if self._is_started:
+            return
+        with self._lock:
+            self._is_started = True
+            self._is_paused = False
+            self._dirty = True
+            self._stop_event.clear()
+            self._console = Console(file=self.stream)
+            self._live = Live(self._build_table(), console=self._console, refresh_per_second=self.refresh_per_second, transient=self.transient, screen=self.full_screen,
+                              auto_refresh=False, redirect_stdout=True, redirect_stderr=True)
+            self._live.start()
+            self._render_thread = threading.Thread(target=self._render_loop, daemon=True)
+            self._render_thread.start()
+
+    def stop(self, final_message: Optional[str] = None, emit_final: bool = True) -> None:
+        if not self._is_started:
+            return
+        with self._lock:
+            self._stop_event.set()
+        if self._render_thread is not None:
+            self._render_thread.join(timeout=1.0)
+        with self._lock:
+            if self._live is not None:
+                self._refresh(force=True)
+                self._live.stop()
+            self._live = None
+            self._console = None
+            self._is_started = False
+            self._is_paused = False
+            self._render_thread = None
+            self._dirty = False
+        if emit_final and final_message:
+            LOG("", show_time=False)
+            LOG(final_message, show_time=False)
+
+    def pause(self) -> None:
+        if not self._is_started or self._is_paused:
+            return
+        with self._lock:
+            self._is_paused = True
+            if self._live is not None:
+                self._live.stop()
+                self._live = None
+
+    def resume(self) -> None:
+        if not self._is_started or not self._is_paused:
+            return
+        with self._lock:
+            self._is_paused = False
+            if self._console is None:
+                self._console = Console(file=self.stream)
+            self._live = Live(self._build_table(), console=self._console, refresh_per_second=self.refresh_per_second, transient=self.transient, screen=self.full_screen, auto_refresh=False, redirect_stdout=True, redirect_stderr=True)
+            self._live.start()
+            self._dirty = True
+
+    def suspend(self) -> None:
+        self.pause()
+
+    def break_line(self) -> None:
+        return
+
+    def add_task(self, task_id: str, status: str = "pending", label: Optional[str] = None, detail: str = "",
+                 percent: Optional[float] = None, completed: Optional[float] = None, total: Optional[float] = None) -> None:
+        with self._lock:
+            computed_percent = percent
+            if computed_percent is None and completed is not None and total is not None and total > 0:
+                computed_percent = (float(completed) * 100.0) / float(total)
+            if task_id in self._tasks:
+                task = self._tasks[task_id]
+                task.status = status
+                task.label = label or task.label
+                task.detail = detail
+                task.percent = None if computed_percent is None else max(0.0, min(100.0, float(computed_percent)))
+            else:
+                self._tasks[task_id] = ParallelSpinnerTask(task_id=task_id, label=label or task_id, status=status, detail=detail,
+                                                           percent=None if computed_percent is None else max(0.0, min(100.0, float(computed_percent))))
+                self._task_order.append(task_id)
+            self._dirty = True
+
+    def update_task(self, task_id: str, status: Optional[str] = None, detail: Optional[str] = None, completed: Optional[float] = None,
+                    total: Optional[float] = None, percent: Optional[float] = None, label: Optional[str] = None) -> None:
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is None:
+                task = ParallelSpinnerTask(task_id=task_id, label=label or task_id)
+                self._tasks[task_id] = task
+                self._task_order.append(task_id)
+            if status is not None:
+                task.status = status
+            if detail is not None:
+                task.detail = detail
+            if label is not None:
+                task.label = label
+            if percent is not None:
+                task.percent = max(0.0, min(100.0, float(percent)))
+            elif completed is not None and total is not None and total > 0:
+                task.percent = max(0.0, min(100.0, (float(completed) * 100.0) / float(total)))
+            self._dirty = True
+
+    def remove_task(self, task_id: str) -> None:
+        with self._lock:
+            self._tasks.pop(task_id, None)
+            self._task_order = [item_id for item_id in self._task_order if item_id != task_id]
+            self._dirty = True
 
 
 @dataclass
@@ -509,4 +792,4 @@ def _numeric_fallback(option_data: List[OptionData], title: Optional[str] = None
         print("Invalid choice. Enter a number from the list.")
 
 
-__all__ = ["interactive_select_with_arrows", "OptionData", "ElapsedSpinner", "gui_elapsed_spinner"]
+__all__ = ["interactive_select_with_arrows", "OptionData", "ElapsedStatusSpinner", "ElapsedSpinner", "ParallelSpinnerTask", "ParallelSpinner", "gui_elapsed_spinner"]

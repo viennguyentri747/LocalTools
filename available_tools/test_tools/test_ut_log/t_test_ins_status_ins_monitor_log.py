@@ -6,7 +6,7 @@ import re
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence
 
 from dev.dev_common.custom_structures import EToolPriority, ToolData
 from dev.dev_common.core_independent_utils import LOG, LOG_EMPTY_LINE, LOG_LINE_SEPARATOR
@@ -104,6 +104,21 @@ class InsFaultEvent:
     from_timestamp: Optional[datetime] = None
     old_line_text: Optional[str] = None
     new_line_text: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class InsFaultOccurrenceRange:
+    category_key: InsStatusCategory
+    category_label: str
+    start_line_no: int
+    end_line_no: int
+    start_offset: int
+    end_offset: int
+    start_timestamp: datetime
+    end_timestamp: datetime
+    start_elapsed_secs: float
+    end_elapsed_secs: float
+    message_count: int
 
 
 @dataclass(frozen=True)
@@ -238,17 +253,16 @@ def print_status_span_report(status_spans: Sequence[InsStatusSpan]) -> None:
     unique_statuses = {status for span in status_spans for status in span.pattern_statuses}
     LOG(f"Total spans: {len(status_spans)}")
     LOG(f"Unique insStatus values: {len(unique_statuses)}")
+    LOG("Position key: startMsg# is the 1-based index among parsed INS1Msg lines.")
     for idx, span in enumerate(status_spans, 1):
-        LOG_LINE_SEPARATOR()
         LOG(f"=== SPAN-OF-{span.span_of} [{idx}] ===")
-        LOG(f"    start={span.start_time} end={span.end_time} duration={span.duration_secs:.3f}s msgs={span.message_count} offset={span.start_offset} loop={span.loop_count}")
+        LOG(f"    start={span.start_time} end={span.end_time} duration={span.duration_secs:.3f}s msgs={span.message_count} startMsg#={span.start_offset + 1} loop={span.loop_count}")
         if span.span_of == 1:
             print_decoded_status(decode_ins_status(span.status), is_compact=True)
         else:
             for pattern_idx, status in enumerate(span.pattern_statuses, 1):
                 LOG(f"    pattern[{pattern_idx}] status=0x{status:08X} ({status})")
                 print_decoded_status(decode_ins_status(status), is_compact=True)
-        LOG_LINE_SEPARATOR()
 
 
 def print_ins_messages_time_diff_stats(stats: Optional[InsMessageTimeDiffStats]) -> None:
@@ -277,6 +291,52 @@ def _build_decoded_entries(status_entries: Sequence[InsStatusData]) -> List[Deco
             DecodedInsStatusEntry(offset=offset, line_no=entry.line_no, timestamp=entry.timestamp, status=entry.status, raw_line=entry.raw_line, decoded=decoded, snapshot=snapshot)
         )
     return decoded_entries
+
+
+def _format_line_msg(line_no: int, offset: int) -> str:
+    return f"line {line_no}, msg#{offset + 1}"
+
+
+def _build_fault_occurrence_ranges(decoded_entries: Sequence[DecodedInsStatusEntry]) -> Dict[InsStatusCategory, List[InsFaultOccurrenceRange]]:
+    ranges_by_category: Dict[InsStatusCategory, List[InsFaultOccurrenceRange]] = {spec.category: [] for spec in INS_FAULT_BOOL_CATEGORY_SPECS}
+    if not decoded_entries:
+        return ranges_by_category
+    t0 = decoded_entries[0].timestamp
+    for category_spec in INS_FAULT_BOOL_CATEGORY_SPECS:
+        start_entry: Optional[DecodedInsStatusEntry] = None
+        for entry in decoded_entries:
+            is_fault_set = _extract_bool_from_snapshot(entry.snapshot, category_spec)
+            if is_fault_set and start_entry is None:
+                start_entry = entry
+                continue
+            if (not is_fault_set) and start_entry is not None:
+                end_entry = decoded_entries[entry.offset - 1]
+                ranges_by_category[category_spec.category].append(
+                    InsFaultOccurrenceRange(
+                        category_key=category_spec.category, category_label=category_spec.label,
+                        start_line_no=start_entry.line_no, end_line_no=end_entry.line_no,
+                        start_offset=start_entry.offset, end_offset=end_entry.offset,
+                        start_timestamp=start_entry.timestamp, end_timestamp=end_entry.timestamp,
+                        start_elapsed_secs=(start_entry.timestamp - t0).total_seconds(),
+                        end_elapsed_secs=(end_entry.timestamp - t0).total_seconds(),
+                        message_count=(end_entry.offset - start_entry.offset + 1),
+                    )
+                )
+                start_entry = None
+        if start_entry is not None:
+            end_entry = decoded_entries[-1]
+            ranges_by_category[category_spec.category].append(
+                InsFaultOccurrenceRange(
+                    category_key=category_spec.category, category_label=category_spec.label,
+                    start_line_no=start_entry.line_no, end_line_no=end_entry.line_no,
+                    start_offset=start_entry.offset, end_offset=end_entry.offset,
+                    start_timestamp=start_entry.timestamp, end_timestamp=end_entry.timestamp,
+                    start_elapsed_secs=(start_entry.timestamp - t0).total_seconds(),
+                    end_elapsed_secs=(end_entry.timestamp - t0).total_seconds(),
+                    message_count=(end_entry.offset - start_entry.offset + 1),
+                )
+            )
+    return ranges_by_category
 
 
 def build_decoded_entries(status_entries: Sequence[InsStatusData]) -> List[DecodedInsStatusEntry]:
@@ -363,8 +423,10 @@ def print_progression_summary(decoded_entries: Sequence[DecodedInsStatusEntry]) 
     if not decoded_entries:
         return
     milestones, transitions, regressions, fault_events = _analyze_progress(decoded_entries)
+    fault_ranges = _build_fault_occurrence_ranges(decoded_entries)
     t0 = decoded_entries[0].timestamp
     LOG(f"Start timestamp: {t0}")
+    LOG("Position key: msg# is the 1-based index among parsed INS1Msg lines.")
     LOG_LINE_SEPARATOR()
     LOG("=== Transition Summary (Streamlined) ===")
     covered_transition_ids: set[int] = set()
@@ -384,13 +446,13 @@ def print_progression_summary(decoded_entries: Sequence[DecodedInsStatusEntry]) 
         LOG(
             f"{category_label}: {start_label} -> {end_label} in {(end_entry.timestamp - t0).total_seconds():.3f}s "
             f"({len(category_transitions)} transition(s), regressions={regress_count}, "
-            f"first +{first.elapsed_secs:.3f}s line {first.line_no}/offset {first.offset}, "
-            f"last +{last.elapsed_secs:.3f}s line {last.line_no}/offset {last.offset})"
+            f"first +{first.elapsed_secs:.3f}s {_format_line_msg(first.line_no, first.offset)}, "
+            f"last +{last.elapsed_secs:.3f}s {_format_line_msg(last.line_no, last.offset)})"
         )
         for event in category_transitions:
             LOG(
                 f"- {category_label}: {event.from_label} -> {event.to_label} at +{event.elapsed_secs:.3f}s "
-                f"(from line {event.from_line_no}, offset {event.from_offset} -> line {event.line_no}, offset {event.offset})"
+                f"(from {_format_line_msg(event.from_line_no, event.from_offset)} -> {_format_line_msg(event.line_no, event.offset)})"
             )
         LOG_EMPTY_LINE()
 
@@ -400,7 +462,7 @@ def print_progression_summary(decoded_entries: Sequence[DecodedInsStatusEntry]) 
         for event in uncovered_transitions:
             LOG(
                 f"- {event.category_label} [{event.category_key}]: {event.from_label} -> {event.to_label} at +{event.elapsed_secs:.3f}s "
-                f"(line {event.line_no}, offset {event.offset})"
+                f"({_format_line_msg(event.line_no, event.offset)})"
             )
         LOG_EMPTY_LINE()
 
@@ -412,15 +474,29 @@ def print_progression_summary(decoded_entries: Sequence[DecodedInsStatusEntry]) 
         if not category_milestones:
             LOG(f"{category_label}: no milestones")
             continue
-        reached = ", ".join([f"{m.value_label} @ +{m.elapsed_secs:.3f}s (line {m.line_no}, offset {m.offset})" for m in category_milestones])
+        reached = ", ".join([f"{m.value_label} @ +{m.elapsed_secs:.3f}s ({_format_line_msg(m.line_no, m.offset)})" for m in category_milestones])
         LOG(f"{category_label}: {reached}")
+    LOG_LINE_SEPARATOR()
+    LOG("=== Fault/Warning Occurrence Ranges ===")
+    for category_spec in INS_FAULT_BOOL_CATEGORY_SPECS:
+        category_ranges = fault_ranges.get(category_spec.category, [])
+        if not category_ranges:
+            LOG(f"{category_spec.label}: No Occurrences")
+            continue
+        LOG(f"{category_spec.label}: {len(category_ranges)} range(s)")
+        for span in category_ranges:
+            LOG(
+                f"- from {_format_line_msg(span.start_line_no, span.start_offset)} @ +{span.start_elapsed_secs:.3f}s "
+                f"(ts={span.start_timestamp}) to {_format_line_msg(span.end_line_no, span.end_offset)} @ +{span.end_elapsed_secs:.3f}s "
+                f"(ts={span.end_timestamp}), total msgs = {span.message_count}"
+            )
     LOG_LINE_SEPARATOR()
     LOG("=== Fault/Warning State Changes ===")
     if not fault_events:
         LOG("No fault/mag boolean transitions detected.")
     else:
         for event in fault_events:
-            LOG(f"{event.category_label}: {event.old_value} -> {event.new_value} at +{event.elapsed_secs:.3f}s (line {event.line_no}, offset {event.offset}, ts={event.timestamp})", highlight=True)
+            LOG(f"{event.category_label}: {event.old_value} -> {event.new_value} at +{event.elapsed_secs:.3f}s ({_format_line_msg(event.line_no, event.offset)}, ts={event.timestamp})", highlight=True)
             LOG(f"  - {event.category_label} {event.old_value} Line From = {event.old_line_text}")
             LOG(f"  - {event.category_label} {event.new_value} Line To = {event.new_line_text}")
     LOG_LINE_SEPARATOR()
@@ -433,8 +509,8 @@ def print_progression_summary(decoded_entries: Sequence[DecodedInsStatusEntry]) 
             LOG(
                 f"{event.category_label}: {event.from_label} (rank={event.from_rank}) -> {event.to_label} (rank={event.to_rank}) "
                 f"at +{event.elapsed_secs:.3f}s "
-                f"(from line {event.from_line_no}, offset {event.from_offset}, ts={event.from_timestamp} -> "
-                f"line {event.line_no}, offset {event.offset}, ts={event.timestamp})"
+                f"(from {_format_line_msg(event.from_line_no, event.from_offset)}, ts={event.from_timestamp} -> "
+                f"{_format_line_msg(event.line_no, event.offset)}, ts={event.timestamp})"
             )
     LOG_LINE_SEPARATOR()
 

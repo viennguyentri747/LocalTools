@@ -507,7 +507,7 @@ def run_time_sync_test(input_paths: Sequence[Path], output_path: Path, time_wind
     processed_files = [file_data.plog_file for file_data in processed_data if file_data.plog_file is not None]
     rows_written = sum(len(file_data.raw_data_rows) for file_data in processed_data)
     if rows_written == 0:
-        LOG(f"{LOG_PREFIX_MSG_WARNING} No rows found across {len(plog_files)} file(s); nothing to write.")
+        LOG_ISSUE(f"No rows found across {len(plog_files)} file(s); nothing to write.")
         return
 
     LOG(f"{LOG_PREFIX_MSG_INFO} Writing {rows_written} row(s) with {len(DEFAULT_COLUMNS)} column(s) to {format_path_for_display(output_path)}")

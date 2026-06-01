@@ -22,7 +22,7 @@ ARG_OVERRIDE_CYCLES = f"{ARGUMENT_LONG_PREFIX}override_cycles"
 ARG_OVERRIDE_MAX_RETRIES_PER_UPGRADE = f"{ARGUMENT_LONG_PREFIX}override_max_retries_per_upgrade"
 ARG_CYCLES_LEGACY = f"{ARGUMENT_LONG_PREFIX}cycles"
 ARG_MAX_RETRIES_PER_UPGRADE_LEGACY = f"{ARGUMENT_LONG_PREFIX}max_retries_per_upgrade"
-DEFAULT_CONFIG_PATH = str(LOCAL_TOOL_REPO_PATH / "storage" / "automate_upgrade_ut_configs" / "sample_automate_upgrade_ut_config.json")
+DEFAULT_CONFIG_PATH = str(LOCAL_TOOL_STORAGE_PATH / "automate_upgrade_ut_configs" / "sample_automate_upgrade_ut_config.json")
 DEFAULT_UT_IP = f"{SSM_NORMAL_IP_PREFIX}.79"
 def getToolData() -> ToolData:
     tool_templates = [
@@ -221,8 +221,10 @@ def main(argv: Optional[List[str]] = None) -> None:
         LOG(f"ERROR: {exc}")
         raise SystemExit(1)
     exit_code, output_log_path = run_automate(config, ssm_ip=get_arg_value(args, ARG_IP), config_path=get_arg_value(args, ARG_CONFIG))
-    if output_log_path and output_log_path.exists():
+    if output_log_path and output_log_path.exists() and output_log_path.is_file() and output_log_path.stat().st_size > 0:
         open_path_in_explorer(output_log_path)
+    elif output_log_path:
+        LOG_ISSUE(f"No upgrade-log artifact generated at {format_path_for_display(output_log_path)}; skipping Explorer open.")
     raise SystemExit(exit_code)
 
 

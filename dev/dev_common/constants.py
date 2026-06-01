@@ -77,7 +77,8 @@ OW_SW_PATH = CORE_REPOS_PATH / "oneweb_project_sw_tools"
 LOCAL_TOOL_TEMP_PATH = LOCAL_TOOL_REPO_PATH / "temp"
 #WIN_TEMP_PATH = get_win_home_path() / "temp" #Note: Don't uncomment this or ssh mcp will not work
 
-GIT_REPO_LOCAL_PATH = LOCAL_TOOL_REPO_PATH / "storage" / "third_party_binaries" / "git-repo/"
+LOCAL_TOOL_STORAGE_PATH = LOCAL_TOOL_REPO_PATH / "storage"
+GIT_REPO_LOCAL_PATH = LOCAL_TOOL_STORAGE_PATH / "third_party_binaries" / "git-repo/"
 INSENSE_SDK_REPO_PATH = CORE_REPOS_PATH / IESA_INSENSE_SDK_REPO_NAME
 DOWNLOADS_PATH = WSL_HOME_PATH / "downloads"
 OW_SW_OUTPUT_IESA_PATH = OW_SW_PATH / "install_iesa_tarball.iesa"

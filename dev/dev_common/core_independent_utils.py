@@ -2,6 +2,7 @@
 import hashlib
 import logging
 import os
+import threading
 from functools import lru_cache
 from pathlib import Path
 import re
@@ -9,7 +10,7 @@ import shlex
 import shutil
 import subprocess
 import sys
-from typing import List, Optional, Sequence, Union, Tuple
+from typing import Callable, List, Optional, Sequence, Union, Tuple
 from datetime import datetime, timezone, tzinfo
 import traceback
 import platform
@@ -67,6 +68,8 @@ _CURRENT_LOG_LEVEL: ELogType = ELogType.NORMAL
 _INTERNAL_LOGGER = logging.getLogger("local_tools.compat")
 _INTERNAL_LOGGER.setLevel(logging.DEBUG)
 _INTERNAL_LOGGER.propagate = False
+_LOG_PRE_EMIT_HOOKS: List[Callable[[bool], None]] = []
+_LOG_HOOKS_LOCK = threading.Lock()
 
 
 def set_log_level(level: ELogType) -> None:
@@ -78,12 +81,31 @@ def get_current_log_level() -> ELogType:
     return _CURRENT_LOG_LEVEL
 
 
+def register_log_pre_emit_hook(hook: Callable[[bool], None]) -> None:
+    with _LOG_HOOKS_LOCK:
+        if hook not in _LOG_PRE_EMIT_HOOKS:
+            _LOG_PRE_EMIT_HOOKS.append(hook)
+
+
+def unregister_log_pre_emit_hook(hook: Callable[[bool], None]) -> None:
+    with _LOG_HOOKS_LOCK:
+        if hook in _LOG_PRE_EMIT_HOOKS:
+            _LOG_PRE_EMIT_HOOKS.remove(hook)
+
+
 def LOG(*values: object, sep: str = " ", end: str = "\n", file=None, highlight: bool = False,
         show_time: bool = True, show_traceback: bool = False, flush: bool = True,
         log_type: ELogType = ELogType.NORMAL, same_line: bool = False,
         handlers: Optional[Union[logging.Handler, List[logging.Handler], Tuple[logging.Handler, ...]]] = None) -> None:
     if log_type < get_current_log_level():
         return
+    with _LOG_HOOKS_LOCK:
+        hooks_snapshot = list(_LOG_PRE_EMIT_HOOKS)
+    for hook in hooks_snapshot:
+        try:
+            hook(same_line)
+        except Exception:
+            pass
     message = sep.join(str(value) for value in values)
     if show_time:
         message = f"[{get_log_timestamp()}] {message}"
@@ -111,6 +133,12 @@ def LOG(*values: object, sep: str = " ", end: str = "\n", file=None, highlight: 
         handler.handle(record)
         if flush and hasattr(handler, "flush"):
             handler.flush()
+
+
+def LOG_ISSUE(*values: object, sep: str = " ", end: str = "\n", file=None, show_time: bool = True,
+              flush: bool = True, log_type: ELogType = ELogType.WARNING) -> None:
+    issue_message = f"✗ {sep.join(str(value) for value in values)}"
+    LOG(issue_message, end=end, file=file, highlight=True, show_time=show_time, flush=flush, log_type=log_type)
 
 
 def get_wsl_home_path() -> Path:
@@ -723,7 +751,7 @@ def LOG_EXCEPTION(exception: Exception, msg=None, exit: bool = True):
 
 
 def LOG_EMPTY_LINE():
-    LOG("\n", show_time=False)
+    LOG("", show_time=False)
 
 def LOG_LINE_SEPARATOR():
     separator = f"\n{'=' * 70}\n"

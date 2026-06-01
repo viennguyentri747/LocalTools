@@ -1,15 +1,20 @@
 #!/usr/local/bin/local_python
 import argparse
+from contextlib import redirect_stdout
 from datetime import datetime
+import io
 from pathlib import Path
+import re
+import shlex
 import threading
 import time
-from typing import List, Optional
+from typing import Callable, List, Optional, Sequence
 
 from dev.dev_common import *
 from dev.dev_common.custom_structures import EToolPriority, ToolData
 from dev.dev_common.network_utils import ELineType
 from dev.dev_common.tools_utils import ToolTemplate, build_examples_epilog
+from available_tools.inertial_sense_tools.decode_ins_status_utils import decode_ins_status
 from dev.dev_iesa.iesa_ut_install_utils import check_safe_reboot_ut
 from available_tools.test_tools.test_ut_log.t_get_ut_live_log import ELogStreamMode, build_live_log_handlers, close_live_log_handlers, start_stop_timer, stream_live_remote_log_to_file
 from available_tools.test_tools.test_ut_log.t_get_acu_logs import DEFAULT_LOG_OUTPUT_PATH
@@ -34,6 +39,10 @@ ARG_READ_TIMEOUT = f"{ARGUMENT_LONG_PREFIX}read_timeout"
 ARG_TAIL_LINES = f"{ARGUMENT_LONG_PREFIX}tail_lines"
 ARG_FILE = f"{ARGUMENT_LONG_PREFIX}file"
 ARG_MAX_SPAN_OF = f"{ARGUMENT_LONG_PREFIX}max_span_of"
+IMX_VERSION_PATH = "/usr/local/config/system_config/current_imx_version"
+GPX_VERSION_PATH = "/usr/local/config/system_config/current_gpx_version"
+KIM_SINCE_START_ANALYSIS_DIR = LOCAL_TOOL_STORAGE_PATH / "kim_since_start_analysis"
+ANSI_ESCAPE_RE = re.compile(r"\x1B[@-_][0-?]*[ -/]*[@-~]")
 
 
 def getToolData() -> ToolData:
@@ -68,6 +77,46 @@ def _build_run_capture_path(jump_host_ip: str, run_started_at: datetime) -> Path
     return Path(DEFAULT_LOG_OUTPUT_PATH) / jump_host_ip / Path(DEFAULT_LOG_FILENAME).stem / run_dir_name / DEFAULT_LOG_FILENAME
 
 
+def _read_acu_version_file(version_file_path: str, jump_host_ip: str, timeout: int = 20) -> str:
+    cmd = f"cat {shlex.quote(version_file_path)}"
+    stdout, stderr = run_ssh_command(host_ip=ACU_IP, user=SSM_USER, password=SSM_PASSWORD, command=cmd, timeout=timeout, jump_host_ip=jump_host_ip, jump_user=SSM_USER, jump_password=SSM_PASSWORD)
+    version = next((line.strip() for line in (stdout or EMPTY_STR_VALUE).splitlines() if line.strip()), EMPTY_STR_VALUE)
+    if not version:
+        raise RuntimeError(f"Failed to read version file '{version_file_path}' via jump host {jump_host_ip}. stderr='{stderr.strip()}'")
+    return version
+
+
+def _resolve_imx_gpx_version(jump_host_ip: str) -> str:
+    imx_version = _read_acu_version_file(IMX_VERSION_PATH, jump_host_ip=jump_host_ip)
+    gpx_version = _read_acu_version_file(GPX_VERSION_PATH, jump_host_ip=jump_host_ip)
+    if imx_version != gpx_version:
+        raise RuntimeError(f"IMX/GPX version mismatch detected. IMX='{imx_version}', GPX='{gpx_version}'")
+    return imx_version
+
+
+def _build_analysis_base_dir(jump_host_ip: str, imx_gpx_version: str) -> Path:
+    out_dir = KIM_SINCE_START_ANALYSIS_DIR / f"imx_gpx_{imx_gpx_version}" / jump_host_ip
+    out_dir.mkdir(parents=True, exist_ok=True)
+    return out_dir
+
+
+def _build_analysis_artifact_paths(jump_host_ip: str, imx_gpx_version: str) -> tuple[Path, Path]:
+    out_dir = _build_analysis_base_dir(jump_host_ip=jump_host_ip, imx_gpx_version=imx_gpx_version)
+    ts = get_file_timestamp_with_us(get_datetime_now())
+    return out_dir / f"ins_status_summary_{ts}.log", out_dir / f"ins_status_spans_{ts}.log"
+
+
+def _strip_ansi(value: str) -> str:
+    return ANSI_ESCAPE_RE.sub("", value).replace("\r", "")
+
+
+def _capture_plain_log_output(render_fn: Callable[[], None]) -> str:
+    buffer = io.StringIO()
+    with redirect_stdout(buffer):
+        render_fn()
+    return _strip_ansi(buffer.getvalue())
+
+
 def _fmt_dt(value: Optional[datetime]) -> str:
     return get_log_timestamp(value) if value else "N/A"
 
@@ -87,10 +136,60 @@ def get_capture_log_paths(log_path: Path) -> List[Path]:
     return sorted(set(candidates), key=lambda path: _capture_log_sort_key(log_path, path), reverse=True)
 
 
-def analyze_ins_status_file(log_path: Path, max_span_of: int = DEFAULT_MAX_SPAN_OF) -> int:
+def _render_span_lines_without_ansi(status_spans: Sequence) -> str:
+    lines: List[str] = []
+    ts = get_log_timestamp()
+    lines.append(f"[{ts}] === Status Changes Summary ===")
+    unique_statuses = {status for span in status_spans for status in span.pattern_statuses}
+    lines.append(f"[{ts}] Total spans: {len(status_spans)}")
+    lines.append(f"[{ts}] Unique insStatus values: {len(unique_statuses)}")
+    lines.append(f"[{ts}] Position key: startMsg# is the 1-based index among parsed INS1Msg lines.")
+    for idx, span in enumerate(status_spans, 1):
+        lines.append("")
+        lines.append("=" * 70)
+        lines.append("")
+        lines.append(f"[{ts}] === SPAN-OF-{span.span_of} [{idx}] ===")
+        lines.append(f"[{ts}]     start={span.start_time} end={span.end_time} duration={span.duration_secs:.3f}s msgs={span.message_count} startMsg#={span.start_offset + 1} loop={span.loop_count}")
+        if span.span_of == 1:
+            lines.append(f"[{ts}] {decode_ins_status(span.status).to_compact_str()}")
+        else:
+            for pattern_idx, status in enumerate(span.pattern_statuses, 1):
+                lines.append(f"[{ts}]     pattern[{pattern_idx}] status=0x{status:08X} ({status})")
+                lines.append(f"[{ts}] {decode_ins_status(status).to_compact_str()}")
+        lines.append("")
+        lines.append("=" * 70)
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _write_analysis_artifacts(summary_output_path: Path, spans_output_path: Path, jump_host_ip: str, acu_ip: str, imx_gpx_version: str, source_log_path: Path,
+                              analyzed_log_paths: Sequence[Path], status_entries: Sequence[InsStatusData], status_spans: Sequence, decoded_entries: Sequence, time_diff_stats: Optional[object]) -> None:
+    spans_output_path.parent.mkdir(parents=True, exist_ok=True)
+    spans_output_path.write_text(_render_span_lines_without_ansi(status_spans), encoding="utf-8")
+    summary_body = _capture_plain_log_output(lambda: (print_ins_messages_time_diff_stats(time_diff_stats), print_progression_summary(decoded_entries)))
+    summary_lines = [
+        f"jump_host_ip={jump_host_ip}",
+        f"acu_ip={acu_ip}",
+        f"imx_version={imx_gpx_version}",
+        f"gpx_version={imx_gpx_version}",
+        f"log_path={source_log_path}",
+        f"status_spans_file={spans_output_path}",
+        f"status_spans_count={len(status_spans)}",
+        f"parsed_ins1msg_count={len(status_entries)}",
+        f"analyzed_log_files={', '.join(str(path) for path in analyzed_log_paths)}",
+        "",
+        summary_body.rstrip(),
+        "",
+    ]
+    summary_output_path.write_text("\n".join(summary_lines), encoding="utf-8")
+
+
+def analyze_ins_status_file(log_path: Path, max_span_of: int = DEFAULT_MAX_SPAN_OF, *, summary_output_path: Optional[Path] = None,
+                            spans_output_path: Optional[Path] = None, jump_host_ip: Optional[str] = None, acu_ip: Optional[str] = None,
+                            imx_gpx_version: Optional[str] = None) -> int:
     log_paths = get_capture_log_paths(log_path)
     if not log_paths:
-        LOG("No captured INS monitor log files found for analysis.")
+        LOG_ISSUE("No captured INS monitor log files found for analysis.")
         return 0
     LOG(f"{LOG_PREFIX_MSG_INFO} Analyze {len(log_paths)} capture file(s): {', '.join(str(path) for path in log_paths)}")
     lines: List[str] = []
@@ -98,14 +197,20 @@ def analyze_ins_status_file(log_path: Path, max_span_of: int = DEFAULT_MAX_SPAN_
         lines.extend(read_lines(str(log_path)))
     status_entries: List[InsStatusData] = [entry for idx, line in enumerate(lines, 1) if (entry := parse_ins_status_data_from_line(line, idx)) is not None]
     if not status_entries:
-        LOG("No INS1Msg lines found in input.")
+        LOG_ISSUE("No INS1Msg lines found in input.")
         return 0
     LOG(f"Parsed {len(status_entries)} INS1Msg lines from {len(lines)} input lines across {len(log_paths)} capture file(s).")
     print()
     status_spans = group_consecutive_status_spans(status_entries, max_span_of=max_span_of)
     print_status_span_report(status_spans)
-    print_ins_messages_time_diff_stats(compute_ins_message_time_diff_stats(status_entries))
-    print_progression_summary(build_decoded_entries(status_entries))
+    time_diff_stats = compute_ins_message_time_diff_stats(status_entries)
+    decoded_entries = build_decoded_entries(status_entries)
+    print_ins_messages_time_diff_stats(time_diff_stats)
+    print_progression_summary(decoded_entries)
+    if summary_output_path and spans_output_path and jump_host_ip and acu_ip and imx_gpx_version:
+        _write_analysis_artifacts(summary_output_path=summary_output_path, spans_output_path=spans_output_path, jump_host_ip=jump_host_ip, acu_ip=acu_ip,
+                                  imx_gpx_version=imx_gpx_version, source_log_path=log_path, analyzed_log_paths=log_paths, status_entries=status_entries,
+                                  status_spans=status_spans, decoded_entries=decoded_entries, time_diff_stats=time_diff_stats)
     LOG("Analysis complete.")
     return 0
 
@@ -179,17 +284,25 @@ def main() -> int:
     stream_end_at, stream_end_wall = get_datetime_now(), time.time()
     LOG(f"{LOG_PREFIX_MSG_SUCCESS} Capture live INS monitor log completed.")
     
-
+    imx_gpx_version = _resolve_imx_gpx_version(ssm_ip)
+    analysis_summary_path, analysis_spans_path = _build_analysis_artifact_paths(jump_host_ip=ssm_ip, imx_gpx_version=imx_gpx_version)
     LOG(f"{LOG_PREFIX_MSG_INFO} Analyze INS status")
-    rc = analyze_ins_status_file(log_path, max_span_of=max_span_of)
+    LOG(f"{LOG_PREFIX_MSG_INFO} Persist analysis summary to {analysis_summary_path}")
+    LOG(f"{LOG_PREFIX_MSG_INFO} Persist status spans to {analysis_spans_path}")
+    rc = analyze_ins_status_file(log_path, max_span_of=max_span_of, summary_output_path=analysis_summary_path, spans_output_path=analysis_spans_path, jump_host_ip=ssm_ip, acu_ip=host_ip, imx_gpx_version=imx_gpx_version)
     if rc != 0: return rc
     LOG(f"{LOG_PREFIX_MSG_SUCCESS} Analyze INS status completed.")
-    if log_path.exists():
+    has_non_empty_capture = any(path.stat().st_size > 0 for path in get_capture_log_paths(log_path))
+    if has_non_empty_capture:
         open_path_in_explorer(log_path)
+    else:
+        LOG_ISSUE(f"No INS-monitor capture artifact generated at {format_path_for_display(log_path)}; skipping Explorer open.")
 
     LOG("=== Capture Summary ===")
     LOG(f"test start at: {_fmt_dt(test_start_at)}")
     LOG(f"log file: {log_path}")
+    LOG(f"analysis summary file: {analysis_summary_path}")
+    LOG(f"analysis spans file: {analysis_spans_path}")
     LOG(f"analyzed log files: {', '.join(str(path) for path in get_capture_log_paths(log_path)) or 'N/A'}")
     LOG(f"log start at: {_fmt_dt(first_log_at)}")
     LOG(f"capture end at: {_fmt_dt(stream_end_at)}")

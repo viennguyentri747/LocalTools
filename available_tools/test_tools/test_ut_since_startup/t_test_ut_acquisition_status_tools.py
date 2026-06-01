@@ -236,16 +236,25 @@ def getToolData() -> ToolData:
     ]
     return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
 
+_INLINE_STATUS_SPINNER: Optional[ElapsedStatusSpinner] = None
+
+
 def _log_status_line(text: str, last_len: int) -> int:
-    LOG(f"{text}{' ' * max(0, last_len - len(text))}", same_line=True)
+    global _INLINE_STATUS_SPINNER
+    if _INLINE_STATUS_SPINNER is None:
+        _INLINE_STATUS_SPINNER = ElapsedStatusSpinner(message="", interval_sec=0.2, show_spinner=False, show_elapsed=False)
+        _INLINE_STATUS_SPINNER.start()
+    _INLINE_STATUS_SPINNER.set_status(text)
     return len(text)
 
 
 def _clear_status_line(last_len: int) -> None:
+    global _INLINE_STATUS_SPINNER
     if last_len <= 0:
         return
-    LOG(" " * last_len, same_line=True, show_time=False)
-    LOG("", show_time=False)
+    if _INLINE_STATUS_SPINNER is not None:
+        _INLINE_STATUS_SPINNER.stop(emit_final=False)
+        _INLINE_STATUS_SPINNER = None
 
 
 class RequestLogger:

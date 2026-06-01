@@ -32,7 +32,7 @@ ARG_ACU_PASSWORD = f"{ARGUMENT_LONG_PREFIX}acu_password"
 ARG_REMOTE_DIR = f"{ARGUMENT_LONG_PREFIX}remote_dir"
 ARG_TIMEOUT_SECS = f"{ARGUMENT_LONG_PREFIX}timeout_secs"
 DEFAULT_UT_IP = f"{SSM_NORMAL_IP_PREFIX}.107"
-DEFAULT_IESA_PATH = str(LOCAL_TOOL_REPO_PATH / "storage" / "in_iesa" / "ow_core_apps-release-master-1.0.0.196.iesa")
+DEFAULT_IESA_PATH = str(LOCAL_TOOL_STORAGE_PATH / "in_iesa" / "ow_core_apps-release-master-1.0.0.196.iesa")
 
 
 @dataclass(frozen=True)
@@ -309,8 +309,12 @@ def main(argv: Optional[List[str]] = None) -> None:
         remote_dir=get_arg_value(args, ARG_REMOTE_DIR),
     )
     result = run_once_upgrade(runtime, iesa_path, int(get_arg_value(args, ARG_TIMEOUT_SECS)), log_path)
-    if resolved_log_path and Path(resolved_log_path).exists():
-        open_path_in_explorer(Path(resolved_log_path))
+    if resolved_log_path:
+        resolved_log_path_obj = Path(resolved_log_path)
+        if resolved_log_path_obj.exists() and resolved_log_path_obj.is_file() and resolved_log_path_obj.stat().st_size > 0:
+            open_path_in_explorer(resolved_log_path_obj)
+        else:
+            LOG_ISSUE(f"No IESA install-log artifact generated at {format_path_for_display(resolved_log_path_obj)}; skipping Explorer open.")
     raise SystemExit(0 if result == EUpgradeResult.SUCCESS else 1)
 
 

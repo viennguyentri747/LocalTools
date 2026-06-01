@@ -16,6 +16,7 @@ setup(
         "prompt_toolkit==3.0.52",
         "thefuzz==0.22.1",
         "tabulate==0.9.0",
+        "rich==13.9.4",
         "PyYAML==6.0.2",
         "pathvalidate==3.3.1",
         "matplotlib==3.10.6",

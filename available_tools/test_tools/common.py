@@ -74,7 +74,7 @@ def fetch_acu_logs(ut_ip: str, log_types: List[str], dest_folder_path: str | Pat
         return AcuLogInfo(is_valid=False, ip=ut_ip)
 
     needs_passwordless_setup = run_via_shell_cmd or copy_type == ECopyType.SCP
-    if needs_passwordless_setup and not setup_passwordless_ssh(ACU_USER, ut_ip, remote_password=SSM_PASSWORD, key_type=ssh_key_type):
+    if needs_passwordless_setup and not setup_passwordless_ssh(ACU_USER, ut_ip, remote_password=get_ssm_password(), key_type=ssh_key_type):
         LOG(f"{LOG_PREFIX_MSG_ERROR} SSH key setup failed for {ut_ip}. Continuing with password authentication...")
 
     try:
@@ -102,7 +102,7 @@ def fetch_acu_logs(ut_ip: str, log_types: List[str], dest_folder_path: str | Pat
         try:
             copied_paths = copy_to_local_via_jump_host(
                 remote_src_paths=remote_sources, remote_host_ip=ACU_IP, local_dest_path=dest_folder_path, jump_host_ip=ut_ip,
-                remote_user=ACU_USER, remote_password=ACU_PASSWORD, jump_user=SSM_USER, jump_password=SSM_PASSWORD, recursive=False,
+                remote_user=ACU_USER, remote_password=ACU_PASSWORD, jump_user=SSM_USER, jump_password=get_ssm_password(), recursive=False,
                 copy_type=copy_type, on_progress=on_progress, emit_progress_log=emit_progress_log,
             )
         except Exception as exc:

@@ -2,7 +2,7 @@ from pathlib import Path
 import sys
 from typing import Dict, List, Optional, Tuple, Union
 from dev.dev_common.constants import *
-from dev.dev_common.core_utils import *
+from dev.dev_common.core_independent_utils import *
 from dev.dev_common.format_utils import get_path_no_suffix
 import xml.etree.ElementTree as ElementTree
 from dev.dev_common.gitlab_utils import *

@@ -6,13 +6,13 @@ from typing import List, Dict, Optional, Any
 from datetime import datetime
 
 from dev.dev_common.constants import *
-from dev.dev_common.core_utils import LOG, LOG_EXCEPTION, read_value_from_credential_file
+from dev.dev_common.core_independent_utils import LOG, LOG_EXCEPTION, read_value_from_credential_file
 from dev.dev_common.format_utils import get_stripped_paragraph
 from dev.dev_common.md_utils import *
 
-JIRA_USERNAME = read_value_from_credential_file(CREDENTIALS_FILE_PATH, JIRA_USERNAME_KEY_NAME)
-JIRA_COMPANY_URL = read_value_from_credential_file(CREDENTIALS_FILE_PATH, JIRA_COMPANY_URL_KEY_NAME)
-API_TOKEN = read_value_from_credential_file(CREDENTIALS_FILE_PATH, JIRA_API_TOKEN_KEY_NAME)
+JIRA_USERNAME = read_value_from_credential_file(JIRA_USERNAME_KEY_NAME)
+JIRA_COMPANY_URL = read_value_from_credential_file(JIRA_COMPANY_URL_KEY_NAME)
+API_TOKEN = read_value_from_credential_file(JIRA_API_TOKEN_KEY_NAME)
 jira_client: 'JiraClient' = None
 
 

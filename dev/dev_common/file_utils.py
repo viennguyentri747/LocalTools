@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Tuple, Union
 import xml.etree.ElementTree as ET
 
-from dev.dev_common.core_utils import ELogType, LOG, LOG_EXCEPTION, LOG_EXCEPTION_STR, run_shell
+from dev.dev_common.core_independent_utils import ELogType, LOG, LOG_EXCEPTION, LOG_EXCEPTION_STR, run_shell
 
 def colorize_patch(patch_content_str: str) -> str:
     lines = patch_content_str.splitlines(keepends=True)

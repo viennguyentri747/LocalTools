@@ -62,12 +62,19 @@ class ELogType(IntEnum):
     NORMAL = 20
     WARNING = 30
     CRITICAL = 40
+    HIDDEN = 100
 
 
 _CURRENT_LOG_LEVEL: ELogType = ELogType.NORMAL
+# Internal logger backing LOG(...):
+# - Main reason: keep one consistent record/handler emit path for both default stream output and caller-provided logging.Handler.
+# - Secondary protection: avoid depending on root/global logger setup (e.g., logging.basicConfig or root handler changes)
+#   so LOG(...) output does not unexpectedly duplicate or change format.
 _INTERNAL_LOGGER = logging.getLogger("local_tools.compat")
+# Keep logger at DEBUG so Python's logger does not pre-filter records; LOG(...) applies project-level filtering via ELogType.
 _INTERNAL_LOGGER.setLevel(logging.DEBUG)
 _INTERNAL_LOGGER.propagate = False
+# Hooks invoked by LOG(...) immediately before each emit; used for spinner/status-line coordination.
 _LOG_PRE_EMIT_HOOKS: List[Callable[[bool], None]] = []
 _LOG_HOOKS_LOCK = threading.Lock()
 
@@ -75,6 +82,10 @@ _LOG_HOOKS_LOCK = threading.Lock()
 def set_log_level(level: ELogType) -> None:
     global _CURRENT_LOG_LEVEL
     _CURRENT_LOG_LEVEL = level
+
+
+def disable_log() -> None:
+    set_log_level(ELogType.HIDDEN)
 
 
 def get_current_log_level() -> ELogType:
@@ -141,6 +152,10 @@ def LOG_ISSUE(*values: object, sep: str = " ", end: str = "\n", file=None, show_
     LOG(issue_message, end=end, file=file, highlight=True, show_time=show_time, flush=flush, log_type=log_type)
 
 
+def is_platform_windows() -> bool:
+    return platform.system() == "Windows"
+
+
 def get_wsl_home_path() -> Path:
     if is_platform_windows():
         wsl_home_result = run_shell(["echo", "$HOME"], capture_output=True, is_run_wsl_if_window=True)
@@ -150,6 +165,15 @@ def get_wsl_home_path() -> Path:
     else:
         resolved_path = Path.home()
     return resolved_path
+
+
+@lru_cache(maxsize=1)
+def get_local_tool_repo_path() -> Path:
+    return get_wsl_home_path() / "workspace" / "intellian_core_repos" / "local_tools"
+
+
+DEFAULT_CREDENTIALS_FILE_PATH = get_local_tool_repo_path() / ".my_credentials.env"
+DEFAULT_UT_PASSWORD_KEY_NAME = "UT_PASSWORD"
 
 
 @lru_cache(maxsize=1)
@@ -198,7 +222,7 @@ def _is_running_in_wsl() -> bool:
 
 
 def _get_local_repo_temp_path() -> Path:
-    return Path(__file__).resolve().parents[2] / "temp"
+    return get_local_tool_repo_path() / "temp"
 
 
 def _resolve_current_platform_target() -> ETargetPlatform:
@@ -225,7 +249,8 @@ def get_temp_path(prefer_platform: ETargetPlatform | str = ETargetPlatform.WINDO
         return local_temp_path
 
     if prefer_platform == ETargetPlatform.WINDOWS:
-        LOG(f"[WARNING] Windows temp path is not supported on pure Linux. Falling back to Linux/local temp path: {local_temp_path}")
+        LOG(
+            f"[WARNING] Windows temp path is not supported on pure Linux. Falling back to Linux/local temp path: {local_temp_path}")
     return local_temp_path
 
 
@@ -237,6 +262,7 @@ def _is_windows_path_text(path_text: str) -> bool:
 def _is_wsl_unc_path_text(path_text: str) -> bool:
     stripped = path_text.strip().strip('"').strip("'").replace("\\", "/")
     return bool(re.match(r'^//wsl(?:\.localhost|\$)/[^/]+(/.*)?$', stripped, flags=re.IGNORECASE))
+
 
 def _normalize_windows_path_separators(path_text: str) -> str:
     clean = str(path_text).strip().strip('"').strip("'")
@@ -365,7 +391,7 @@ def run_shell(cmd: Union[str, List[str]], show_cmd: bool = True, cwd: Optional[P
         display_cwd = format_path_for_display(exec_cwd or Path.cwd())
         LOG(f"{format_cmd_for_log(cmd)} (cwd={display_cwd})" + (f"{input}" if input else ""), log_type=ELogType.NORMAL)
 
-    return subprocess.run(cmd, shell=want_shell, cwd=exec_cwd, check=check_throw_exception_on_exit_code, stdout=stdout, stderr=stderr, text=text, input = input, capture_output=capture_output, encoding=encoding, executable=exec_path, timeout=timeout)
+    return subprocess.run(cmd, shell=want_shell, cwd=exec_cwd, check=check_throw_exception_on_exit_code, stdout=stdout, stderr=stderr, text=text, input=input, capture_output=capture_output, encoding=encoding, executable=exec_path, timeout=timeout)
 
 
 def get_shell_exec_cmd_as_list() -> List[str]:
@@ -460,7 +486,7 @@ def convert_wsl_to_win_path(file_path: Path) -> str:
         cmd = ["wslpath", "-w", resolved_wsl_path]
 
     try:
-        result = run_shell(cmd, capture_output=True, text=True, check_throw_exception_on_exit_code=True )
+        result = run_shell(cmd, capture_output=True, text=True, check_throw_exception_on_exit_code=True)
         win_path = result.stdout.strip()
         LOG(f"Converted WSL path {format_path_for_display(file_path)} to Windows path: {win_path}")
         return win_path
@@ -593,12 +619,9 @@ def get_normalized_path(path_like: str | Path, target_platform: ETargetPlatform 
     else:
         raise ValueError(
             f"Unsupported target_platform='{target_platform}'. Expected one of {[item.value for item in ETargetPlatform]}.")
-    LOG(f"[INFO] Normalized {log_label}: {path_text} -> {normalized_path}, Target Platform: {target_platform}", log_type=ELogType.NORMAL)
+    LOG(f"[INFO] Normalized {log_label}: {path_text} -> {normalized_path}, Target Platform: {target_platform}",
+        log_type=ELogType.DEBUG)
     return normalized_path
-
-
-def is_platform_windows() -> bool:
-    return platform.system() == "Windows"
 
 
 def change_dir(path: str):
@@ -669,36 +692,47 @@ def md5sum(file_path):
     return md5
 
 
-def read_value_from_credential_file(credentials_file_path: str, key_to_read: str, exit_on_error: bool = True) -> Union[str, None]:
+@lru_cache(maxsize=256)
+def _read_value_from_credential_file_cached(credentials_file_path: str, key_to_read: str) -> Union[str, None]:
+    credentials_file_path = str(get_normalized_path(credentials_file_path, target_platform=ETargetPlatform.CURRENT))
+    if not os.path.exists(credentials_file_path):
+        return None
+    try:
+        with open(credentials_file_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    try:
+                        key, value = line.split('=', 1)
+                        if key == key_to_read:
+                            return value
+                    except ValueError:
+                        continue
+    except Exception:
+        return None
+    return None
+
+
+def read_value_from_credential_file(key_to_read: str, credentials_file_path: str | Path = DEFAULT_CREDENTIALS_FILE_PATH, exit_on_error: bool = True) -> Union[str, None]:
     """
     Reads a specific key's value from a credentials file.
     Returns the value if found, otherwise None.
     """
-    credentials_file_path = get_normalized_path(credentials_file_path, target_platform=ETargetPlatform.CURRENT)
-    if os.path.exists(credentials_file_path):
-        try:
-            with open(credentials_file_path, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith('#'):
-                        try:
-                            key, value = line.split('=', 1)
-                            if key == key_to_read:
-                                return value
-                        except ValueError:
-                            # Handle lines that don't contain '='
-                            LOG(f"Warning: Skipping malformed line in {credentials_file_path}: {line}")
-                            continue
-        except Exception as e:
-            if exit_on_error:
-                LOG(f"Error reading credentials file {credentials_file_path}: {e}")
-                sys.exit(1)
-    else:
-        LOG(f"Credentials file {credentials_file_path} not found.")
-        # breakpoint()
-
-    LOG(f"ERROR: Key '{key_to_read}' not found in {credentials_file_path}")
+    normalized_credentials_path = str(get_normalized_path(
+        str(credentials_file_path), target_platform=ETargetPlatform.CURRENT))
+    value = _read_value_from_credential_file_cached(normalized_credentials_path, key_to_read)
+    if value is not None:
+        return value
+    if not os.path.exists(normalized_credentials_path):
+        LOG(f"Credentials file {normalized_credentials_path} not found.")
+    if exit_on_error:
+        LOG(f"ERROR: Key '{key_to_read}' not found in {normalized_credentials_path}")
     return None
+
+
+@lru_cache(maxsize=1)
+def get_ssm_password() -> str:
+    return read_value_from_credential_file(DEFAULT_UT_PASSWORD_KEY_NAME, exit_on_error=False) or ""
 
 
 def LOG_EXCEPTION_STR(exception_str: str, msg=None, exit: bool = True):
@@ -752,6 +786,7 @@ def LOG_EXCEPTION(exception: Exception, msg=None, exit: bool = True):
 
 def LOG_EMPTY_LINE():
     LOG("", show_time=False)
+
 
 def LOG_LINE_SEPARATOR():
     separator = f"\n{'=' * 70}\n"

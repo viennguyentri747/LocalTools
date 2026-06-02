@@ -7,7 +7,6 @@ def getToolData() -> ToolData:
 
 
 from dev.dev_common.constants import *
-from dev.dev_common.core_utils import read_value_from_credential_file
 from dev.dev_common.jira_utils import JiraTicket, JiraClient, get_company_jira_client
 
 # ---- User config: Set your details here ----

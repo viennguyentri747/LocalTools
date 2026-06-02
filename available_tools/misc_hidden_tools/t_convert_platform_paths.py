@@ -6,7 +6,7 @@ from typing import Callable, Dict, List
 
 from dev.dev_common.constants import ARG_MODE, ARG_PATH_LONG
 from dev.dev_common.core_independent_utils import LOG, is_platform_windows
-from dev.dev_common.core_utils import convert_wsl_to_win_path
+from dev.dev_common.core_independent_utils import convert_wsl_to_win_path
 from dev.dev_common.custom_structures import ToolData
 from dev.dev_common.tools_utils import (
     ToolTemplate,

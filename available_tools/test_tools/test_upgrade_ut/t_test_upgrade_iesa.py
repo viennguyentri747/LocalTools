@@ -5,14 +5,14 @@ import argparse
 import os
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
 from available_tools.iesa_tools.copy_to_ut_runner import EIesaInstallResult, ERequestCommand, _run_iesa_install_via_python
 from available_tools.test_tools.test_upgrade_ut.common_utils import EUpgradeResult, check_target_support, run_acu_cmd_via_ut
 from dev.dev_common import *
-from dev.dev_common.constants import ACU_IP, ACU_PASSWORD, ACU_USER, SSM_PASSWORD, SSM_USER
+from dev.dev_common.constants import ACU_IP, ACU_PASSWORD, ACU_USER, SSM_USER
 from dev.dev_iesa.iesa_ut_install_utils import EUpgradeComponent, IesaPrecheckState, _read_current_bootpart, are_upgrade_components_final
 from dev.dev_common.network_utils import copy_remote_file_if_needed
 
@@ -39,7 +39,7 @@ DEFAULT_IESA_PATH = str(LOCAL_TOOL_STORAGE_PATH / "in_iesa" / "ow_core_apps-rele
 class IesaRuntime:
     ut_ip: str
     ut_user: str = SSM_USER
-    ut_password: str = SSM_PASSWORD
+    ut_password: str = field(default_factory=get_ssm_password)
     acu_ip: str = ACU_IP
     acu_user: str = ACU_USER
     acu_password: str = ACU_PASSWORD
@@ -64,7 +64,7 @@ def getToolData() -> ToolData:
                 ARG_UT_IP: DEFAULT_UT_IP,
                 ARG_LOG_PATH: str(LOCAL_TOOL_REPO_PATH / "logs" / "upgrade_install"),
                 ARG_UT_USER: SSM_USER,
-                ARG_UT_PASSWORD: SSM_PASSWORD,
+                ARG_UT_PASSWORD: get_ssm_password(),
                 ARG_ACU_IP: ACU_IP,
                 ARG_ACU_USER: ACU_USER,
                 ARG_ACU_PASSWORD: ACU_PASSWORD,
@@ -285,7 +285,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(ARG_UT_IP, required=True, help="UT/SSM jump-host IP")
     parser.add_argument(ARG_LOG_PATH, required=False, help="Install log output path (file or directory)")
     parser.add_argument(ARG_UT_USER, default=SSM_USER, help=f"UT/SSM jump-host user (default: {SSM_USER})")
-    parser.add_argument(ARG_UT_PASSWORD, default=SSM_PASSWORD, help="UT/SSM jump-host password")
+    parser.add_argument(ARG_UT_PASSWORD, default=get_ssm_password(), help="UT/SSM jump-host password")
     parser.add_argument(ARG_ACU_IP, default=ACU_IP, help=f"ACU IP (default: {ACU_IP})")
     parser.add_argument(ARG_ACU_USER, default=ACU_USER, help=f"ACU user (default: {ACU_USER})")
     parser.add_argument(ARG_ACU_PASSWORD, default=ACU_PASSWORD, help="ACU password")

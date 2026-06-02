@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import List
-from dev.dev_common.core_independent_utils import get_wsl_home_path, read_value_from_credential_file
+from dev.dev_common.core_independent_utils import DEFAULT_UT_PASSWORD_KEY_NAME, get_local_tool_repo_path, get_wsl_home_path
 
 ARGUMENT_LONG_PREFIX = "--"
 ARGUMENT_SHORT_PREFIX = "-"
@@ -62,14 +62,13 @@ GL_INTELLIAN_PKG_TOKEN_KEY_NAME = "GITLAB_INTELLIAN_PKG_TOKEN"
 GL_SPIBEAM_TOKEN_KEY_NAME = "GITLAB_SPIBEAM_TOKEN"
 GL_UPGRADE_TOKEN_KEY_NAME = "GITLAB_UPGRADE_TOKEN"
 GL_THIRD_PARTY_APPS_TOKEN_KEY_NAME = "GITLAB_THIRD_PARTY_APPS_TOKEN"
-UT_PWD_KEY_NAME = "UT_PASSWORD"
+UT_PWD_KEY_NAME = DEFAULT_UT_PASSWORD_KEY_NAME
 
 # PATHS. Note: these link SHOULD NOT BE symlink to avoid accessed from WINDOW issue
 WORKSPACE_PATH = WSL_HOME_PATH / "workspace"
 CORE_REPOS_PATH = WORKSPACE_PATH / "intellian_core_repos" 
-LOCAL_TOOL_REPO_PATH = CORE_REPOS_PATH / "local_tools"
+LOCAL_TOOL_REPO_PATH = get_local_tool_repo_path()
 AVAILABLE_TOOLS_PATH = LOCAL_TOOL_REPO_PATH / "available_tools"
-CREDENTIALS_FILE_PATH = LOCAL_TOOL_REPO_PATH / ".my_credentials.env"
 #CORE_REPOS_PATH = WORKSPACE_PATH / "intellian_core_repos/"
 MY_TEMP_WORKING_PATH = WSL_HOME_PATH / "testing" / "temp_working"
 INERTIAL_SENSE_LOG_INSPECTOR_PATH = MY_TEMP_WORKING_PATH / "inertial_sense_python_modules" / "logInspector" / "logInspector.py"
@@ -100,7 +99,6 @@ ACU_IP = "192.168.100.254"
 SSM_USER = "root"
 ACU_USER = "root"
 ACU_PASSWORD = ""
-SSM_PASSWORD = read_value_from_credential_file(CREDENTIALS_FILE_PATH, UT_PWD_KEY_NAME)
 ACU_VAR_LOG_PATH = Path("/var/log")
 ACU_FLASH_LOGS_PATH = Path("/home") / ACU_USER / "flash_logs/"
 API_SYSTEM_REBOOT_ENDPOINT = "/api/system/reboot"

@@ -16,7 +16,7 @@ from typing import Optional
 import urllib.parse
 from pathlib import Path
 from dev.dev_common.constants import OBSIDIAN_VAULT_NAME, OBSIDIAN_VAULT_PATH
-from dev.dev_common.core_utils import LOG
+from dev.dev_common.core_independent_utils import LOG
 from dev.dev_common.format_utils import str_to_slug
 
 # This import is assumed from your original script.

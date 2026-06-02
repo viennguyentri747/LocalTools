@@ -79,7 +79,8 @@ def _build_run_capture_path(jump_host_ip: str, run_started_at: datetime) -> Path
 
 def _read_acu_version_file(version_file_path: str, jump_host_ip: str, timeout: int = 20) -> str:
     cmd = f"cat {shlex.quote(version_file_path)}"
-    stdout, stderr = run_ssh_command(host_ip=ACU_IP, user=SSM_USER, password=SSM_PASSWORD, command=cmd, timeout=timeout, jump_host_ip=jump_host_ip, jump_user=SSM_USER, jump_password=SSM_PASSWORD)
+    ssm_password = get_ssm_password()
+    stdout, stderr = run_ssh_command(host_ip=ACU_IP, user=SSM_USER, password=ssm_password, command=cmd, timeout=timeout, jump_host_ip=jump_host_ip, jump_user=SSM_USER, jump_password=ssm_password)
     version = next((line.strip() for line in (stdout or EMPTY_STR_VALUE).splitlines() if line.strip()), EMPTY_STR_VALUE)
     if not version:
         raise RuntimeError(f"Failed to read version file '{version_file_path}' via jump host {jump_host_ip}. stderr='{stderr.strip()}'")

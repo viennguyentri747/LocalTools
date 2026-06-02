@@ -5,6 +5,9 @@
 #   *) export PATH="/usr/local/bin:$PATH" && echo "Added /usr/local/bin to PATH" ;;
 # esac
 
+#Timezone
+export TZ="UTC"
+
 #Homebrew:
 eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 
@@ -112,3 +115,4 @@ fi
 load_ssh_keys
 mount_h
 #monitor_stock not_restart_if_running run_in_background
+alias chrome='"/mnt/c/Program Files/Google/Chrome/Application/chrome.exe"'

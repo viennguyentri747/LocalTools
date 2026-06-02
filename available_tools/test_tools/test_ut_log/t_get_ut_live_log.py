@@ -178,9 +178,9 @@ def stream_live_remote_log_to_file(host_ip: str, remote_log_path: str, user: str
                         stream_duration_secs: float = 0.0, log_path: Optional[str] = None, log_stream_mode: ELogStreamMode = ELogStreamMode.OverrideSingleFile,
                         handlers: Optional[Sequence[logging.Handler]] = None, on_line_recv: Optional[Callable[[str, ELineType], None]] = None,
                         stop_event: Optional[threading.Event] = None) -> None:
-    password = password or read_value_from_credential_file(CREDENTIALS_FILE_PATH, UT_PWD_KEY_NAME)
+    password = password or read_value_from_credential_file(UT_PWD_KEY_NAME)
     if not password:
-        raise ValueError(f"Missing UT password in {CREDENTIALS_FILE_PATH} with key {UT_PWD_KEY_NAME}")
+        raise ValueError(f"Missing UT password in {DEFAULT_CREDENTIALS_FILE_PATH} with key {UT_PWD_KEY_NAME}")
     resolved_jump_user = jump_user or user
     resolved_jump_password = jump_password or password
     is_reachable = ping_remote_host_via_jump_host( remote_host_ip=host_ip, jump_host_ip=jump_host_ip, jump_user=resolved_jump_user, jump_password=resolved_jump_password, max_wait_sec=DEFAULT_REACHABLE_WAIT_SECS, retry_interval_sec=5.0, ping_count=1, ping_timeout_sec=2, ssh_timeout_sec=10, check_jump_host_reachable=True, mute=False, )

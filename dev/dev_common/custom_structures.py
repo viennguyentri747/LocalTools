@@ -20,7 +20,7 @@ class IesaLocalRepoInfo:
 
     @property
     def gl_access_token(self) -> str:
-        private_token = read_value_from_credential_file(CREDENTIALS_FILE_PATH, self._token_key_name)
+        private_token = read_value_from_credential_file(self._token_key_name)
         return private_token
 
     @property

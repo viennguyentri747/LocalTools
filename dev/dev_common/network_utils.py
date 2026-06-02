@@ -16,7 +16,7 @@ import select
 import threading
 from typing import Callable, List, Optional, Tuple
 from dev.dev_common.constants import *
-from dev.dev_common.core_utils import *
+from dev.dev_common.core_independent_utils import *
 from dev.dev_common.format_utils import format_bytes_human
 from dev.dev_common.gui_utils import ElapsedStatusSpinner
 from dev.dev_common.independent_network_utils import *

@@ -170,7 +170,7 @@ def get_branch_prefix_from_ticket(ticket: JiraTicket) -> str:
 def get_repo_manifest_from_remote(main_manifest_branch: str) -> IesaManifest:
     """Gets the repo manifest from the remote GitLab repository."""
     # Use get_gl_project to get the manifest project object
-    # token = read_value_from_credential_file(CREDENTIALS_FILE_PATH, GL_OW_SW_TOOLS_TOKEN_KEY_NAME)
+    # token = read_value_from_credential_file(GL_OW_SW_TOOLS_TOKEN_KEY_NAME)
     gl_repo_info: IesaLocalRepoInfo = get_repo_info_by_name(IESA_OW_SW_TOOLS_REPO_NAME)
     ow_sw_tools_project = get_gl_project(gl_repo_info)
 

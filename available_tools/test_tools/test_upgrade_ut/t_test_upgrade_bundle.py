@@ -5,7 +5,7 @@ import argparse
 import os
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -13,7 +13,7 @@ from typing import Dict, List, Optional, Tuple
 from available_tools.test_tools.test_upgrade_ut.bundle_api_helper import apply_bundle, get_component_upgrade_status, get_current_state, get_sdl_stats, proceed_to_next_install_step, start_over_installation, upload_bundle, wait_util_awaiting_next
 from available_tools.test_tools.test_upgrade_ut.common_utils import EUpgradeResult, check_target_support, run_acu_cmd_via_ut, run_acu_cmd_via_ut_with_retry
 from dev.dev_common import *
-from dev.dev_common.constants import ACU_IP, ACU_PASSWORD, ACU_USER, SSM_PASSWORD, SSM_USER
+from dev.dev_common.constants import ACU_IP, ACU_PASSWORD, ACU_USER, SSM_USER
 
 DEFAULT_MONITOR_INTERVAL_SECS = 2
 DEFAULT_MONITOR_TIMEOUT_SECS = 6000
@@ -39,7 +39,7 @@ class InstallBundleReturnCode(Enum):
 class BundleRuntime:
     ssm_ip: str
     ut_user: str = SSM_USER
-    ut_password: str = SSM_PASSWORD
+    ut_password: str = field(default_factory=get_ssm_password)
     acu_ip: str = ACU_IP
     acu_user: str = ACU_USER
     acu_password: str = ACU_PASSWORD

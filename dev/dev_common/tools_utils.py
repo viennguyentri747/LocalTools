@@ -16,7 +16,7 @@ from dev.dev_common.constants import LINE_SEPARATOR, CMD_EXPLORER, WSL_SELECT_FL
 from dev.dev_common import *
 from dev.dev_common.format_utils import quote_arg_value_if_need
 from dev.dev_common.core_independent_utils import ETargetPlatform, get_normalized_path
-# from dev.dev_common.core_utils import LOG, convert_win_to_wsl_path, run_shell, convert_wsl_to_win_path
+# from dev.dev_common.core_independent_utils import LOG, convert_win_to_wsl_path, run_shell, convert_wsl_to_win_path
 
 LOCAL_PYTHON_BIN_PATH = "/usr/local/bin/local_python"
 WIN_PYTHON_RUNNER_SCRIPT_PATH = LOCAL_TOOL_REPO_PATH / "dev" / "dev_common" / "win_python_runner.py"

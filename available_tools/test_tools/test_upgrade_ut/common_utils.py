@@ -6,7 +6,8 @@ from enum import Enum
 from typing import List, Optional
 
 from dev.dev_common import LOG
-from dev.dev_common.constants import ACU_IP, ACU_PASSWORD, ACU_USER, SSM_PASSWORD, SSM_USER
+from dev.dev_common.constants import ACU_IP, ACU_PASSWORD, ACU_USER, SSM_USER
+from dev.dev_common.core_independent_utils import get_ssm_password
 from dev.dev_common.independent_network_utils import run_ssh_command
 
 
@@ -17,7 +18,8 @@ class EUpgradeResult(str, Enum):
     ABORT = "abort"
 
 
-def run_acu_cmd_via_ut(ut_ip: str, command: str, timeout_secs: int = 20, acu_ip: str = ACU_IP, acu_user: str = ACU_USER, acu_password: str = ACU_PASSWORD, ut_user: str = SSM_USER, ut_password: str = SSM_PASSWORD) -> str:
+def run_acu_cmd_via_ut(ut_ip: str, command: str, timeout_secs: int = 20, acu_ip: str = ACU_IP, acu_user: str = ACU_USER, acu_password: str = ACU_PASSWORD, ut_user: str = SSM_USER, ut_password: Optional[str] = None) -> str:
+    resolved_ut_password = ut_password if ut_password is not None else get_ssm_password()
     stdout, stderr = run_ssh_command(
         host_ip=acu_ip,
         user=acu_user,
@@ -26,14 +28,14 @@ def run_acu_cmd_via_ut(ut_ip: str, command: str, timeout_secs: int = 20, acu_ip:
         timeout=max(1, int(timeout_secs)),
         jump_host_ip=ut_ip,
         jump_user=ut_user,
-        jump_password=ut_password,
+        jump_password=resolved_ut_password,
     )
     if stderr.strip():
         LOG(f"WARNING: ACU command stderr: {stderr.strip()}")
     return stdout.strip()
 
 
-def run_acu_cmd_via_ut_with_retry(ut_ip: str, command: str, timeout_secs: int, secs_between_each_retry: float = 2.0, acu_ip: str = ACU_IP, acu_user: str = ACU_USER, acu_password: str = ACU_PASSWORD, ut_user: str = SSM_USER, ut_password: str = SSM_PASSWORD) -> str:
+def run_acu_cmd_via_ut_with_retry(ut_ip: str, command: str, timeout_secs: int, secs_between_each_retry: float = 2.0, acu_ip: str = ACU_IP, acu_user: str = ACU_USER, acu_password: str = ACU_PASSWORD, ut_user: str = SSM_USER, ut_password: Optional[str] = None) -> str:
     max_wait = max(1, int(timeout_secs))
     deadline = time.time() + max_wait
     last_exc: Optional[Exception] = None

@@ -200,7 +200,7 @@ def batch_fetch_acu_logs(ut_ips: List[str], log_types: List[str], date_filters: 
             LOG(f"{LOG_PREFIX_MSG_INFO} Setting up SSH key for {ut_ip}...")
 
             # This function now contains the proactive removal logic
-            if setup_host_ssh_key(user, ut_ip, public_key_path, password=SSM_PASSWORD):
+            if setup_host_ssh_key(user, ut_ip, public_key_path, password=get_ssm_password()):
                 passwordless_ips.append(ut_ip)
             else:
                 LOG(f"{LOG_PREFIX_MSG_ERROR} Failed to copy SSH key to {ut_ip}, skipping...")

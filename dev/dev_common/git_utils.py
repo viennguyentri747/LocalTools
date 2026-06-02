@@ -7,7 +7,7 @@ from enum import Enum, auto
 from pathlib import Path
 from typing import List, Optional, Sequence
 
-from dev.dev_common.core_utils import *
+from dev.dev_common.core_independent_utils import *
 from dev.dev_common.input_utils import prompt_confirmation
 from subprocess import DEVNULL
 

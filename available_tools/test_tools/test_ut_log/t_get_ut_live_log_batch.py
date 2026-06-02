@@ -238,10 +238,10 @@ def _start_batch_stream(log_type: EUtLiveLogType, route: UtLiveLogRoute, log_pat
         try:
             should_wait_acu = wait_acu_reachable and log_type.get_target_prefix() == LOG_TARGET_PREFIX_ACU and bool(route.jump_host_ip)
             if should_wait_acu:
-                is_reachable = ping_remote_host_via_jump_host(remote_host_ip=route.host_ip, jump_host_ip=route.jump_host_ip, jump_user=SSM_USER, jump_password=SSM_PASSWORD, max_wait_sec=max(1, int(acu_reachable_wait_timeout_secs)), retry_interval_sec=5.0, ping_count=1, ping_timeout_sec=2, ssh_timeout_sec=10, check_jump_host_reachable=True, mute=False)
+                is_reachable = ping_remote_host_via_jump_host(remote_host_ip=route.host_ip, jump_host_ip=route.jump_host_ip, jump_user=SSM_USER, jump_password=get_ssm_password(), max_wait_sec=max(1, int(acu_reachable_wait_timeout_secs)), retry_interval_sec=5.0, ping_count=1, ping_timeout_sec=2, ssh_timeout_sec=10, check_jump_host_reachable=True, mute=False)
                 if not is_reachable:
                     raise RuntimeError(f"ACU {route.host_ip} is not reachable via jump host {route.jump_host_ip} within {acu_reachable_wait_timeout_secs}s")
-            resolved_remote_path = _resolve_remote_log_path_pattern(host_ip=route.host_ip, user=SSM_USER, password=SSM_PASSWORD, remote_path_pattern=route.remote_log_path, jump_host_ip=route.jump_host_ip, jump_user=SSM_USER, jump_password=SSM_PASSWORD)
+            resolved_remote_path = _resolve_remote_log_path_pattern(host_ip=route.host_ip, user=SSM_USER, password=get_ssm_password(), remote_path_pattern=route.remote_log_path, jump_host_ip=route.jump_host_ip, jump_user=SSM_USER, jump_password=get_ssm_password())
             stream_live_remote_log_to_file(host_ip=route.host_ip, remote_log_path=resolved_remote_path, jump_host_ip=route.jump_host_ip, read_timeout=max(1, int(read_timeout)), tail_lines=tail_lines, handlers=handlers, on_line_recv=_stream_on_line, stop_event=stop_event)
         except BaseException as exc:
             errors.append(exc)

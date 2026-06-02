@@ -13,7 +13,7 @@ from available_tools.test_tools.test_upgrade_ut.common_utils import EUpgradeResu
 from dev.dev_iesa.iesa_ut_install_utils import check_safe_reboot_ut
 from available_tools.test_tools.test_upgrade_ut.upgrade_config import UPGRADE_TYPE_BUNDLE, UPGRADE_TYPE_IESA, UpgradeConfigError, UpgradeItemConfig, UpgradeTestConfig
 from dev.dev_common import *
-from dev.dev_common.constants import ACU_IP, ACU_PASSWORD, ACU_USER, SSM_PASSWORD, SSM_USER
+from dev.dev_common.constants import ACU_IP, ACU_PASSWORD, ACU_USER, SSM_USER
 from dev.dev_common.network_utils import ping_remote_host_via_jump_host
 
 ARG_CONFIG = f"{ARGUMENT_LONG_PREFIX}config"
@@ -113,7 +113,7 @@ def _run_upgrade_one_item(ssm_ip: str, item: UpgradeItemConfig, log_handler: Upg
             runtime = t_test_upgrade_iesa.IesaRuntime(
                 ut_ip=ssm_ip,
                 ut_user=SSM_USER,
-                ut_password=SSM_PASSWORD,
+                ut_password=get_ssm_password(),
                 acu_ip=ACU_IP,
                 acu_user=ACU_USER,
                 acu_password=ACU_PASSWORD,
@@ -139,7 +139,7 @@ def _run_upgrade_one_item(ssm_ip: str, item: UpgradeItemConfig, log_handler: Upg
         return EUpgradeResult.FAIL
 
 def handle_pre_upgrade_iesa(ut_ip: str, timeout_secs_acu_reachable: int = 300) -> bool:
-    is_reachable = ping_remote_host_via_jump_host( remote_host_ip=ACU_IP, jump_host_ip=ut_ip, jump_user=SSM_USER, jump_password=SSM_PASSWORD, max_wait_sec=timeout_secs_acu_reachable, retry_interval_sec=5.0, ping_count=1, ping_timeout_sec=2, ssh_timeout_sec=10, check_jump_host_reachable=True, mute=False, )
+    is_reachable = ping_remote_host_via_jump_host( remote_host_ip=ACU_IP, jump_host_ip=ut_ip, jump_user=SSM_USER, jump_password=get_ssm_password(), max_wait_sec=timeout_secs_acu_reachable, retry_interval_sec=5.0, ping_count=1, ping_timeout_sec=2, ssh_timeout_sec=10, check_jump_host_reachable=True, mute=False, )
     if is_reachable:
         LOG(f"Pre-upgrade condition passed: ACU is reachable via UT {ut_ip}")
         return True

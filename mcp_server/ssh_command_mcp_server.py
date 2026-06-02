@@ -1,10 +1,9 @@
 #!/usr/local/bin/local_python
 
 from typing import Tuple
-import logging
-
-from dev.dev_common.constants import SSM_NORMAL_IP_PREFIX, SSM_USER, ACU_IP, ACU_USER, CREDENTIALS_FILE_PATH, UT_PWD_KEY_NAME
-from dev.dev_common.core_independent_utils import read_value_from_credential_file
+from dev.dev_common.core_independent_utils import disable_log, get_ssm_password
+disable_log()
+from dev.dev_common.constants import SSM_NORMAL_IP_PREFIX, SSM_USER, ACU_IP, ACU_USER
 from dev.dev_common.independent_network_utils import run_ssh_command
 from mcp.server.fastmcp import FastMCP
 
@@ -13,7 +12,6 @@ SSH_HOST_IP_PREFIX = SSM_NORMAL_IP_PREFIX
 SSH_USER = SSM_USER
 ACU_HOST_IP = ACU_IP
 ACU_USER_NAME = ACU_USER
-SSH_PASSWORD = read_value_from_credential_file(CREDENTIALS_FILE_PATH, UT_PWD_KEY_NAME)
 
 mcp = FastMCP("SecureSSH")
 
@@ -64,7 +62,8 @@ def build_ssh_host_ip(last_ip_octet: int) -> str:
 @mcp.tool()
 def run_ssm_cmd(command: str, last_ip_octet: int) -> str:
     """Executes a restricted remote command on the SSM using password auth."""
-    if not SSH_PASSWORD:
+    ssh_password = get_ssm_password()
+    if not ssh_password:
         return "Error: SSH_PASSWORD not found in credentials file."
 
     # Validate security
@@ -74,7 +73,7 @@ def run_ssm_cmd(command: str, last_ip_octet: int) -> str:
 
     try:
         ssh_host_ip = build_ssh_host_ip(last_ip_octet)
-        output, error = run_ssh_command(ssh_host_ip, SSH_USER, SSH_PASSWORD, command, timeout=5)
+        output, error = run_ssh_command(ssh_host_ip, SSH_USER, ssh_password, command, timeout=5)
         if error:
             return f"Remote Error: {error}"
         return output if output else "Success (No output)."
@@ -85,7 +84,8 @@ def run_ssm_cmd(command: str, last_ip_octet: int) -> str:
 @mcp.tool()
 def run_acu_cmd(command: str, last_ip_octet: int) -> str:
     """Executes a restricted command on ACU through SSM jump host."""
-    if not SSH_PASSWORD:
+    ssh_password = get_ssm_password()
+    if not ssh_password:
         return "Error: SSH_PASSWORD not found in credentials file."
 
     # Validate security
@@ -95,7 +95,7 @@ def run_acu_cmd(command: str, last_ip_octet: int) -> str:
 
     try:
         ssh_host_ip = build_ssh_host_ip(last_ip_octet)
-        output, error = run_ssh_command( ACU_HOST_IP, ACU_USER_NAME, SSH_PASSWORD, command, timeout=5, jump_host_ip=ssh_host_ip, jump_user=SSH_USER, jump_password=SSH_PASSWORD )
+        output, error = run_ssh_command( ACU_HOST_IP, ACU_USER_NAME, ssh_password, command, timeout=5, jump_host_ip=ssh_host_ip, jump_user=SSH_USER, jump_password=ssh_password )
         if error:
             return f"Remote Error: {error}"
         return output if output else "Success (No output)."

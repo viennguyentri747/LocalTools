@@ -222,7 +222,7 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     p.add_argument(
         ARG_TOOLS_DIR,
         default=str(AVAILABLE_TOOLS_PATH),
-        help="Root folder that contains tool subdirectories (default: ~/core_repos/local_tools/available_tools)"
+        help="Root folder that contains tool subdirectories (default: ~/local_tools/available_tools)"
     )
     p.add_argument(
         "--log-level", "--log_level",

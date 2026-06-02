@@ -8,6 +8,10 @@ _MY_AGENT_INPUT_DIR_NAME="INPUT"
 _MY_AGENT_OUTPUT_DIR_NAME="OUTPUT"
 _MY_AGENT_TODO_NEXT_FILE_NAME="AGENT_TODO_NEXT.md"
 
+_CORE_REPOS_DIR="$HOME/core_repos"
+_LOCAL_TOOLS_DIR="$HOME/local_tools"
+_AVAILABLE_TOOLS_DIR="$_LOCAL_TOOLS_DIR/available_tools"
+
 codex() {
     
 }
@@ -38,7 +42,7 @@ codex() {
 }
 
 tool(){
-	~/core_repos/local_tools/main_tools.py "$@"
+	"$_LOCAL_TOOLS_DIR/main_tools.py" "$@"
 }
 
 tools(){
@@ -71,25 +75,25 @@ EOF
 }
 
 is_tools(){
-	local tools_dir=~/core_repos/local_tools/available_tools/inertial_sense_tools
+	local tools_dir="$_AVAILABLE_TOOLS_DIR/inertial_sense_tools"
 	tool --tools_dir "$tools_dir" "$@"
 }
 
 all_tools(){
-    ~/core_repos/local_tools/main_tools.py  --folder_pattern "^.*_tools$"
+    "$_LOCAL_TOOLS_DIR/main_tools.py" --folder_pattern "^.*_tools$"
 }
 
 extract_context() {
-	~/core_repos/local_tools/tool_invoker_cli.py '~/core_repos/local_tools/available_tools/code_tools/t_extract_code_context.py'
+	"$_LOCAL_TOOLS_DIR/tool_invoker_cli.py" "$_AVAILABLE_TOOLS_DIR/code_tools/t_extract_code_context.py"
 }
 
 get_acu_logs() {
-    ~/core_repos/local_tools/tool_invoker_cli.py '~/core_repos/local_tools/available_tools/misc_hidden_tools/t_get_acu_logs.py' "$@"
+    "$_LOCAL_TOOLS_DIR/tool_invoker_cli.py" "$_AVAILABLE_TOOLS_DIR/misc_hidden_tools/t_get_acu_logs.py" "$@"
 }
 
 test_mcp() {
     if [ -z "$1" ]; then
-        log "Usage: test_mcp <path_to_mcp_server.py>. Ex: test_mcp ~/core_repos/local_tools/mcp_server/ssh_command_mcp_server.py"
+        log "Usage: test_mcp <path_to_mcp_server.py>. Ex: test_mcp $_LOCAL_TOOLS_DIR/mcp_server/ssh_command_mcp_server.py"
         return 1
     fi
 
@@ -100,8 +104,8 @@ test_mcp() {
     npx @modelcontextprotocol/inspector "$ABS_PATH"
 }
 
-_DT_GREP_TOOL=(local_python ~/core_repos/local_tools/available_tools/code_tools/t_get_grep_template.py)
-_DT_CORE_REPOS_PATH="~/core_repos/"
+_DT_GREP_TOOL=(local_python "$_AVAILABLE_TOOLS_DIR/code_tools/t_get_grep_template.py")
+_DT_CORE_REPOS_PATH="$_CORE_REPOS_DIR/"
 _DT_C_EXTS=(c cpp cc cxx h hpp hxx)
 # NOTE: The pattern-key order below controls the labeled category order in the fzf results.
 fdef() {

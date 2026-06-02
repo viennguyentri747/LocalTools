@@ -171,11 +171,14 @@ def get_wsl_home_path() -> Path:
 
 @lru_cache(maxsize=1)
 def get_local_tool_repo_path() -> Path:
-    return get_wsl_home_path() / "workspace" / "intellian_core_repos" / "local_tools"
+    return get_wsl_home_path() / "local_tools"
 
 
-DEFAULT_CREDENTIALS_FILE_PATH = get_local_tool_repo_path() / ".my_credentials.env"
 DEFAULT_UT_PASSWORD_KEY_NAME = "UT_PASSWORD"
+
+
+def get_default_credentials_file_path() -> Path:
+    return get_local_tool_repo_path() / ".my_credentials.env"
 
 
 @lru_cache(maxsize=1)
@@ -743,13 +746,14 @@ def _read_value_from_credential_file_cached(credentials_file_path: str, key_to_r
     return None
 
 
-def read_value_from_credential_file(key_to_read: str, credentials_file_path: str | Path = DEFAULT_CREDENTIALS_FILE_PATH, exit_on_error: bool = True) -> Union[str, None]:
+def read_value_from_credential_file(key_to_read: str, credentials_file_path: str | Path | None = None, exit_on_error: bool = True) -> Union[str, None]:
     """
     Reads a specific key's value from a credentials file.
     Returns the value if found, otherwise None.
     """
-    normalized_credentials_path = str(get_normalized_path(
-        str(credentials_file_path), target_platform=ETargetPlatform.CURRENT))
+    if credentials_file_path is None:
+        credentials_file_path = get_default_credentials_file_path()
+    normalized_credentials_path = str(get_normalized_path(str(credentials_file_path), target_platform=ETargetPlatform.CURRENT))
     value = _read_value_from_credential_file_cached(normalized_credentials_path, key_to_read)
     if value is not None:
         return value

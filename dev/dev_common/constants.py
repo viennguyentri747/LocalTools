@@ -69,7 +69,6 @@ WORKSPACE_PATH = WSL_HOME_PATH / "workspace"
 CORE_REPOS_PATH = WORKSPACE_PATH / "intellian_core_repos" 
 LOCAL_TOOL_REPO_PATH = get_local_tool_repo_path()
 AVAILABLE_TOOLS_PATH = LOCAL_TOOL_REPO_PATH / "available_tools"
-#CORE_REPOS_PATH = WORKSPACE_PATH / "intellian_core_repos/"
 MY_TEMP_WORKING_PATH = WSL_HOME_PATH / "testing" / "temp_working"
 INERTIAL_SENSE_LOG_INSPECTOR_PATH = MY_TEMP_WORKING_PATH / "inertial_sense_python_modules" / "logInspector" / "logInspector.py"
 OW_SW_PATH = CORE_REPOS_PATH / "oneweb_project_sw_tools"

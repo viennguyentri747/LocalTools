@@ -122,7 +122,45 @@ def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_pa
     def _should_return(command) -> bool:
         cmd_value = getattr(command, "value", command)
         return str(cmd_value).strip().lower() == ERequestCommand.RETURN.value
+    def _build_remote_file_follow_cmd(path: str, tail_count: int, sleep_secs: float) -> str:
+        script = r'''
+path=$1
+tail_lines=$2
+poll_sleep=$3
+pos=0
+inode=""
+init_done=0
+while :; do
+    if [ -r "$path" ]; then
+        size=$(wc -c < "$path" 2>/dev/null | tr -dc '0-9')
+        [ -n "$size" ] || size=0
+        new_inode=$(ls -i "$path" 2>/dev/null | awk '{print $1}')
+        if [ "$init_done" -eq 0 ]; then
+            if [ "$tail_lines" -gt 0 ]; then tail -n "$tail_lines" "$path" 2>/dev/null; fi
+            pos=$size
+            inode=$new_inode
+            init_done=1
+        elif [ "$new_inode" != "$inode" ] || [ "$size" -lt "$pos" ]; then
+            inode=$new_inode
+            pos=0
+        fi
+        if [ "$size" -gt "$pos" ]; then
+            start=$((pos + 1))
+            tail -c +"$start" "$path" 2>/dev/null
+            pos=$size
+        fi
+    else
+        init_done=0
+        pos=0
+        inode=""
+    fi
+    sleep "$poll_sleep"
+done
+'''
+        return f"sh -c {shlex.quote(script)} -- {shlex.quote(path)} {max(0, int(tail_count))} {shlex.quote(f'{max(0.1, float(sleep_secs)):.3f}')}"
+
     is_device = remote_log_path.startswith("/dev/")
+    #remote_cmd = f"cat {shlex.quote(remote_log_path)}" if is_device else _build_remote_file_follow_cmd(remote_log_path, tail_lines, max(0.2, poll_interval))
     if is_device:
         remote_cmd = f"cat {shlex.quote(remote_log_path)}"
     else:
@@ -140,10 +178,15 @@ def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_pa
         on_line(clean, ELineType.LiveLog)
         return saw_first
     # Some device logs occasionally emit non-UTF8 bytes; decode with replacement and keep streaming.
-    def _emit_decoded_lines(decoded: str, saw_first: bool) -> bool:
-        for raw_line in decoded.splitlines():
+    def _emit_decoded_lines(decoded: str, saw_first: bool, line_buffer: str) -> Tuple[bool, str]:
+        combined = line_buffer + decoded
+        parts = combined.splitlines(keepends=True)
+        next_buffer = EMPTY_STR_VALUE
+        if parts and not parts[-1].endswith(("\n", "\r")):
+            next_buffer = parts.pop()
+        for raw_line in parts:
             saw_first = _emit_line(raw_line, saw_first)
-        return saw_first
+        return saw_first, next_buffer
     def _sleep_with_stop(seconds: float) -> None:
         if seconds <= 0:
             return
@@ -169,6 +212,7 @@ def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_pa
             waiting_last_second = -1
             waiting_spinner: Optional[ElapsedStatusSpinner] = None
             saw_first_log = False
+            line_buffer = EMPTY_STR_VALUE
 
             target_client, jump_client, jump_channel = open_ssh_client(
                 host_ip=host_ip, user=user, password=password, timeout=connect_timeout,
@@ -190,7 +234,7 @@ def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_pa
                         raw = b""
                     if raw == b"":
                         raise ConnectionError(f"SSH channel returned EOF while streaming '{remote_log_path}' from {host_ip}")
-                    saw_first_log = _emit_decoded_lines(raw.decode("utf-8", errors="replace"), saw_first_log)
+                    saw_first_log, line_buffer = _emit_decoded_lines(raw.decode("utf-8", errors="replace"), saw_first_log, line_buffer)
                     if saw_first_log and waiting_spinner:
                         waiting_spinner.stop(final_message=f"Receiving log output from '{remote_log_path}'")
                         waiting_spinner = None
@@ -238,6 +282,9 @@ def stream_live_remote_log(host_ip: str, user: str, password: str, remote_log_pa
             _sleep_with_stop(backoff_secs)
 
         finally:
+            if 'line_buffer' in locals() and line_buffer:
+                _emit_line(line_buffer, saw_first_log)
+                line_buffer = EMPTY_STR_VALUE
             if 'waiting_spinner' in locals() and waiting_spinner is not None:
                 waiting_spinner.stop(final_message=f"Stopped waiting for log output from '{remote_log_path}'")
             if stdout:

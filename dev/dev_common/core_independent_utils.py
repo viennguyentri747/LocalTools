@@ -17,6 +17,8 @@ import platform
 from enum import Enum, IntEnum
 
 WSL_ROOT_FROM_WIN_DRIVE = "X:"
+LOCAL_TOOLS_TEMP_PATH_ENV = "LOCAL_TOOLS_TEMP_PATH"
+LOCAL_TOOLS_WIN_HOME_PATH_ENV = "LOCAL_TOOLS_WIN_HOME_PATH"
 DEFAULT_TIMEZONE: tzinfo = timezone.utc
 _LOG_TIME_FORMAT: str = "%Y-%m-%d %H:%M:%S"
 _FILE_TIMESTAMP_FORMAT: str = "%Y%m%d_%H%M%S"
@@ -178,14 +180,16 @@ DEFAULT_UT_PASSWORD_KEY_NAME = "UT_PASSWORD"
 
 @lru_cache(maxsize=1)
 def get_win_home_path() -> Path:
+    override_path = os.environ.get(LOCAL_TOOLS_WIN_HOME_PATH_ENV, "").strip()
+    if override_path:
+        return Path(get_normalized_path(override_path, target_platform=ETargetPlatform.WSL_OR_LINUX))
     if is_platform_windows():
         # Running on Windows natively, USERPROFILE is available directly
         return Path(os.environ['USERPROFILE'])
-    else:
-        # Running on WSL, need to query Windows environment via cmd.exe
-        result = run_shell(["cmd.exe", "/c", "echo %USERPROFILE%"], capture_output=True, timeout=3)
-        win_home = result.stdout.strip()
-        return Path(get_normalized_path(win_home, target_platform=ETargetPlatform.WSL_OR_LINUX))
+    # Running on WSL, need to query Windows environment via cmd.exe
+    result = run_shell(["cmd.exe", "/c", "echo %USERPROFILE%"], capture_output=True, timeout=3)
+    win_home = result.stdout.strip()
+    return Path(get_normalized_path(win_home, target_platform=ETargetPlatform.WSL_OR_LINUX))
 
 
 @lru_cache(maxsize=1)
@@ -222,7 +226,33 @@ def _is_running_in_wsl() -> bool:
 
 
 def _get_local_repo_temp_path() -> Path:
+    override_path = os.environ.get(LOCAL_TOOLS_TEMP_PATH_ENV, "").strip()
+    if override_path:
+        return Path(override_path).expanduser()
     return get_local_tool_repo_path() / "temp"
+
+
+def _ensure_temp_path_writable(temp_path: Path) -> bool:
+    try:
+        temp_path.mkdir(parents=True, exist_ok=True)
+        probe_path = temp_path / ".local_tools_write_probe"
+        probe_path.write_text("", encoding="utf-8")
+        probe_path.unlink(missing_ok=True)
+        return True
+    except Exception:
+        return False
+
+
+def _get_windows_temp_path_or_fallback(local_temp_path: Path) -> Path:
+    try:
+        win_temp_path = get_win_persistent_temp_path()
+        if _ensure_temp_path_writable(win_temp_path):
+            return win_temp_path
+        LOG(f"[WARNING] Windows temp path is not writable. Falling back to local temp path (for AGENT): {local_temp_path}")
+    except Exception as exc:
+        LOG(f"[WARNING] Windows temp path is not available ({exc}). Falling back to local temp path (for AGENT): {local_temp_path}")
+    _ensure_temp_path_writable(local_temp_path)
+    return local_temp_path
 
 
 def _resolve_current_platform_target() -> ETargetPlatform:
@@ -245,7 +275,7 @@ def get_temp_path(prefer_platform: ETargetPlatform | str = ETargetPlatform.WINDO
 
     if _is_running_in_wsl():
         if prefer_platform == ETargetPlatform.WINDOWS:
-            return get_win_persistent_temp_path()
+            return _get_windows_temp_path_or_fallback(local_temp_path)
         return local_temp_path
 
     if prefer_platform == ETargetPlatform.WINDOWS:

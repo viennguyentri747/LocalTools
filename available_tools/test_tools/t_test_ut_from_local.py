@@ -94,7 +94,7 @@ def parse_args(argv: List[str]) -> Tuple[argparse.Namespace, List[str]]:
     return parser.parse_known_args(argv)
 
 
-def _run_forwarded_tool(forwarded_tool: ForwardedTool, passthrough_args: List[str]) -> None:
+def _run_forwarded_tool(forwarded_tool: ForwardedTool, passthrough_args: List[str]) -> int:
     """Invoke the forwarded tool with the provided passthrough arguments."""
 
     LOG(f"{LOG_PREFIX_MSG_INFO} Running mode '{forwarded_tool.mode}': {forwarded_tool.description}")
@@ -105,12 +105,13 @@ def _run_forwarded_tool(forwarded_tool: ForwardedTool, passthrough_args: List[st
 
     try:
         sys.argv = redirected_argv
-        forwarded_tool.main()
+        result = forwarded_tool.main()
+        return int(result) if result is not None else 0
     finally:
         sys.argv = original_argv
 
 
-def main(argv: List[str] | None = None) -> None:
+def main(argv: List[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
 
@@ -122,8 +123,8 @@ def main(argv: List[str] | None = None) -> None:
         LOG(f"{LOG_PREFIX_MSG_ERROR} Unsupported mode: {mode}", file=sys.stderr)
         raise SystemExit(1)
 
-    _run_forwarded_tool(forwarded_tool, passthrough_args)
+    return _run_forwarded_tool(forwarded_tool, passthrough_args)
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -13,10 +13,10 @@ from typing import Callable, List, Optional, Sequence
 from dev.dev_common import *
 from dev.dev_common.custom_structures import EToolPriority, ToolData
 from dev.dev_common.network_utils import ELineType
-from dev.dev_common.tools_utils import ToolTemplate, build_examples_epilog
+from dev.dev_common.tools_utils import ToolTemplate, build_examples_epilog, open_path_in_explorer
 from available_tools.inertial_sense_tools.decode_ins_status_utils import decode_ins_status
 from dev.dev_iesa.iesa_ut_install_utils import check_safe_reboot_ut
-from available_tools.test_tools.test_ut_log.t_get_ut_live_log import ELogStreamMode, build_live_log_handlers, close_live_log_handlers, start_stop_timer, stream_live_remote_log_to_file
+from available_tools.test_tools.test_ut_log.t_get_ut_live_log import ELogRotationNameStyle, ELogStreamMode, build_live_log_handlers, close_live_log_handlers, start_stop_timer, stream_live_remote_log_to_file
 from available_tools.test_tools.test_ut_log.t_get_acu_logs import DEFAULT_LOG_OUTPUT_PATH
 from available_tools.test_tools.test_ut_log.t_test_ins_status_ins_monitor_log import (
     DEFAULT_MAX_SPAN_OF,
@@ -31,7 +31,7 @@ from available_tools.test_tools.test_ut_log.t_test_ins_status_ins_monitor_log im
     read_lines,
 )
 
-DEFAULT_LOG_FILENAME = "ins_monitor_live.log"
+DEFAULT_LOG_FILENAME = "ins_monitor.txt"
 ARG_STREAM_DURATION_SECS = f"{ARGUMENT_LONG_PREFIX}stream_duration_secs"
 SSM_IP = f"{ARGUMENT_LONG_PREFIX}ssm_host_ip"
 ARG_REMOTE_PATH = f"{ARGUMENT_LONG_PREFIX}remote_path"
@@ -39,6 +39,7 @@ ARG_READ_TIMEOUT = f"{ARGUMENT_LONG_PREFIX}read_timeout"
 ARG_TAIL_LINES = f"{ARGUMENT_LONG_PREFIX}tail_lines"
 ARG_FILE = f"{ARGUMENT_LONG_PREFIX}file"
 ARG_MAX_SPAN_OF = f"{ARGUMENT_LONG_PREFIX}max_span_of"
+ARG_SHOULD_REBOOT = f"{ARGUMENT_LONG_PREFIX}should_reboot"
 IMX_VERSION_PATH = "/usr/local/config/system_config/current_imx_version"
 GPX_VERSION_PATH = "/usr/local/config/system_config/current_gpx_version"
 KIM_SINCE_START_ANALYSIS_DIR = LOCAL_TOOL_STORAGE_PATH / "kim_since_start_analysis"
@@ -50,7 +51,7 @@ def getToolData() -> ToolData:
         ToolTemplate(
             name="Capture + analyze INS monitor log",
             extra_description="Stream INS monitor log for a duration, then analyze insStatus transitions.",
-            args={SSM_IP: f"{SSM_NORMAL_IP_PREFIX}.57", ARG_STREAM_DURATION_SECS: 200},
+            args={SSM_IP: f"{SSM_NORMAL_IP_PREFIX}.57", ARG_SHOULD_REBOOT: True, ARG_STREAM_DURATION_SECS: 200},
         )
     ]
     return ToolData(tool_templates=tool_templates, tool_priority=EToolPriority.Level10_Last, hidden=False)
@@ -69,6 +70,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(ARG_READ_TIMEOUT, type=int, default=600, help="Read timeout while streaming log lines.")
     parser.add_argument(ARG_TAIL_LINES, type=int, default=0, help="Initial historical lines before follow mode.")
     parser.add_argument(ARG_MAX_SPAN_OF, type=int, default=DEFAULT_MAX_SPAN_OF, help="Maximum span cycle width for INS status grouping.")
+    add_arg_bool(parser, ARG_SHOULD_REBOOT, default=None, help_text="Safely reboot the target UT before streaming.")
     return parser.parse_args()
 
 
@@ -125,8 +127,15 @@ def _fmt_dt(value: Optional[datetime]) -> str:
 def _capture_log_sort_key(log_path: Path, candidate: Path) -> int:
     if candidate == log_path:
         return 0
-    suffix = candidate.name.removeprefix(f"{log_path.name}.")
-    return int(suffix) if suffix.isdigit() else -1
+    legacy_suffix = candidate.name.removeprefix(f"{log_path.name}.")
+    if legacy_suffix.isdigit():
+        return int(legacy_suffix)
+    prefix, suffix = f"{log_path.stem}_", log_path.suffix
+    if candidate.name.startswith(prefix) and candidate.name.endswith(suffix):
+        backup_index = candidate.name[len(prefix):-len(suffix)]
+        if backup_index.isdigit():
+            return int(backup_index)
+    return -1
 
 
 def get_capture_log_paths(log_path: Path) -> List[Path]:
@@ -134,6 +143,7 @@ def get_capture_log_paths(log_path: Path) -> List[Path]:
     if log_path.is_file():
         candidates.append(log_path)
     candidates.extend(path for path in log_path.parent.glob(f"{log_path.name}.*") if path.is_file() and path.name.removeprefix(f"{log_path.name}.").isdigit())
+    candidates.extend(path for path in log_path.parent.glob(f"{log_path.stem}_*{log_path.suffix}") if path.is_file() and _capture_log_sort_key(log_path, path) >= 0)
     return sorted(set(candidates), key=lambda path: _capture_log_sort_key(log_path, path), reverse=True)
 
 
@@ -229,19 +239,23 @@ def main() -> int:
     read_timeout: int = get_arg_value(args, ARG_READ_TIMEOUT)
     tail_lines: int = get_arg_value(args, ARG_TAIL_LINES)
     max_span_of: int = get_arg_value(args, ARG_MAX_SPAN_OF)
+    should_reboot: bool = bool(get_arg_value(args, ARG_SHOULD_REBOOT))
 
     log_path = _build_run_capture_path(ssm_ip, run_started_at=test_start_at)
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    LOG(f"{LOG_PREFIX_MSG_INFO} Safe reboot target UT {ssm_ip} before streaming")
-    if not check_safe_reboot_ut(ut_ip=ssm_ip, should_ping_after_reboot=False):
-        LOG(f"{LOG_PREFIX_MSG_ERROR} Safe reboot failed for target UT {ssm_ip}")
-        return 1
-    sleep_before_streaming = 10
-    LOG(f"{LOG_PREFIX_MSG_SUCCESS} Reboot issued for target UT {ssm_ip}. Sleep for {sleep_before_streaming} seconds before streaming logs")
-    time.sleep(sleep_before_streaming)
+    if should_reboot:
+        LOG(f"{LOG_PREFIX_MSG_INFO} Safe reboot target UT {ssm_ip} before streaming")
+        if not check_safe_reboot_ut(ut_ip=ssm_ip, should_ping_after_reboot=False):
+            LOG(f"{LOG_PREFIX_MSG_ERROR} Safe reboot failed for target UT {ssm_ip}")
+            return 1
+        sleep_before_streaming = 10
+        LOG(f"{LOG_PREFIX_MSG_SUCCESS} Reboot issued for target UT {ssm_ip}. Sleep for {sleep_before_streaming} seconds before streaming logs")
+        time.sleep(sleep_before_streaming)
+    else:
+        LOG(f"{LOG_PREFIX_MSG_INFO} Skip safe reboot before streaming ({ARG_SHOULD_REBOOT}={FALSE_STR_VALUE})")
 
-    handlers = build_live_log_handlers(output_log_path=str(log_path), log_stream_mode=ELogStreamMode.OverrideSingleFile)
+    handlers = build_live_log_handlers(output_log_path=str(log_path), log_stream_mode=ELogStreamMode.OverrideSingleFile, rotation_name_style=ELogRotationNameStyle.NumberBeforeExtension)
     stop_event = threading.Event()
     stop_timer: Optional[threading.Timer] = None
     first_log_timeout_timer: Optional[threading.Timer] = None
@@ -309,6 +323,7 @@ def main() -> int:
     LOG(f"capture end at: {_fmt_dt(stream_end_at)}")
     LOG(f"ssm ip: {ssm_ip}")
     LOG(f"remote path: {remote_path}")
+    LOG(f"should reboot before streaming: {'YES' if should_reboot else 'NO'}")
     LOG(f"configured stream duration (after first log): {stream_duration_secs:.1f}s")
     if first_log_timeout_hit:
         LOG(f"first-log timeout: {int(first_log_timeout_secs)}s")

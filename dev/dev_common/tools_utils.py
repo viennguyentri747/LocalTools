@@ -4,6 +4,7 @@ import importlib.util
 import os
 from pathlib import Path
 import re
+import shutil
 import shlex
 import signal
 import subprocess
@@ -15,7 +16,7 @@ import pyperclip
 from dev.dev_common.constants import LINE_SEPARATOR, CMD_EXPLORER, WSL_SELECT_FLAG, LOCAL_TOOL_REPO_PATH
 from dev.dev_common import *
 from dev.dev_common.format_utils import quote_arg_value_if_need
-from dev.dev_common.core_independent_utils import ETargetPlatform, get_normalized_path
+from dev.dev_common.core_independent_utils import ETargetPlatform, get_normalized_path, run_shell
 # from dev.dev_common.core_independent_utils import LOG, convert_win_to_wsl_path, run_shell, convert_wsl_to_win_path
 
 LOCAL_PYTHON_BIN_PATH = "/usr/local/bin/local_python"
@@ -300,8 +301,12 @@ def open_path_in_explorer(file_path: Path, select_in_parent: bool = True) -> Non
     - select_in_parent=False: open the target path directly.
     """
     try:
-        windows_path = str(get_normalized_path(file_path, target_platform=ETargetPlatform.WINDOWS)).replace("/", "\\")
         display_path = format_path_for_display(file_path)
+        if not shutil.which(CMD_EXPLORER):
+            LOG(f"{LOG_PREFIX_MSG_WARNING} Cannot open Explorer because '{CMD_EXPLORER}' is not available; skipping '{display_path}'.")
+            return
+
+        windows_path = str(get_normalized_path(file_path, target_platform=ETargetPlatform.WINDOWS)).replace("/", "\\")
         explorer_target = f"{WSL_SELECT_FLAG}{windows_path}" if select_in_parent else windows_path
         command_result = run_shell(
             [CMD_EXPLORER, explorer_target],

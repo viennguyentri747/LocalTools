@@ -38,6 +38,18 @@ class ELogStreamMode(str, Enum):
     CreateNewFile = "CreateNewFile"
 
 
+class ELogRotationNameStyle(str, Enum):
+    DefaultSuffix = "DefaultSuffix" # a.log, a.log.1
+    NumberBeforeExtension = "NumberBeforeExtension" # a.log, a_1.log, a_2.log
+
+
+def _build_number_before_extension_backup_name(default_name: str) -> str:
+    default_path = Path(default_name)
+    base_path = default_path.parent / default_path.stem
+    backup_index = default_path.suffix.lstrip(".")
+    return str(base_path.parent / f"{base_path.stem}_{backup_index}{base_path.suffix}")
+
+
 class RotateWithDiscardHandler(RotatingFileHandler):
     def __init__(self, log_file: Path, should_keep: Callable[[List[Path]], List[Tuple[Path, bool]]], max_bytes: int = LIVE_LOG_FILE_MAX_BYTES, backup_count: int = LIVE_LOG_FILE_BACKUP_COUNT):
         self._log_file = Path(log_file)
@@ -152,7 +164,8 @@ def start_stop_timer(stream_duration_secs: float, stop_event: threading.Event) -
 
 def build_live_log_handlers(output_log_path: str, log_stream_mode: ELogStreamMode = ELogStreamMode.OverrideSingleFile,
                             should_keep: Optional[Callable[[List[Path]], List[Tuple[Path, bool]]]] = None,
-                            max_bytes: int = LIVE_LOG_FILE_MAX_BYTES, backup_count: int = LIVE_LOG_FILE_BACKUP_COUNT) -> List[logging.Handler]:
+                            max_bytes: int = LIVE_LOG_FILE_MAX_BYTES, backup_count: int = LIVE_LOG_FILE_BACKUP_COUNT,
+                            rotation_name_style: ELogRotationNameStyle = ELogRotationNameStyle.DefaultSuffix) -> List[logging.Handler]:
     """Handle where to send live log messages (file + rotation)"""
     resolved_log_path = _resolve_capture_path_by_mode(log_path=output_log_path, log_stream_mode=log_stream_mode)
     LOG(f"{LOG_PREFIX_MSG_INFO} Build live log handlers. log_path={resolved_log_path}, mode={log_stream_mode.value}")
@@ -163,11 +176,12 @@ def build_live_log_handlers(output_log_path: str, log_stream_mode: ELogStreamMod
         with open(log_file, "w", encoding="utf-8") as file_obj:
             file_obj.write("")
     if should_keep is None:
-        handlers.append(RotatingFileHandler(log_file, maxBytes=max_bytes,
-                        backupCount=backup_count, encoding="utf-8"))
+        file_handler = RotatingFileHandler(log_file, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8")
     else:
-        handlers.append(RotateWithDiscardHandler(log_file=log_file, should_keep=should_keep,
-                        max_bytes=max_bytes, backup_count=backup_count))
+        file_handler = RotateWithDiscardHandler(log_file=log_file, should_keep=should_keep, max_bytes=max_bytes, backup_count=backup_count)
+    if rotation_name_style == ELogRotationNameStyle.NumberBeforeExtension:
+        file_handler.namer = _build_number_before_extension_backup_name
+    handlers.append(file_handler)
     for handler in handlers:
         handler.setFormatter(logging.Formatter("%(message)s"))
     return handlers

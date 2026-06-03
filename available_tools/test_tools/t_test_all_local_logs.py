@@ -12,6 +12,8 @@ from available_tools.test_tools.test_ut_log.log_test_interface import EUtLogType
 from available_tools.test_tools.test_ut_log.t_test_invalid_time_sync_elog import InvalidTimeSyncElogTest
 from available_tools.test_tools.test_ut_log.t_test_motion_detection_elog import MotionDetectionElogTest
 from available_tools.test_tools.test_ut_log.t_test_invalid_time_sync_plog import TimeSyncPlogTest
+from available_tools.test_tools.test_ut_log.test_kim_stats.t_test_station_kim_rpy_plog import KimRpyStationaryPlogTest
+from available_tools.test_tools.test_ut_log.test_kim_stats.t_test_station_kim_vel_n_motion_status_plog import StationaryKimVelocityMotionStatusPlogTest
 from dev.dev_common import *
 
 use_posix_paths()
@@ -24,6 +26,8 @@ WIN_CMD_INVOCATION = get_win_python_runner_cmd_invocation("available_tools.test_
 TEST_REGISTRY: Dict[str, Type[TestLogInterface]] = {
     InvalidTimeSyncElogTest.get_test_name(): InvalidTimeSyncElogTest,
     MotionDetectionElogTest.get_test_name(): MotionDetectionElogTest,
+    KimRpyStationaryPlogTest.get_test_name(): KimRpyStationaryPlogTest,
+    StationaryKimVelocityMotionStatusPlogTest.get_test_name(): StationaryKimVelocityMotionStatusPlogTest,
     TimeSyncPlogTest.get_test_name(): TimeSyncPlogTest,
 }
 DEFAULT_TESTS: List[str] = sorted(TEST_REGISTRY.keys())

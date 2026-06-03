@@ -255,7 +255,7 @@ if __name__ == "__main__":
             destination_path = destination_dir_path / file_name
             if destination_path.exists():
                 if prompt_confirmation(f"Warning: File '{file_name}' already exists in destination. Overwrite?"):
-                    backup_path = get_temp_path(ETargetPlatform.WINDOWS) / f"{file_name}.backup"
+                    backup_path = get_temp_path(ETargetPlatform.WINDOWS) / "backup_md" f"{file_name}.backup"
                     copy_file(destination_path, backup_path)
                     LOG(f"Backed up existing file to {backup_path}")
                 else:

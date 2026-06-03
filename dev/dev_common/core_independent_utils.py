@@ -171,7 +171,7 @@ def get_wsl_home_path() -> Path:
 
 @lru_cache(maxsize=1)
 def get_local_tool_repo_path() -> Path:
-    return get_wsl_home_path() / "local_tools"
+    return get_wsl_home_path() / "workspace" / "local_tools"
 
 
 DEFAULT_UT_PASSWORD_KEY_NAME = "UT_PASSWORD"

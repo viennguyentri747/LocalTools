@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import argparse # Import the argparse module for named command-line arguments
 from pathlib import Path
 from typing import List
-from dev.dev_common.custom_structures import ToolData
+from dev.dev_common import *
 from dev.dev_common.tools_utils import ToolTemplate, build_examples_epilog
 
 def getToolData() -> ToolData:

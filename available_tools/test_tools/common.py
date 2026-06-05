@@ -73,6 +73,11 @@ def fetch_acu_logs(ut_ip: str, log_types: List[str], dest_folder_path: str | Pat
         LOG(f"{LOG_PREFIX_MSG_ERROR} Jump host {ut_ip} is not reachable. Aborting.", file=sys.stderr)
         return AcuLogInfo(is_valid=False, ip=ut_ip)
 
+    if not ping_remote_host_via_jump_host(remote_host_ip=ACU_IP, jump_host_ip=ut_ip, jump_user=SSM_USER, jump_password=get_ssm_password(),
+                                          max_wait_sec=60, retry_interval_sec=5.0, ping_count=1, ping_timeout_sec=2, ssh_timeout_sec=10,
+                                          check_jump_host_reachable=False, mute=False):
+        LOG(f"{LOG_PREFIX_MSG_WARNING} ACU {ACU_IP} is not pingable via jump host {ut_ip}; attempting log fetch anyway.")
+
     needs_passwordless_setup = run_via_shell_cmd or copy_type == ECopyType.SCP
     if needs_passwordless_setup and not setup_passwordless_ssh(ACU_USER, ut_ip, remote_password=get_ssm_password(), key_type=ssh_key_type):
         LOG(f"{LOG_PREFIX_MSG_ERROR} SSH key setup failed for {ut_ip}. Continuing with password authentication...")

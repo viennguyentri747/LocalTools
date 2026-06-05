@@ -9,8 +9,8 @@ import sys
 from pathlib import Path
 from typing import Any, List
 
+from dev.dev_common import *
 from dev.dev_common.custom_structures import ToolData
-from dev.dev_common.tools_utils import ToolTemplate, build_examples_epilog
 
 try:
     import pynmea2

@@ -59,7 +59,7 @@ dos2unix_dir() {
 
 deep_extract() {
     #Ex: deep_extract --input_dir_or_archive ~/downloads/ETOWL_LOG0416 --archive_name_regex '^(350928590056204|350928590056205|master|backup|live)'
-    local script="/home/vien/workspace/intellian_core_repos/local_tools/independent_scripts/deep_extract.py"
+    local script="/home/vien/local_tools/independent_scripts/deep_extract.py"
     local win_script="$script"
     local -a raw_args=("$@")
     local -a normalized_args=()

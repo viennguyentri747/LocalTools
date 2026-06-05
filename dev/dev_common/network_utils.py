@@ -27,6 +27,8 @@ LEGACY_SSH_RSA_OPTIONS = ['-o', 'HostKeyAlgorithms=+ssh-rsa', '-o', 'PubkeyAccep
 LEGACY_SSH_RSA_OPTION_STR = "-o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa"
 NON_INTERACTIVE_KNOWN_HOST_OPTIONS = ['-o', 'UserKnownHostsFile=/dev/null', '-o', 'GlobalKnownHostsFile=/dev/null']
 NON_INTERACTIVE_KNOWN_HOST_OPTION_STR = "-o UserKnownHostsFile=/dev/null -o GlobalKnownHostsFile=/dev/null"
+DEFAULT_SFTP_CONNECT_RETRY_COUNT = 6
+DEFAULT_SFTP_CONNECT_RETRY_DELAY_SEC = 5.0
 
 
 def build_non_interactive_proxy_command(jump_user: str, jump_host_ip: str) -> str:
@@ -722,7 +724,8 @@ def _copy_to_local_sftp_impl(remote_src_paths: str | List[str], remote_host_ip: 
     sftp = None
     try:
         target_client, jump_client, jump_channel = open_ssh_client(
-            host_ip=remote_host_ip, user=remote_user, password=password, timeout=timeout or 5, jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=jump_password)
+            host_ip=remote_host_ip, user=remote_user, password=password, timeout=timeout or 5, jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=jump_password,
+            retry_count=DEFAULT_SFTP_CONNECT_RETRY_COUNT, retry_delay_sec=DEFAULT_SFTP_CONNECT_RETRY_DELAY_SEC)
         transport = target_client.get_transport()
         if transport is None or not transport.is_active():
             raise RuntimeError(f"SSH transport unavailable for {remote_host_ip}")
@@ -797,7 +800,8 @@ def _copy_to_remote_impl(local_path: str | Path, remote_host_ip: str, remote_des
     sftp = None
     try:
         target_client, jump_client, jump_channel = open_ssh_client(
-            host_ip=remote_host_ip, user=remote_user, password=password, timeout=timeout or 5, jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=jump_password)
+            host_ip=remote_host_ip, user=remote_user, password=password, timeout=timeout or 5, jump_host_ip=jump_host_ip, jump_user=jump_user, jump_password=jump_password,
+            retry_count=DEFAULT_SFTP_CONNECT_RETRY_COUNT, retry_delay_sec=DEFAULT_SFTP_CONNECT_RETRY_DELAY_SEC)
         transport = target_client.get_transport()
         if transport is None or not transport.is_active():
             raise RuntimeError(f"SSH transport unavailable for {remote_host_ip}")

@@ -86,19 +86,21 @@ def main() -> None:
     sentence = get_arg_value(args, ARG_SENTENCE)
     normalized_sentence = normalize_sentence(sentence)
     checksum = calculate_nmea_checksum(normalized_sentence)
-    # full_sentence = format_nmea_sentence(normalized_sentence)
+    full_sentence = format_nmea_sentence(normalized_sentence)
+
+    #Test:
+    #s1 = "ASCE,4,GXGGA,0,GXGLL,0,GXGSA,0,GXZDA,0,GXVTG,0,GXRMC,0,PASHR,0,INTEL,0,GPGSV_1,0,GAGSV_1,0,GLGSV_1,0"
+    #s2 = "ASCE,4,GXGGA,2,GXGLL,2,GXGSA,2,GXZDA,2,GXVTG,2,GXRMC,2,PASHR,2,INTEL,2,GPGSV_1,2,GAGSV_1,2,GLGSV_1,0"
+
+    #print(f"Test Sentence 1 '{s1}' checksum: {calculate_nmea_checksum(s1)}")
+    #print(f"Test Sentence 2 '{s2}' checksum: {calculate_nmea_checksum(s2)}")
 
     print("NMEA ASCE Checksum Calculator")
     print(f"Sentence: {normalized_sentence}")
     print(f"Checksum: {checksum}")
-    # print(f"Full Sentence: {full_sentence}", end="")
+    print(f"Full Sentence: {full_sentence}", end="")
 
-    #Test:
-    s1 = "ASCE,4,GXGGA,0,GXGLL,0,GXGSA,0,GXZDA,0,GXVTG,0,GXRMC,0,PASHR,0,INTEL,0,GPGSV_1,0,GAGSV_1,0,GLGSV_1,0"
-    s2 = "ASCE,4,GXGGA,2,GXGLL,2,GXGSA,2,GXZDA,2,GXVTG,2,GXRMC,2,PASHR,2,INTEL,2,GPGSV_1,2,GAGSV_1,2,GLGSV_1,0"
-
-    print(f"Sentence 1 '{s1}' checksum: {calculate_nmea_checksum(s1)}")
-    print(f"Sentence 2 '{s2}' checksum: {calculate_nmea_checksum(s2)}")
+   
 
 
 if __name__ == "__main__":

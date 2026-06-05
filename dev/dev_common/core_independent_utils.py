@@ -758,9 +758,9 @@ def read_value_from_credential_file(key_to_read: str, credentials_file_path: str
     if value is not None:
         return value
     if not os.path.exists(normalized_credentials_path):
-        LOG(f"Credentials file {normalized_credentials_path} not found.")
+        LOG_EXCEPTION_STR(f"Credentials file {normalized_credentials_path} not found.")
     if exit_on_error:
-        LOG(f"ERROR: Key '{key_to_read}' not found in {normalized_credentials_path}")
+        LOG_EXCEPTION_STR(f"ERROR: Key '{key_to_read}' not found in {normalized_credentials_path}")
     return None
 
 

@@ -1,12 +1,12 @@
 #!/usr/local/bin/local_python
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Set
 
 from dev.dev_common import *
-from unit_tests.acu_log_tests.periodic_log_constants import LAST_AVG_SINR_COLUMN, TIME_COLUMN
+from unit_tests.acu_log_tests.periodic_log_constants import LAST_AVG_SINR_COLUMN, LAST_GPS1_CNO_COLUMN, LAST_GPS2_CNO_COLUMN, LAST_INS_STATUS_COLUMN, TIME_COLUMN
 from unit_tests.acu_log_tests.periodic_log_helper import PLogData
 
 
@@ -15,8 +15,8 @@ IMX6_REV_STR = "IMX6"
 KIM_SPEC_KEY = "Kim"
 DEFAULT_IMX_REV_STR = IMX5_REV_STR
 DEFAULT_MIN_BASELINE_SINR = 8.0 #Note that this is x10 scale. e.g. value = 80 mean 8db in reality
-DEFAULT_BASELINE_MAX_DEVIATION = 0.05
 DEFAULT_EXPECTED_MOTION_STATUSES: Set[int] = {0}
+ISSUE_CONTEXT_COLUMNS: List[str] = [LAST_GPS1_CNO_COLUMN, LAST_GPS2_CNO_COLUMN, LAST_INS_STATUS_COLUMN]
 
 
 @dataclass
@@ -25,6 +25,12 @@ class NumericStats:
     avg: float
     min_value: float
     max_value: float
+    min_row_number: Optional[int] = None
+    min_time_value: Optional[str] = None
+    min_row_context: str = ""
+    max_row_number: Optional[int] = None
+    max_time_value: Optional[str] = None
+    max_row_context: str = ""
 
     @property
     def max_deviation(self) -> float:
@@ -41,6 +47,34 @@ class BaselineRows:
     sinr_stats: NumericStats
 
 
+@dataclass
+class DeviationSample:
+    row_number: int
+    time_value: str
+    column: str
+    value: float
+    baseline_value: Optional[float]
+    deviation: float
+    threshold: float
+    display_file: str
+    row_context: str = ""
+
+    def to_row_message(self) -> str:
+        baseline_msg = "" if self.baseline_value is None else f", baseline_avg={self.baseline_value:.6f}"
+        context_msg = "" if not self.row_context else f", {self.row_context}"
+        return (
+            f"row={self.row_number}, time={self.time_value}, {self.column}={self.value:.6f}"
+            f"{baseline_msg}, deviation={self.deviation:.6f} > threshold={self.threshold:.6f}{context_msg}"
+        )
+
+
+@dataclass(frozen=True)
+class DeviationColumnConfig:
+    column: str
+    max_deviation: float
+    ignored_deviation_values: Sequence[float] = field(default_factory=list)
+
+
 @dataclass(frozen=True)
 class ImxSpecs:
     imx_rev_str: str
@@ -53,27 +87,45 @@ class ImxSpecs:
     dynamic_roll_pitch_rms_deg: float
     dynamic_heading_rms_deg: float
     angular_resolution_deg: float
+    #Custom multiplier via testing
+    roll_max_deviation_multiplier: float = 1.4
+    pitch_max_deviation_multiplier: float = 1.4
+    yaw_max_deviation_multiplier: float = 1.5
+    static_velocity_max_deviation_multiplier: float = 1.2
+    roll_ignored_deviation_values: List[float] = field(default_factory=lambda: [0.0])
+    pitch_ignored_deviation_values: List[float] = field(default_factory=lambda: [0.0])
+    yaw_ignored_deviation_values: List[float] = field(default_factory=lambda: [0.0])
+    static_velocity_ignored_deviation_values: List[float] = field(default_factory=lambda: [0.0])
 
     def get_roll_max_deviation(self) -> float:
-        return self.static_roll_rms_deg
+        return self.static_roll_rms_deg * self.roll_max_deviation_multiplier
 
     def get_pitch_max_deviation(self) -> float:
-        return self.static_pitch_rms_deg
+        return self.static_pitch_rms_deg * self.pitch_max_deviation_multiplier
 
     def get_yaw_max_deviation(self) -> float:
-        return self.static_heading_dual_compass_rms_deg
+        return self.static_heading_dual_compass_rms_deg * self.yaw_max_deviation_multiplier
 
     def get_static_velocity_max_deviation(self) -> float:
-        return self.velocity_accuracy_mps
+        return self.velocity_accuracy_mps * self.static_velocity_max_deviation_multiplier
 
-    def get_static_rpy_max_deviation(self) -> float:
-        return max(self.get_roll_max_deviation(), self.get_pitch_max_deviation(), self.get_yaw_max_deviation())
+    def get_roll_ignored_deviation_values(self) -> List[float]:
+        return self.roll_ignored_deviation_values
+
+    def get_pitch_ignored_deviation_values(self) -> List[float]:
+        return self.pitch_ignored_deviation_values
+
+    def get_yaw_ignored_deviation_values(self) -> List[float]:
+        return self.yaw_ignored_deviation_values
+
+    def get_static_velocity_ignored_deviation_values(self) -> List[float]:
+        return self.static_velocity_ignored_deviation_values
 
     def to_message(self) -> str:
         return (
             f"imx_rev={self.imx_rev_str}, device={self.device_name}, "
-            f"static_roll={self.static_roll_rms_deg:.3f}deg RMS, static_pitch={self.static_pitch_rms_deg:.3f}deg RMS, "
-            f"static_heading_dual_compass={self.static_heading_dual_compass_rms_deg:.3f}deg RMS, "
+            f"static_roll={self.static_roll_rms_deg:.3f} deg RMS, static_pitch={self.static_pitch_rms_deg:.3f} deg RMS, "
+            f"static_heading_dual_compass={self.static_heading_dual_compass_rms_deg:.3f} deg RMS, "
             f"velocity_accuracy={self.velocity_accuracy_mps:.3f}m/s"
         )
 
@@ -144,6 +196,22 @@ def get_time_value(file_data: PLogData, row: Sequence[str], name_to_idx: Dict[st
     return row[time_idx].strip() if time_idx is not None and time_idx < len(row) else "?"
 
 
+def get_issue_row_context(row: Sequence[str], name_to_idx: Dict[str, int], columns: Sequence[str] = ISSUE_CONTEXT_COLUMNS) -> str:
+    parts: List[str] = []
+    for column in columns:
+        idx = name_to_idx.get(column)
+        if idx is None:
+            continue
+        value = row[idx].strip() if idx < len(row) else ""
+        parts.append(f"{column}={value or '<blank>'}")
+    return ", ".join(parts)
+
+
+def append_issue_row_context(message: str, row: Sequence[str], name_to_idx: Dict[str, int]) -> str:
+    context = get_issue_row_context(row, name_to_idx)
+    return message if not context else f"{message}, {context}"
+
+
 def require_columns(file_data: PLogData, columns: Sequence[str]) -> List[str]:
     display_file = format_path_for_display(file_data.plog_file or Path("<unknown plog file>"))
     missing = [column for column in columns if column not in file_data.header]
@@ -184,14 +252,61 @@ def find_baseline_rows(file_data: PLogData, min_sinr: float) -> Optional[Baselin
     return None if stats is None else BaselineRows(row_positions=row_positions, row_numbers=row_numbers, sinr_stats=stats)
 
 
-def get_baseline_stats_by_column(file_data: PLogData, baseline_rows: BaselineRows, columns: Sequence[str]) -> Dict[str, NumericStats]:
+def get_max_deviation_by_column(deviation_configs: Sequence[DeviationColumnConfig]) -> Dict[str, float]:
+    return {config.column: config.max_deviation for config in deviation_configs}
+
+
+def get_ignored_deviation_values_by_column(deviation_configs: Sequence[DeviationColumnConfig]) -> Dict[str, Sequence[float]]:
+    return {config.column: config.ignored_deviation_values for config in deviation_configs}
+
+
+def is_ignored_deviation_value(value: float, ignored_values: Sequence[float]) -> bool:
+    return value in ignored_values
+
+
+def record_ignored_deviation_value_count(counts_by_column_value: Dict[str, Dict[float, int]], column: str, value: float) -> None:
+    value_counts = counts_by_column_value.setdefault(column, {})
+    value_counts[value] = value_counts.get(value, 0) + 1
+
+
+def log_ignored_deviation_value_counts(file_data: PLogData, counts_by_column_value: Dict[str, Dict[float, int]]) -> None:
+    display_file = format_path_for_display(file_data.plog_file or Path("<unknown plog file>"))
+    for column in sorted(counts_by_column_value.keys()):
+        value_counts = counts_by_column_value[column]
+        if not value_counts:
+            continue
+        total_count = sum(value_counts.values())
+        values_msg = ", ".join(f"{value:.6f}={value_counts[value]}" for value in sorted(value_counts.keys()))
+        LOG(f"{LOG_PREFIX_MSG_INFO} ignored_deviation_values, column={column}, total_lines={total_count}, values={values_msg} in {display_file}")
+
+
+def get_baseline_stats_by_column(file_data: PLogData, baseline_rows: BaselineRows, deviation_configs: Sequence[DeviationColumnConfig]) -> Dict[str, NumericStats]:
     name_to_idx = {name: idx for idx, name in enumerate(file_data.header)}
     stats_by_column: Dict[str, NumericStats] = {}
-    for column in columns:
-        values = [value for row_position in baseline_rows.row_positions if (value := get_numeric_value(file_data.raw_data_rows[row_position], name_to_idx, column)) is not None]
+    for config in deviation_configs:
+        values: List[float] = []
+        row_positions: List[int] = []
+        for row_position in baseline_rows.row_positions:
+            value = get_numeric_value(file_data.raw_data_rows[row_position], name_to_idx, config.column)
+            if value is None or is_ignored_deviation_value(value, config.ignored_deviation_values):
+                continue
+            values.append(value)
+            row_positions.append(row_position)
         stats = calculate_stats(values)
         if stats is not None:
-            stats_by_column[column] = stats
+            min_value_position = values.index(stats.min_value)
+            max_value_position = values.index(stats.max_value)
+            min_row_position = row_positions[min_value_position]
+            max_row_position = row_positions[max_value_position]
+            min_row = file_data.raw_data_rows[min_row_position]
+            max_row = file_data.raw_data_rows[max_row_position]
+            stats.min_row_number = get_row_number(file_data, min_row_position)
+            stats.min_time_value = get_time_value(file_data, min_row, name_to_idx)
+            stats.min_row_context = get_issue_row_context(min_row, name_to_idx)
+            stats.max_row_number = get_row_number(file_data, max_row_position)
+            stats.max_time_value = get_time_value(file_data, max_row, name_to_idx)
+            stats.max_row_context = get_issue_row_context(max_row, name_to_idx)
+            stats_by_column[config.column] = stats
     return stats_by_column
 
 
@@ -204,39 +319,96 @@ def log_baseline_summary(file_data: PLogData, baseline_rows: BaselineRows, stats
         LOG(f"{LOG_PREFIX_MSG_INFO} {stats.to_message('baseline ' + column)}")
 
 
-def check_baseline_spread(file_data: PLogData, stats_by_column: Dict[str, NumericStats], max_deviation_by_column: Dict[str, float]) -> List[str]:
+def check_baseline_spread(file_data: PLogData, stats_by_column: Dict[str, NumericStats], deviation_configs: Sequence[DeviationColumnConfig]) -> List[str]:
     display_file = format_path_for_display(file_data.plog_file or Path("<unknown plog file>"))
     issues: List[str] = []
-    for column, max_deviation in max_deviation_by_column.items():
-        stats = stats_by_column.get(column)
+    for config in deviation_configs:
+        stats = stats_by_column.get(config.column)
         if stats is None:
-            issues.append(f"BASELINE_MISSING_VALUE, {column}: no parseable baseline values in {display_file}")
+            issues.append(f"BASELINE_MISSING_VALUE, {config.column}: no parseable baseline values in {display_file}")
             continue
-        if stats.max_deviation > max_deviation:
-            issues.append(f"BASELINE_SPREAD, {column}: max_dev={stats.max_deviation:.6f} > threshold={max_deviation:.6f}, avg={stats.avg:.6f}, min={stats.min_value:.6f}, max={stats.max_value:.6f} in {display_file}")
+        if stats.max_deviation > config.max_deviation:
+            min_context = "" if not stats.min_row_context else f", {stats.min_row_context}"
+            max_context = "" if not stats.max_row_context else f", {stats.max_row_context}"
+            issues.append(
+                f"BASELINE_SPREAD, {config.column}: max_dev={stats.max_deviation:.6f} > baseline_spread_threshold={config.max_deviation:.6f}, "
+                f"avg={stats.avg:.6f}, min_sample=[row={stats.min_row_number}, time={stats.min_time_value}, {config.column}={stats.min_value:.6f}{min_context}], "
+                f"max_sample=[row={stats.max_row_number}, time={stats.max_time_value}, {config.column}={stats.max_value:.6f}{max_context}] in {display_file}"
+            )
     return issues
 
 
-def check_deviation_from_baseline(file_data: PLogData, baseline_stats_by_column: Dict[str, NumericStats], max_deviation_by_column: Dict[str, float],
-                                  skip_row_positions: Optional[Set[int]] = None) -> List[str]:
+def check_deviation_from_baseline(file_data: PLogData, baseline_stats_by_column: Dict[str, NumericStats], deviation_configs: Sequence[DeviationColumnConfig],
+                                  skip_row_positions: Optional[Set[int]] = None, issue_name: str = "DEVIATION") -> List[str]:
     display_file = format_path_for_display(file_data.plog_file or Path("<unknown plog file>"))
     name_to_idx = {name: idx for idx, name in enumerate(file_data.header)}
     skip_row_positions = skip_row_positions or set()
-    issues: List[str] = []
+    samples_by_column: Dict[str, List[DeviationSample]] = {}
+    ignored_counts_by_column_value: Dict[str, Dict[float, int]] = {}
     for row_position, row in enumerate(file_data.raw_data_rows):
+        for config in deviation_configs:
+            value = get_numeric_value(row, name_to_idx, config.column)
+            if value is not None and is_ignored_deviation_value(value, config.ignored_deviation_values):
+                record_ignored_deviation_value_count(ignored_counts_by_column_value, config.column, value)
         if row_position in skip_row_positions:
             continue
         row_num = get_row_number(file_data, row_position)
         time_value = get_time_value(file_data, row, name_to_idx)
-        for column, max_deviation in max_deviation_by_column.items():
-            stats = baseline_stats_by_column.get(column)
-            value = get_numeric_value(row, name_to_idx, column)
+        for config in deviation_configs:
+            stats = baseline_stats_by_column.get(config.column)
+            value = get_numeric_value(row, name_to_idx, config.column)
             if stats is None or value is None:
                 continue
+            if is_ignored_deviation_value(value, config.ignored_deviation_values):
+                continue
             deviation = abs(value - stats.avg)
-            if deviation > max_deviation:
-                issues.append(f"RPY_DEVIATION, row={row_num}, time={time_value}, {column}={value:.6f}, baseline_avg={stats.avg:.6f}, deviation={deviation:.6f} > threshold={max_deviation:.6f} in {display_file}")
+            if deviation > config.max_deviation:
+                samples_by_column.setdefault(config.column, []).append( DeviationSample(row_number=row_num, time_value=time_value, column=config.column, value=value, baseline_value=stats.avg, deviation=deviation, threshold=config.max_deviation, display_file=display_file, row_context=get_issue_row_context(row, name_to_idx)) )
+    log_ignored_deviation_value_counts(file_data, ignored_counts_by_column_value)
+    return build_grouped_deviation_issues(issue_name, samples_by_column)
+
+
+def build_grouped_deviation_issues(issue_name: str, samples_by_column: Dict[str, List[DeviationSample]]) -> List[str]:
+    issues: List[str] = []
+    for column in sorted(samples_by_column.keys()):
+        samples = sorted(samples_by_column[column], key=lambda sample: sample.row_number)
+        if not samples:
+            continue
+        current_group: List[DeviationSample] = [samples[0]]
+        for sample in samples[1:]:
+            # A group is 1 consecutive set of issue rows for the same column; any non-issue row breaks the group.
+            # Check if this issue row immediately follow the previous issue row
+            if sample.row_number == current_group[-1].row_number + 1:
+                current_group.append(sample)
+                continue
+            issues.append(_format_deviation_group(issue_name, current_group))
+            current_group = [sample]
+        issues.append(_format_deviation_group(issue_name, current_group))
     return issues
+
+
+def _format_deviation_group(issue_name: str, samples: Sequence[DeviationSample]) -> str:
+    max_sample = max(samples, key=lambda sample: sample.deviation)
+    min_sample = min(samples, key=lambda sample: sample.deviation)
+    avg_deviation = sum(sample.deviation for sample in samples) / len(samples)
+    first = samples[0]
+    last = samples[-1]
+    baseline_msg = "" if first.baseline_value is None else f", baseline_avg={first.baseline_value:.6f}"
+    if max_sample.deviation == min_sample.deviation and max_sample.deviation == avg_deviation:
+        deviation_msg = f"deviation_max=deviation_min=avg_deviation={max_sample.deviation:.6f}"
+    elif max_sample.deviation == min_sample.deviation:
+        deviation_msg = f"deviation_max=deviation_min={max_sample.deviation:.6f}, avg_deviation={avg_deviation:.6f}"
+    else:
+        deviation_msg = f"deviation_max={max_sample.deviation:.6f}, deviation_min={min_sample.deviation:.6f}, avg_deviation={avg_deviation:.6f}"
+    sample_msg = (
+        f"min_sample=max_sample=[{max_sample.to_row_message()}]"
+        if max_sample.row_number == min_sample.row_number and max_sample.column == min_sample.column and max_sample.deviation == min_sample.deviation
+        else f"max_sample=[{max_sample.to_row_message()}], min_sample=[{min_sample.to_row_message()}]"
+    )
+    return (
+        f"{issue_name}, rows={first.row_number}-{last.row_number}, column={first.column}, total_count={len(samples)}, "
+        f"{deviation_msg}, threshold={first.threshold:.6f}{baseline_msg}, {sample_msg} in {first.display_file}"
+    )
 
 
 def compact_issues_by_prefix(issues: Sequence[str]) -> Dict[str, int]:

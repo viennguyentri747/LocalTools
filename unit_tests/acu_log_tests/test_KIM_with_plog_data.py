@@ -19,7 +19,7 @@ from available_tools.inertial_sense_tools.decode_ins_status_utils import (
 DEFAULT_TARGET_COLUMNS: List[str] = [
     TIME_COLUMN,
     LAST_AVG_SINR_COLUMN,
-    LAST_KIM_HW_STATUS_COLUMN
+    LAST_INS_STATUS_COLUMN
     # LAST_RTK_COMPASS_STATUS_COLUMN,
 ]
 
@@ -54,7 +54,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
 
 
 def get_unique_ins_statuses(plog_datas: List[PLogData]) -> List[str]:
-    list_of_list_values: List[List[str]] = [plog_data.get_target_column_row_values(LAST_KIM_HW_STATUS_COLUMN) for plog_data in plog_datas]
+    list_of_list_values: List[List[str]] = [plog_data.get_target_column_row_values(LAST_INS_STATUS_COLUMN) for plog_data in plog_datas]
     
     # Flatten the list of lists into a single list
     result: List[str] = []

@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Sequence, Set
 from available_tools.test_tools.test_ut_log.log_test_interface import EUtLogType, TestLogInterface, normalize_log_paths_map
 from available_tools.test_tools.test_ut_log.t_get_acu_logs import ACU_LOG_PATH
 from available_tools.test_tools.test_ut_log.t_test_process_plog_local import ARG_OUTPUT_PATH, ARG_PLOG_PATHS, ARG_TIME_WINDOW, _get_compact_log_str, _validate_plog_file, process_plog_files
-from available_tools.test_tools.test_ut_log.test_kim_stats.common import DEFAULT_EXPECTED_MOTION_STATUSES, DEFAULT_IMX_REV_STR, DEFAULT_MIN_BASELINE_SINR, ImxSpecs, check_baseline_spread, compact_issues_by_prefix, find_baseline_rows, get_baseline_stats_by_column, get_imx_specs, get_row_number, get_time_value, get_numeric_value, log_baseline_summary, log_imx_spec, parse_int, require_columns, SUPPORTED_IMX_REV_STRS
+from available_tools.test_tools.test_ut_log.test_kim_stats.common import DEFAULT_EXPECTED_MOTION_STATUSES, DEFAULT_IMX_REV_STR, DEFAULT_MIN_BASELINE_SINR, DeviationColumnConfig, DeviationSample, ImxSpecs, append_issue_row_context, build_grouped_deviation_issues, check_baseline_spread, compact_issues_by_prefix, find_baseline_rows, get_baseline_stats_by_column, get_imx_specs, get_issue_row_context, get_row_number, get_time_value, get_numeric_value, is_ignored_deviation_value, log_baseline_summary, log_ignored_deviation_value_counts, log_imx_spec, parse_int, record_ignored_deviation_value_count, require_columns, SUPPORTED_IMX_REV_STRS
 from dev.dev_common import *
 from unit_tests.acu_log_tests.periodic_log_constants import LAST_AVG_SINR_COLUMN, LAST_MOTION_STATUS_COLUMN, LAST_VELOCITY_COLUMN, TIME_COLUMN
 
@@ -45,7 +45,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
 
 
 def _write_metadata_file(output_path: Path, input_paths: Sequence[Path], time_window: Optional[float], min_baseline_sinr: float,
-                         max_velocity: float, expected_motion_statuses: Set[int], imx_spec: ImxSpecs, issues: Sequence[str]) -> Path:
+                         velocity_config: DeviationColumnConfig, expected_motion_statuses: Set[int], imx_spec: ImxSpecs, issues: Sequence[str]) -> Path:
     metadata_path = output_path.parent / f"stationary_kim_velocity_motion_plog_metadata_{get_file_timestamp()}.json"
     metadata = {
         "generated_at_utc": get_iso_timestamp(),
@@ -56,7 +56,8 @@ def _write_metadata_file(output_path: Path, input_paths: Sequence[Path], time_wi
             "imx_rev": imx_spec.imx_rev_str,
             "imx_spec": imx_spec.to_message(),
             "min_baseline_sinr": min_baseline_sinr,
-            "max_velocity": max_velocity,
+            "max_velocity": velocity_config.max_deviation,
+            "ignored_velocity_values": velocity_config.ignored_deviation_values,
             "expected_motion_statuses": sorted(expected_motion_statuses),
         },
         "issue_counts_by_name": compact_issues_by_prefix(issues),
@@ -81,7 +82,7 @@ def _log_baseline_motion_statuses(file_data, baseline_positions: Sequence[int], 
     LOG(f"{LOG_PREFIX_MSG_INFO} baseline {LAST_MOTION_STATUS_COLUMN}: expected={sorted(expected_motion_statuses)}, counts={counts}")
 
 
-def check_velocity_motion_file(file_data, min_baseline_sinr: float, max_velocity: float, expected_motion_statuses: Set[int]) -> List[str]:
+def check_velocity_motion_file(file_data, min_baseline_sinr: float, velocity_config: DeviationColumnConfig, expected_motion_statuses: Set[int]) -> List[str]:
     issues = require_columns(file_data, DEFAULT_COLUMNS)
     if issues:
         return issues
@@ -89,27 +90,37 @@ def check_velocity_motion_file(file_data, min_baseline_sinr: float, max_velocity
     display_file = format_path_for_display(file_data.plog_file or Path("<unknown plog file>"))
     if baseline_rows is None:
         return [f"BASELINE_MISSING, no rows with {LAST_AVG_SINR_COLUMN} >= {min_baseline_sinr:.3f} in {display_file}"]
-    baseline_stats = get_baseline_stats_by_column(file_data, baseline_rows, [LAST_VELOCITY_COLUMN])
+    baseline_stats = get_baseline_stats_by_column(file_data, baseline_rows, [velocity_config])
     log_baseline_summary(file_data, baseline_rows, baseline_stats)
     _log_baseline_motion_statuses(file_data, baseline_rows.row_positions, expected_motion_statuses)
-    issues.extend(check_baseline_spread(file_data, baseline_stats, {LAST_VELOCITY_COLUMN: max_velocity}))
+    issues.extend(check_baseline_spread(file_data, baseline_stats, [velocity_config]))
 
     name_to_idx = {name: idx for idx, name in enumerate(file_data.header)}
     status_idx = name_to_idx.get(LAST_MOTION_STATUS_COLUMN)
+    velocity_samples: List[DeviationSample] = []
+    ignored_counts_by_column_value: Dict[str, Dict[float, int]] = {}
     for row_position, row in enumerate(file_data.raw_data_rows):
         row_num = get_row_number(file_data, row_position)
         time_value = get_time_value(file_data, row, name_to_idx)
-        velocity = get_numeric_value(row, name_to_idx, LAST_VELOCITY_COLUMN)
+        velocity = get_numeric_value(row, name_to_idx, velocity_config.column)
         if velocity is None:
-            issues.append(f"VELOCITY_INVALID, row={row_num}, time={time_value}, {LAST_VELOCITY_COLUMN}=<invalid> in {display_file}")
-        elif abs(velocity) > max_velocity:
-            issues.append(f"VELOCITY_OUT_OF_RANGE, row={row_num}, time={time_value}, {LAST_VELOCITY_COLUMN}={velocity:.6f}, abs={abs(velocity):.6f} > threshold={max_velocity:.6f} in {display_file}")
+            issues.append(append_issue_row_context(f"VELOCITY_INVALID, row={row_num}, time={time_value}, {velocity_config.column}=<invalid>", row, name_to_idx) + f" in {display_file}")
+        elif is_ignored_deviation_value(velocity, velocity_config.ignored_deviation_values):
+            record_ignored_deviation_value_count(ignored_counts_by_column_value, velocity_config.column, velocity)
+        elif abs(velocity) > velocity_config.max_deviation:
+            velocity_samples.append(
+                DeviationSample(row_number=row_num, time_value=time_value, column=velocity_config.column, value=velocity,
+                                baseline_value=None, deviation=abs(velocity), threshold=velocity_config.max_deviation,
+                                display_file=display_file, row_context=get_issue_row_context(row, name_to_idx))
+            )
         motion_status_raw = row[status_idx].strip() if status_idx is not None and status_idx < len(row) else ""
         motion_status = parse_int(motion_status_raw)
         if motion_status is None:
-            issues.append(f"MOTION_STATUS_INVALID, row={row_num}, time={time_value}, {LAST_MOTION_STATUS_COLUMN}={motion_status_raw or '<blank>'} in {display_file}")
+            issues.append(append_issue_row_context(f"MOTION_STATUS_INVALID, row={row_num}, time={time_value}, {LAST_MOTION_STATUS_COLUMN}={motion_status_raw or '<blank>'}", row, name_to_idx) + f" in {display_file}")
         elif motion_status not in expected_motion_statuses:
-            issues.append(f"MOTION_STATUS_UNEXPECTED, row={row_num}, time={time_value}, {LAST_MOTION_STATUS_COLUMN}={motion_status}, expected={sorted(expected_motion_statuses)} in {display_file}")
+            issues.append(append_issue_row_context(f"MOTION_STATUS_UNEXPECTED, row={row_num}, time={time_value}, {LAST_MOTION_STATUS_COLUMN}={motion_status}, expected={sorted(expected_motion_statuses)}", row, name_to_idx) + f" in {display_file}")
+    log_ignored_deviation_value_counts(file_data, ignored_counts_by_column_value)
+    issues.extend(build_grouped_deviation_issues("VELOCITY_OUT_OF_RANGE", {velocity_config.column: velocity_samples}))
     return issues
 
 
@@ -121,7 +132,9 @@ def run_stationary_kim_velocity_motion_plog_test(input_paths: Sequence[Path], ou
     plog_files = sorted({_validate_plog_file(input_path) for input_path in input_paths})
     LOG(f"{LOG_PREFIX_MSG_INFO} Found {len(plog_files)} unique P-log file(s) for stationary KIM velocity/motion-status analysis.")
     log_imx_spec(imx_spec)
-    LOG(f"{LOG_PREFIX_MSG_INFO} Velocity max threshold: {max_velocity:.6f} m/s")
+    velocity_config = DeviationColumnConfig(LAST_VELOCITY_COLUMN, max_velocity, imx_spec.get_static_velocity_ignored_deviation_values())
+    LOG(f"{LOG_PREFIX_MSG_INFO} Velocity max threshold: {velocity_config.max_deviation:.6f} m/s")
+    LOG(f"{LOG_PREFIX_MSG_INFO} Velocity ignored deviation values: {velocity_config.ignored_deviation_values}")
     processed_data = process_plog_files(plog_files, DEFAULT_COLUMNS, time_window)
     rows_written = sum(len(file_data.raw_data_rows) for file_data in processed_data)
     if rows_written == 0:
@@ -131,8 +144,8 @@ def run_stationary_kim_velocity_motion_plog_test(input_paths: Sequence[Path], ou
     LOG(f"{LOG_PREFIX_MSG_SUCCESS} KIM velocity/motion compact log created: {format_path_for_display(output_path)}")
     issues: List[str] = []
     for file_data in processed_data:
-        issues.extend(check_velocity_motion_file(file_data, min_baseline_sinr, max_velocity, expected_motion_statuses))
-    metadata_path = _write_metadata_file(output_path, input_paths, time_window, min_baseline_sinr, max_velocity, expected_motion_statuses, imx_spec, issues)
+        issues.extend(check_velocity_motion_file(file_data, min_baseline_sinr, velocity_config, expected_motion_statuses))
+    metadata_path = _write_metadata_file(output_path, input_paths, time_window, min_baseline_sinr, velocity_config, expected_motion_statuses, imx_spec, issues)
     LOG(f"{LOG_PREFIX_MSG_INFO} Metadata saved: {format_path_for_display(metadata_path)}")
     open_path_in_explorer(output_path)
     if issues:

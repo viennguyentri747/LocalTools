@@ -3,34 +3,70 @@ from __future__ import annotations
 
 import ast
 import glob
+import os
 import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Dict, Iterable, Tuple
 
-from dev.dev_common.constants import INSENSE_SDK_REPO_PATH
+from dev.dev_common.constants import INSENSE_SDK_REPO_PATH, LOCAL_TOOL_REPO_PATH
 from dev.dev_common.core_independent_utils import LOG, ELogType
 
 _DEFAULT_HEADER_PATTERN = INSENSE_SDK_REPO_PATH / "InsenseSDK" / "inertial-sense*" / "src" / "data_sets.h"
+IS_DATASET_HEADER_PATH_ENV = "IS_DATASET_HEADER_PATH"
+LOCAL_IS_DATASET_FILES_PATH = LOCAL_TOOL_REPO_PATH / "available_tools" / "inertial_sense_tools" / "is_dataset_files"
 EnumReplacement = tuple[str, str]
 EnumReplacements = tuple[EnumReplacement, ...]
 
 
 # Cache latest resolved data_sets.h path for this process; avoids repeated glob/version scans.
-@lru_cache(maxsize=1)
-def get_path_to_inertial_sense_data_set_header() -> Path:
+@lru_cache(maxsize=2)
+def get_path_to_inertial_sense_data_set_header(header_path: Path | str | None = None, log_usage: bool = True) -> Path:
     """
-    Return the path to the Inertial Sense SDK data_sets.h header.
-    The SDK folder name contains the version (for example inertial-sense-sdk-2.6.0).
-    We choose the highest version number available to stay resilient across SDK upgrades.
+    Return the path to the Inertial Sense data_sets.h header.
+
+    By default, use the repo-local is_dataset_files/KIM_<highest>/data_sets.h. The path can be
+    overridden with header_path or the IS_DATASET_HEADER_PATH environment variable. The old SDK
+    search remains as a fallback for older checkouts that do not have local dataset files.
     """
+    explicit_header_path = header_path or os.environ.get(IS_DATASET_HEADER_PATH_ENV)
+    if explicit_header_path:
+        selected = _resolve_data_sets_header_path(Path(explicit_header_path).expanduser())
+        if log_usage:
+            LOG(f"[IESA] Using Inertial Sense data_sets.h at: {selected}", log_type=ELogType.NORMAL)
+        return selected
+
+    local_header = _pick_latest_local_dataset_header()
+    if local_header:
+        if log_usage:
+            LOG(f"[IESA] Using Inertial Sense data_sets.h at: {local_header}", log_type=ELogType.NORMAL)
+        return local_header
+
     matches = sorted(Path(p) for p in glob.glob(str(_DEFAULT_HEADER_PATTERN)))
     if not matches:
-        raise FileNotFoundError(f"Unable to find data_sets.h using pattern: {_DEFAULT_HEADER_PATTERN}")
-
+        raise FileNotFoundError(f"Unable to find data_sets.h in {LOCAL_IS_DATASET_FILES_PATH} or using pattern: {_DEFAULT_HEADER_PATTERN}")
     selected = _pick_latest_sdk_header(matches)
-    LOG(f"[IESA] Using Inertial Sense data_sets.h at: {selected}", log_type=ELogType.NORMAL)
+    if log_usage:
+        LOG(f"[IESA] Using Inertial Sense data_sets.h at: {selected}", log_type=ELogType.NORMAL)
     return selected
+
+
+def _resolve_data_sets_header_path(path: Path) -> Path:
+    selected = path / "data_sets.h" if path.is_dir() else path
+    if not selected.is_file():
+        raise FileNotFoundError(f"Unable to find data_sets.h at: {selected}")
+    return selected.resolve()
+
+
+def _pick_latest_local_dataset_header() -> Path | None:
+    candidates = []
+    for path in LOCAL_IS_DATASET_FILES_PATH.glob("KIM_*/data_sets.h"):
+        match = re.fullmatch(r"KIM_([0-9]+)", path.parent.name)
+        if match:
+            candidates.append((int(match.group(1)), path))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: item[0])[1].resolve()
 
 
 def _pick_latest_sdk_header(candidates: Iterable[Path]) -> Path:
